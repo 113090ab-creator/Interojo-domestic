@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>제품별 총량 현황 리포트</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --line: #dbe4ef;
+      --text: #14273b;
+      --sub: #5c6f84;
+      --accent: #17476a;
+    }
+    body {
+      margin: 22px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Malgun Gothic", "Noto Sans KR", sans-serif;
+    }
+    h1 {
+      margin: 0 0 6px 0;
+      font-size: 30px;
+      color: #0f2f4a;
+    }
+    .sub {
+      margin-bottom: 14px;
+      color: var(--sub);
+      font-size: 14px;
+    }
+    .kpi-wrap {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      box-shadow: 0 3px 14px rgba(16, 31, 48, 0.05);
+    }
+    .kpi-title {
+      font-size: 12px;
+      color: var(--sub);
+      margin-bottom: 6px;
+    }
+    .kpi-val {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1.1;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+    .tbl {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+    .tbl th, .tbl td {
+      border: 1px solid #e4ebf3;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+    .tbl th {
+      position: sticky;
+      top: 0;
+      background: #eef4fb;
+    }
+    .table-wrap {
+      max-height: 620px;
+      overflow: auto;
+      border: 1px solid #e4ebf3;
+      border-radius: 10px;
+    }
+    @media (max-width: 1200px) {
+      .kpi-wrap {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+      }
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>제품별 총량 현황</h1>
+  <div class="sub">
+    생성시각: 2026-05-28 13:53:52 · 기준일: 2026-05-28 · 데이터 폴더: C:\Users\유현아\Documents\GitHub\국내
+  </div>
+
+  <div class="kpi-wrap">
+    <div class="card"><div class="kpi-title">요청 총량(PACK)</div><div class="kpi-val">428,207</div></div>
+    <div class="card"><div class="kpi-title">포장 총량(PACK)</div><div class="kpi-val">45,056</div></div>
+    <div class="card"><div class="kpi-title">잔량(PACK)</div><div class="kpi-val">383,151</div></div>
+    <div class="card"><div class="kpi-title">총량 진도율</div><div class="kpi-val">10.5%</div></div>
+    <div class="card"><div class="kpi-title">당일 납기 진도율</div><div class="kpi-val">12.4%</div></div>
+  </div>
+
+  <div class="card"><div>                        <script>window.PlotlyConfig = {MathJaxConfig: 'local'};</script>
+        <script charset="utf-8" src="https://cdn.plot.ly/plotly-3.5.0.min.js" integrity="sha256-fHbNLP+GlIXN+efbQec78UkemUz3NJp7UmfGxC1tNxs=" crossorigin="anonymous"></script>                <div id="50d0beec-aff2-4ed1-9d38-52aff18e5bbc" class="plotly-graph-div" style="height:820px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("50d0beec-aff2-4ed1-9d38-52aff18e5bbc")) {                    Plotly.newPlot(                        "50d0beec-aff2-4ed1-9d38-52aff18e5bbc",                        [{"hovertemplate":"%{y}\u003cbr\u003e\ud3ec\uc7a5\ub7c9 %{x:,.0f} PACK\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":"#1f9d8b"},"name":"\ud3ec\uc7a5\ub7c9","orientation":"h","x":{"dtype":"f8","bdata":"AAAAAAASwUAAAAAAALi\u002fQAAAAAAAQ7lAAAAAAAAQpEAAAAAAAHCcQAAAAAAAeJZAAAAAAAAwiEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADRAAAAAAAAAAAAAAAAAANyVQAAAAAAASIZAAAAAAABQeUAAAAAAAAAAAA=="},"y":["S300 | Clalen O2O2 D_Micelia_Deep Black_10P","S308 | Clalen O2O2 D_Micelia_Lake Gray_10P","S030 | Clalen 1Day_30\ud329","S281 | Clalen D_Clear_\uc0d8\ud50c(5P)","S309 | Clalen O2O2 D_Micelia_Mute Brown_10P","S310 | Clalen O2O2 D_Micelia_Pale Choco_10P","S615 | Clalen O2O2 D_Sepia Choco EX_30P","S317 | Clalen O2O2 D_Micelia_Pale Choco_30P","S276 | Clalen D_Iris_Latin_\uc0d8\ud50c(5P)","S018 | T38 \uc0ac\u002f\ucd95","S297 | Clalen O2O2 D Toric 180_\uc0d8\ud50c(5P)","S292 | Clalen O2O2 D_Ash Brown EX_\uc0d8\ud50c(5P)","S293 | Clalen O2O2 D_Ash Gray EX_\uc0d8\ud50c(5P)","S199 | Clalen D_Iris_Jazz Black_\uc0d8\ud50c(5P)","S279 | Clalen D_Iris_Suzy Brown_\uc0d8\ud50c(5P)","S291 | Clalen O2O2 D_Sepia Choco EX_\uc0d8\ud50c(5P)","S280 | Clalen D_Iris_Suzy Gray_\uc0d8\ud50c(5P)","S282 | Clalen O2O2 D_Deep Black_\uc0d8\ud50c(5P)","S283 | Clalen O2O2 D_Lake Gray_\uc0d8\ud50c(5P)","S284 | Clalen O2O2 D_Mute Brown_\uc0d8\ud50c(5P)"],"type":"bar"},{"hovertemplate":"%{y}\u003cbr\u003e\uc794\ub7c9 %{x:,.0f} PACK\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":"#d74f3d"},"name":"\uc794\ub7c9","orientation":"h","x":{"dtype":"f8","bdata":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAfJ1AAAAAAADVsUAAAAAAALS5QAAAAAAAprpAAAAAAACmvUAAAAAAgLzDQAAAAAAAZMdAAAAAAAB+ykAAAAAAgA\u002fOQAAAAADAqdFAAAAAAECn1EAAAAAAAJ3WQAAAAADAaNhAAAAAAAAO2kAAAAAAAPLbQAAAAAAAlN1AAAAAAMAA30AAAAAAAIHfQA=="},"y":["S300 | Clalen O2O2 D_Micelia_Deep Black_10P","S308 | Clalen O2O2 D_Micelia_Lake Gray_10P","S030 | Clalen 1Day_30\ud329","S281 | Clalen D_Clear_\uc0d8\ud50c(5P)","S309 | Clalen O2O2 D_Micelia_Mute Brown_10P","S310 | Clalen O2O2 D_Micelia_Pale Choco_10P","S615 | Clalen O2O2 D_Sepia Choco EX_30P","S317 | Clalen O2O2 D_Micelia_Pale Choco_30P","S276 | Clalen D_Iris_Latin_\uc0d8\ud50c(5P)","S018 | T38 \uc0ac\u002f\ucd95","S297 | Clalen O2O2 D Toric 180_\uc0d8\ud50c(5P)","S292 | Clalen O2O2 D_Ash Brown EX_\uc0d8\ud50c(5P)","S293 | Clalen O2O2 D_Ash Gray EX_\uc0d8\ud50c(5P)","S199 | Clalen D_Iris_Jazz Black_\uc0d8\ud50c(5P)","S279 | Clalen D_Iris_Suzy Brown_\uc0d8\ud50c(5P)","S291 | Clalen O2O2 D_Sepia Choco EX_\uc0d8\ud50c(5P)","S280 | Clalen D_Iris_Suzy Gray_\uc0d8\ud50c(5P)","S282 | Clalen O2O2 D_Deep Black_\uc0d8\ud50c(5P)","S283 | Clalen O2O2 D_Lake Gray_\uc0d8\ud50c(5P)","S284 | Clalen O2O2 D_Mute Brown_\uc0d8\ud50c(5P)"],"type":"bar"}],                        {"barmode":"stack","height":820,"legend":{"orientation":"h","x":0,"xanchor":"left","y":1.01,"yanchor":"bottom"},"margin":{"b":20,"l":20,"r":20,"t":60},"template":{"data":{"barpolar":[{"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergl"}],"scattermapbox":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermapbox"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"geo":{"bgcolor":"white","lakecolor":"white","landcolor":"white","showlakes":true,"showland":true,"subunitcolor":"#C8D4E3"},"hoverlabel":{"align":"left"},"hovermode":"closest","mapbox":{"style":"light"},"paper_bgcolor":"white","plot_bgcolor":"white","polar":{"angularaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""},"bgcolor":"white","radialaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"yaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"zaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"ternary":{"aaxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"baxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"bgcolor":"white","caxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""}},"title":{"x":0.05},"xaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2}}},"title":{"text":"\uc81c\ud488\ubcc4 \ucd1d\ub7c9 \ud604\ud669 TOP 20 (\uc794\ub7c9 \uc911\uc2ec \uc815\ub82c)"},"xaxis":{"title":{"text":"PACK"}},"yaxis":{"title":{"text":"\uc81c\ud488"}}},                        {"responsive": true}                    )                };            </script>        </div></div>
+
+  <div class="row">
+    <div class="card"><div>                            <div id="adbcbae0-27a4-43be-91f3-8702b24f63b7" class="plotly-graph-div" style="height:620px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("adbcbae0-27a4-43be-91f3-8702b24f63b7")) {                    Plotly.newPlot(                        "adbcbae0-27a4-43be-91f3-8702b24f63b7",                        [{"hovertemplate":"\uc794\ub7c9(PACK)=%{x}\u003cbr\u003e\uc81c\ud488=%{y}\u003cbr\u003e\uc9c4\ub3c4\uc728(%)=%{marker.color}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"","marker":{"color":{"dtype":"f8","bdata":"ZmZmZmZmMUCamZmZmZkiQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmpmZmZmZuT8AAAAAAAAAAM3MzMzMzBJAZmZmZmZmAkDNzMzMzMz0PwAAAAAAAAAA"},"coloraxis":"coloraxis","pattern":{"shape":""}},"name":"","orientation":"h","showlegend":false,"textposition":"auto","x":{"dtype":"f8","bdata":"AAAAAACmukAAAAAAAKa9QAAAAACAvMNAAAAAAABkx0AAAAAAAH7KQAAAAACAD85AAAAAAMCp0UAAAAAAQKfUQAAAAAAAndZAAAAAAMBo2EAAAAAAAA7aQAAAAAAA8ttAAAAAAACU3UAAAAAAwADfQAAAAAAAgd9A"},"xaxis":"x","y":["S310 | Clalen O2O2 D_Micelia_Pale Choco_10P","S615 | Clalen O2O2 D_Sepia Choco EX_30P","S317 | Clalen O2O2 D_Micelia_Pale Choco_30P","S276 | Clalen D_Iris_Latin_\uc0d8\ud50c(5P)","S018 | T38 \uc0ac\u002f\ucd95","S297 | Clalen O2O2 D Toric 180_\uc0d8\ud50c(5P)","S292 | Clalen O2O2 D_Ash Brown EX_\uc0d8\ud50c(5P)","S293 | Clalen O2O2 D_Ash Gray EX_\uc0d8\ud50c(5P)","S199 | Clalen D_Iris_Jazz Black_\uc0d8\ud50c(5P)","S279 | Clalen D_Iris_Suzy Brown_\uc0d8\ud50c(5P)","S291 | Clalen O2O2 D_Sepia Choco EX_\uc0d8\ud50c(5P)","S280 | Clalen D_Iris_Suzy Gray_\uc0d8\ud50c(5P)","S282 | Clalen O2O2 D_Deep Black_\uc0d8\ud50c(5P)","S283 | Clalen O2O2 D_Lake Gray_\uc0d8\ud50c(5P)","S284 | Clalen O2O2 D_Mute Brown_\uc0d8\ud50c(5P)"],"yaxis":"y","type":"bar"}],                        {"barmode":"relative","coloraxis":{"colorbar":{"title":{"text":"\uc9c4\ub3c4\uc728(%)"}},"colorscale":[[0.0,"rgb(165,0,38)"],[0.1,"rgb(215,48,39)"],[0.2,"rgb(244,109,67)"],[0.3,"rgb(253,174,97)"],[0.4,"rgb(254,224,139)"],[0.5,"rgb(255,255,191)"],[0.6,"rgb(217,239,139)"],[0.7,"rgb(166,217,106)"],[0.8,"rgb(102,189,99)"],[0.9,"rgb(26,152,80)"],[1.0,"rgb(0,104,55)"]]},"height":620,"legend":{"tracegroupgap":0},"margin":{"b":20,"l":20,"r":20,"t":60},"template":{"data":{"barpolar":[{"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"white","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"#C8D4E3","linecolor":"#C8D4E3","minorgridcolor":"#C8D4E3","startlinecolor":"#2a3f5f"},"type":"carpet"}],"choropleth":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"choropleth"}],"contourcarpet":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"contourcarpet"}],"contour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"contour"}],"heatmap":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"heatmap"}],"histogram2dcontour":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2dcontour"}],"histogram2d":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"histogram2d"}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"mesh3d":[{"colorbar":{"outlinewidth":0,"ticks":""},"type":"mesh3d"}],"parcoords":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"parcoords"}],"pie":[{"automargin":true,"type":"pie"}],"scatter3d":[{"line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatter3d"}],"scattercarpet":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattercarpet"}],"scattergeo":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergeo"}],"scattergl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattergl"}],"scattermapbox":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermapbox"}],"scattermap":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scattermap"}],"scatterpolargl":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolargl"}],"scatterpolar":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterpolar"}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"scatterternary":[{"marker":{"colorbar":{"outlinewidth":0,"ticks":""}},"type":"scatterternary"}],"surface":[{"colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"type":"surface"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}]},"layout":{"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"autotypenumbers":"strict","coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]],"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]},"colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"geo":{"bgcolor":"white","lakecolor":"white","landcolor":"white","showlakes":true,"showland":true,"subunitcolor":"#C8D4E3"},"hoverlabel":{"align":"left"},"hovermode":"closest","mapbox":{"style":"light"},"paper_bgcolor":"white","plot_bgcolor":"white","polar":{"angularaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""},"bgcolor":"white","radialaxis":{"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":""}},"scene":{"xaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"yaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"},"zaxis":{"backgroundcolor":"white","gridcolor":"#DFE8F3","gridwidth":2,"linecolor":"#EBF0F8","showbackground":true,"ticks":"","zerolinecolor":"#EBF0F8"}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"ternary":{"aaxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"baxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""},"bgcolor":"white","caxis":{"gridcolor":"#DFE8F3","linecolor":"#A2B1C6","ticks":""}},"title":{"x":0.05},"xaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2},"yaxis":{"automargin":true,"gridcolor":"#EBF0F8","linecolor":"#EBF0F8","ticks":"","title":{"standoff":15},"zerolinecolor":"#EBF0F8","zerolinewidth":2}}},"title":{"text":"\ub9ac\uc2a4\ud06c \uc81c\ud488 TOP 15 (\uc794\ub7c9 \ud070 \uc21c)"},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":"\uc794\ub7c9(PACK)"}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"\uc81c\ud488"}}},                        {"responsive": true}                    )                };            </script>        </div></div>
+    <div class="card">
+      <h3 style="margin-top:0;">제품별 상세</h3>
+      <div class="table-wrap"><table class="dataframe tbl">
+  <thead>
+    <tr style="text-align: right;">
+      <th>제품코드</th>
+      <th>제품명</th>
+      <th>요청량(PACK)</th>
+      <th>포장량(PACK)</th>
+      <th>잔량(PACK)</th>
+      <th>진도율(%)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>S284</td>
+      <td>Clalen O2O2 D_Mute Brown_샘플(5P)</td>
+      <td>32260</td>
+      <td>0.0</td>
+      <td>32260.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S283</td>
+      <td>Clalen O2O2 D_Lake Gray_샘플(5P)</td>
+      <td>32152</td>
+      <td>405.0</td>
+      <td>31747.0</td>
+      <td>1.3</td>
+    </tr>
+    <tr>
+      <td>S282</td>
+      <td>Clalen O2O2 D_Deep Black_샘플(5P)</td>
+      <td>31001</td>
+      <td>713.0</td>
+      <td>30288.0</td>
+      <td>2.3</td>
+    </tr>
+    <tr>
+      <td>S280</td>
+      <td>Clalen D_Iris_Suzy Gray_샘플(5P)</td>
+      <td>30015</td>
+      <td>1399.0</td>
+      <td>28616.0</td>
+      <td>4.7</td>
+    </tr>
+    <tr>
+      <td>S291</td>
+      <td>Clalen O2O2 D_Sepia Choco EX_샘플(5P)</td>
+      <td>26680</td>
+      <td>0.0</td>
+      <td>26680.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S279</td>
+      <td>Clalen D_Iris_Suzy Brown_샘플(5P)</td>
+      <td>25015</td>
+      <td>20.0</td>
+      <td>24995.0</td>
+      <td>0.1</td>
+    </tr>
+    <tr>
+      <td>S199</td>
+      <td>Clalen D_Iris_Jazz Black_샘플(5P)</td>
+      <td>23156</td>
+      <td>0.0</td>
+      <td>23156.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S293</td>
+      <td>Clalen O2O2 D_Ash Gray EX_샘플(5P)</td>
+      <td>21149</td>
+      <td>0.0</td>
+      <td>21149.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S292</td>
+      <td>Clalen O2O2 D_Ash Brown EX_샘플(5P)</td>
+      <td>18087</td>
+      <td>0.0</td>
+      <td>18087.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S297</td>
+      <td>Clalen O2O2 D Toric 180_샘플(5P)</td>
+      <td>15391</td>
+      <td>0.0</td>
+      <td>15391.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S018</td>
+      <td>T38 사/축</td>
+      <td>13564</td>
+      <td>0.0</td>
+      <td>13564.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S276</td>
+      <td>Clalen D_Iris_Latin_샘플(5P)</td>
+      <td>11976</td>
+      <td>0.0</td>
+      <td>11976.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S317</td>
+      <td>Clalen O2O2 D_Micelia_Pale Choco_30P</td>
+      <td>10105</td>
+      <td>0.0</td>
+      <td>10105.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S300</td>
+      <td>Clalen O2O2 D_Micelia_Deep Black_10P</td>
+      <td>8740</td>
+      <td>8740.0</td>
+      <td>0.0</td>
+      <td>100.0</td>
+    </tr>
+    <tr>
+      <td>S309</td>
+      <td>Clalen O2O2 D_Micelia_Mute Brown_10P</td>
+      <td>8400</td>
+      <td>1820.0</td>
+      <td>6580.0</td>
+      <td>21.7</td>
+    </tr>
+    <tr>
+      <td>S615</td>
+      <td>Clalen O2O2 D_Sepia Choco EX_30P</td>
+      <td>8364</td>
+      <td>774.0</td>
+      <td>7590.0</td>
+      <td>9.3</td>
+    </tr>
+    <tr>
+      <td>S030</td>
+      <td>Clalen 1Day_30팩</td>
+      <td>8354</td>
+      <td>6467.0</td>
+      <td>1887.0</td>
+      <td>77.4</td>
+    </tr>
+    <tr>
+      <td>S310</td>
+      <td>Clalen O2O2 D_Micelia_Pale Choco_10P</td>
+      <td>8260</td>
+      <td>1438.0</td>
+      <td>6822.0</td>
+      <td>17.4</td>
+    </tr>
+    <tr>
+      <td>S308</td>
+      <td>Clalen O2O2 D_Micelia_Lake Gray_10P</td>
+      <td>8120</td>
+      <td>8120.0</td>
+      <td>0.0</td>
+      <td>100.0</td>
+    </tr>
+    <tr>
+      <td>S281</td>
+      <td>Clalen D_Clear_샘플(5P)</td>
+      <td>7133</td>
+      <td>2568.0</td>
+      <td>4565.0</td>
+      <td>36.0</td>
+    </tr>
+    <tr>
+      <td>S319</td>
+      <td>Clalen O2O2 M_Micelia_Lake Gray_45%_2P</td>
+      <td>6380</td>
+      <td>0.0</td>
+      <td>6380.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S318</td>
+      <td>Clalen O2O2 M_Micelia_Deep Black_45%_2P</td>
+      <td>6380</td>
+      <td>0.0</td>
+      <td>6380.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S321</td>
+      <td>Clalen O2O2 M_Micelia_Pale Choco_45%_2P</td>
+      <td>6380</td>
+      <td>0.0</td>
+      <td>6380.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S320</td>
+      <td>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td>
+      <td>6380</td>
+      <td>0.0</td>
+      <td>6380.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S296</td>
+      <td>Clalen O2O2 1Day_샘플(5P)</td>
+      <td>6374</td>
+      <td>0.0</td>
+      <td>6374.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S017</td>
+      <td>T38 정축</td>
+      <td>4532</td>
+      <td>0.0</td>
+      <td>4532.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>s147</td>
+      <td>Iris Toric Alicia Brown_30팩</td>
+      <td>4524</td>
+      <td>0.0</td>
+      <td>4524.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S129</td>
+      <td>Iris SoulBrown_40팩</td>
+      <td>4099</td>
+      <td>3687.0</td>
+      <td>412.0</td>
+      <td>89.9</td>
+    </tr>
+    <tr>
+      <td>S176</td>
+      <td>Clalen O2O2 D_Micelia_Mute Brown_30P</td>
+      <td>3757</td>
+      <td>269.0</td>
+      <td>3488.0</td>
+      <td>7.2</td>
+    </tr>
+    <tr>
+      <td>S278</td>
+      <td>Clalen D_Iris_Soul Brown_샘플(5P)</td>
+      <td>3646</td>
+      <td>1527.0</td>
+      <td>2119.0</td>
+      <td>41.9</td>
+    </tr>
+    <tr>
+      <td>S061</td>
+      <td>Clalen O2O2 D Toric_사축_30개입</td>
+      <td>3515</td>
+      <td>0.0</td>
+      <td>3515.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S180</td>
+      <td>Clalen 1Day_80팩</td>
+      <td>3056</td>
+      <td>1761.0</td>
+      <td>1295.0</td>
+      <td>57.6</td>
+    </tr>
+    <tr>
+      <td>S175</td>
+      <td>Clalen O2O2 D_Micelia_Lake Gray_30P</td>
+      <td>3041</td>
+      <td>2410.0</td>
+      <td>631.0</td>
+      <td>79.3</td>
+    </tr>
+    <tr>
+      <td>S277</td>
+      <td>Clalen D_Iris_Rhapsody_샘플(5P)</td>
+      <td>2204</td>
+      <td>553.0</td>
+      <td>1651.0</td>
+      <td>25.1</td>
+    </tr>
+    <tr>
+      <td>S181</td>
+      <td>Clalen O2O2 D_Sepia Choco EX_90P</td>
+      <td>2201</td>
+      <td>164.0</td>
+      <td>2037.0</td>
+      <td>7.5</td>
+    </tr>
+    <tr>
+      <td>S617</td>
+      <td>Clalen O2O2 D_Ash Brown EX_30P</td>
+      <td>1721</td>
+      <td>0.0</td>
+      <td>1721.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S174</td>
+      <td>Clalen O2O2 D_Micelia_Deep Black_30P</td>
+      <td>1597</td>
+      <td>1279.0</td>
+      <td>318.0</td>
+      <td>80.1</td>
+    </tr>
+    <tr>
+      <td>S619</td>
+      <td>Clalen O2O2 D_Ash Gray EX_30P</td>
+      <td>1505</td>
+      <td>0.0</td>
+      <td>1505.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S009</td>
+      <td>S38 (8.50)_은캡</td>
+      <td>989</td>
+      <td>0.0</td>
+      <td>989.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S422</td>
+      <td>Clalen O2O2 M Toric_6P</td>
+      <td>980</td>
+      <td>0.0</td>
+      <td>980.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S611</td>
+      <td>Clalen O2O2 M_Natural Chocolat EX_2P</td>
+      <td>826</td>
+      <td>0.0</td>
+      <td>826.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S156</td>
+      <td>Iris SoulBrown_90팩</td>
+      <td>781</td>
+      <td>577.0</td>
+      <td>204.0</td>
+      <td>73.9</td>
+    </tr>
+    <tr>
+      <td>S154</td>
+      <td>Iris Toric Halo Brown_30</td>
+      <td>753</td>
+      <td>0.0</td>
+      <td>753.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S008</td>
+      <td>US38_팩</td>
+      <td>723</td>
+      <td>0.0</td>
+      <td>723.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S012</td>
+      <td>S45_금캡</td>
+      <td>666</td>
+      <td>0.0</td>
+      <td>666.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S145</td>
+      <td>Iris SuzyGray_30팩</td>
+      <td>500</td>
+      <td>48.0</td>
+      <td>452.0</td>
+      <td>9.6</td>
+    </tr>
+    <tr>
+      <td>S010</td>
+      <td>S38_은캡 (8.70)</td>
+      <td>354</td>
+      <td>0.0</td>
+      <td>354.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S173</td>
+      <td>Iris Suzy Brown_90팩</td>
+      <td>349</td>
+      <td>0.0</td>
+      <td>349.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S547</td>
+      <td>Clalen O2O2 M_2P</td>
+      <td>246</td>
+      <td>0.0</td>
+      <td>246.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S548</td>
+      <td>Clalen O2O2 M_6P</td>
+      <td>228</td>
+      <td>0.0</td>
+      <td>228.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S123</td>
+      <td>10팩_Iris Soul Brown</td>
+      <td>227</td>
+      <td>227.0</td>
+      <td>0.0</td>
+      <td>100.0</td>
+    </tr>
+    <tr>
+      <td>S522</td>
+      <td>Clalen O2O2 D Toric_Sepia Choco EX_30P</td>
+      <td>199</td>
+      <td>0.0</td>
+      <td>199.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S124</td>
+      <td>10팩_Iris Jazz Black</td>
+      <td>198</td>
+      <td>0.0</td>
+      <td>198.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S130</td>
+      <td>Iris JazzBlack_40팩</td>
+      <td>160</td>
+      <td>0.0</td>
+      <td>160.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S172</td>
+      <td>Iris Suzy Brown_30팩</td>
+      <td>155</td>
+      <td>0.0</td>
+      <td>155.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S654</td>
+      <td>Clalen O2O2 1Day_30P</td>
+      <td>107</td>
+      <td>20.0</td>
+      <td>87.0</td>
+      <td>18.7</td>
+    </tr>
+    <tr>
+      <td>S182</td>
+      <td>Clalen O2O2 D_Ash Brown EX_90P</td>
+      <td>80</td>
+      <td>3.0</td>
+      <td>77.0</td>
+      <td>3.8</td>
+    </tr>
+    <tr>
+      <td>S125</td>
+      <td>10팩_Iris Rhapsody</td>
+      <td>72</td>
+      <td>38.0</td>
+      <td>34.0</td>
+      <td>52.8</td>
+    </tr>
+    <tr>
+      <td>S112</td>
+      <td>Clalen D_Iris_Mocha Black_10p</td>
+      <td>62</td>
+      <td>0.0</td>
+      <td>62.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S155</td>
+      <td>Iris SuzyGray_90팩</td>
+      <td>59</td>
+      <td>0.0</td>
+      <td>59.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S183</td>
+      <td>Clalen O2O2 D_Ash Gray EX_90P</td>
+      <td>42</td>
+      <td>0.0</td>
+      <td>42.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S524</td>
+      <td>Clalen O2O2 D Toric_Ash Brown EX_30P</td>
+      <td>41</td>
+      <td>0.0</td>
+      <td>41.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S120</td>
+      <td>Iris Rhapsody_40팩</td>
+      <td>40</td>
+      <td>24.0</td>
+      <td>16.0</td>
+      <td>60.0</td>
+    </tr>
+    <tr>
+      <td>S157</td>
+      <td>Iris Rhapsody_90팩</td>
+      <td>29</td>
+      <td>5.0</td>
+      <td>24.0</td>
+      <td>17.2</td>
+    </tr>
+    <tr>
+      <td>S127</td>
+      <td>10팩_Iris Latin</td>
+      <td>26</td>
+      <td>0.0</td>
+      <td>26.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S110</td>
+      <td>Clalen D_Iris_Shiny Brown_10p</td>
+      <td>25</td>
+      <td>0.0</td>
+      <td>25.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S159</td>
+      <td>Iris Toric Halo Gray_30</td>
+      <td>20</td>
+      <td>0.0</td>
+      <td>20.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S011</td>
+      <td>S38 (8.90)은캡</td>
+      <td>19</td>
+      <td>0.0</td>
+      <td>19.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S149</td>
+      <td>Iris Alicia Brown_30팩</td>
+      <td>17</td>
+      <td>0.0</td>
+      <td>17.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S162</td>
+      <td>Iris BlueMoon_40팩</td>
+      <td>12</td>
+      <td>0.0</td>
+      <td>12.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>S104</td>
+      <td>Clalen D_Iris_Pure Choco_10p</td>
+      <td>8</td>
+      <td>0.0</td>
+      <td>8.0</td>
+      <td>0.0</td>
+    </tr>
+  </tbody>
+</table></div>
+    </div>
+  </div>
+</body>
+</html>
