@@ -2341,7 +2341,6 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
                 "생산코드",
                 "제품명",
                 "PACK",
-                "거래처",
                 "POWER",
                 "요청PACK",
                 "요청PCS",
@@ -2360,7 +2359,6 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             production_code=("production_code_display", join_unique),
             product_name=("product_name", join_unique),
             pack_label=("_pack_label", join_unique),
-            customer_name=("customer_name", join_unique),
             power=("POWER", first_nonempty),
             power_value=("power_value", "min"),
             request_pack=("request_pack", "sum"),
@@ -2376,7 +2374,6 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
                 "production_code": "생산코드",
                 "product_name": "제품명",
                 "pack_label": "PACK",
-                "customer_name": "거래처",
                 "power": "POWER",
                 "request_pack": "요청PACK",
                 "request_pcs": "요청PCS",
@@ -2396,7 +2393,6 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             "생산코드",
             "제품명",
             "PACK",
-            "거래처",
             "POWER",
             "요청PACK",
             "요청PCS",
@@ -3891,9 +3887,8 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
     )
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
-    customer_options = available_customer_options(code_summary)
 
-    sf1, sf2, sf3, sf4, sf5, sf6 = st.columns([1.7, 1.5, 1.5, 1.1, 1.2, 1.5], gap="small")
+    sf1, sf2, sf3, sf4, sf5 = st.columns([1.9, 1.6, 1.6, 1.2, 1.2], gap="small")
     with sf1:
         product_query = st.text_input(
             "제품명 검색",
@@ -3919,8 +3914,6 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
         selected_pack = st.selectbox("PACK 선택", options=pack_options, index=0, key="tab_sales_pack")
     with sf5:
         selected_power = st.selectbox("POWER 선택", options=power_options, index=0, key="tab_sales_power")
-    with sf6:
-        selected_customer = st.selectbox("거래처 선택", options=customer_options, index=0, key="tab_sales_customer")
 
     sales_source = filter_operational_code_summary(
         code_summary,
@@ -3929,7 +3922,6 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
         sales_query=sales_query,
         pack_label=selected_pack,
         power_label=selected_power,
-        customer_name=selected_customer,
     )
     sales_view = build_sales_order_main_view(sales_source)
     selected_sales_row = render_selectable_table(
