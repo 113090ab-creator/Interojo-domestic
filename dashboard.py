@@ -17,7 +17,7 @@ from pptx.util import Inches, Pt
 import streamlit as st
 
 
-st.set_page_config(page_title="국내 제품 포장 운영 대시보드", layout="wide")
+st.set_page_config(page_title="국내 제품 생산, 포장 모니터링", layout="wide")
 
 
 class DashboardConfigError(Exception):
@@ -4121,16 +4121,15 @@ def render_drilldown_tab(product_summary: pd.DataFrame, code_summary: pd.DataFra
 
 def main() -> None:
     render_style()
-    st.title("국내 제품 포장현황 대시보드")
-    st.caption("국내 제품 전체 포장 진도현황 | 우선 대응 품목 판단용 통합 운영 화면")
+    st.title("국내 제품 생산, 포장 모니터링")
 
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
         request_df = normalize_request(files.request_file)
         packing_df = normalize_packing(files.packing_file)
-        product_summary, unmatched_packing_total, code_summary = build_summaries(request_df, packing_df)
-        progress_df, progress_info = normalize_progress(files.progress_file, request_df)
+        product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df)
+        progress_df, _progress_info = normalize_progress(files.progress_file, request_df)
         product_summary = enrich_product_summary(product_summary, progress_df)
         code_summary = attach_progress_to_code_summary(code_summary, progress_df)
     except DashboardConfigError as exc:
@@ -4142,25 +4141,6 @@ def main() -> None:
         st.error(f"처리 중 오류가 발생했습니다: {exc}")
         st.stop()
 
-    progress_file_label = files.progress_file.name if files.progress_file is not None else "찾지 못함"
-    st.info(
-        f"요청 파일: {files.request_file.name}\n"
-        f"포장 파일: {files.packing_file.name}\n"
-        f"수요정보 파일: {progress_file_label}"
-    )
-    if files.progress_file is None:
-        st.warning("수요정보(전공정) 파일을 찾지 못해 생산부족수량은 0으로 처리됩니다.")
-    else:
-        st.caption(
-            "누수/규격검사 생산수량을 생산부족수량으로 반영: "
-            f"{progress_info['domestic_rows']:,}/{progress_info['total_rows']:,}행 "
-            f"(코드 매칭 {progress_info['code_rows']:,}행, 제품명 보조 매칭 {progress_info['name_rows']:,}행)"
-        )
-    if unmatched_packing_total > 0:
-        st.warning(
-            f"요청 데이터에 없는 판매코드 포장량 {unmatched_packing_total:,.0f} PACK은 "
-            "제품 진도 집계에서 제외되었습니다."
-        )
     tab_summary, tab_production, tab_sales, tab_power = st.tabs(
         ["제품 진도 현황", "생산코드 상세", "판매코드 상세", "POWER 상세"]
     )
