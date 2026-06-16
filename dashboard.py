@@ -1707,7 +1707,7 @@ def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
     if "pack_unit" not in work.columns:
         work["pack_unit"] = work["product_name"].map(extract_pack_unit)
     work["_pack_label"] = work["pack_unit"].map(base_pack_label)
-    work["_pack_sort"] = work["_pack_label"].map(pack_sort_key)
+    work["_pack_sort"] = work["_pack_label"].map(pack_sort_rank)
     work["제품분류"] = work["base_product_name"].map(classify_product_group)
     work["본품분류"] = work["base_product_name"].map(classify_main_product_family)
     work["본품/샘플"] = np.where(work["base_product_name"].astype(str).map(is_sample_name), "샘플", "본품")
@@ -2020,7 +2020,7 @@ def filter_production_power_rows(
     product_query: str,
     production_query: str,
     power_label: str,
-    pack_bucket: str,
+    pack_label: str,
     sample_scope: str,
     product_group: str,
 ) -> pd.DataFrame:
@@ -2035,8 +2035,8 @@ def filter_production_power_rows(
         out = out[out["production_code_display"].astype(str).str.contains(production_q, case=False, na=False)]
     if power_label != "전체":
         out = out[out["POWER"] == power_label]
-    if pack_bucket != "전체":
-        out = out[out["_pack_bucket"] == pack_bucket]
+    if pack_label != "전체":
+        out = out[out["_pack_label"] == pack_label]
     if sample_scope == "본품":
         out = out[out["본품/샘플"] == "본품"]
     elif sample_scope == "샘플":
@@ -2064,17 +2064,16 @@ def status_from_progress(packing_pack: Any, packing_progress: Any) -> str:
     return classify_status(packing, progress)
 
 
-def build_production_power_main_view(rows: pd.DataFrame, shortage_only: bool = False) -> pd.DataFrame:
+def build_production_power_main_view(
+    rows: pd.DataFrame,
+    pack_labels: list[str],
+    shortage_only: bool = False,
+) -> pd.DataFrame:
     visible_columns = [
         "생산코드",
         "대표 제품명",
         "POWER",
-        "5P 필요팩",
-        "10P 필요팩",
-        "30P 필요팩",
-        "80P 필요팩",
-        "90P 필요팩",
-        "기타팩 필요팩",
+        *pack_labels,
         "요청합계(PACK)",
         "요청합계(PCS)",
         "생산부족수량",
@@ -2106,7 +2105,7 @@ def build_production_power_main_view(rows: pd.DataFrame, shortage_only: bool = F
     pack_pivot = (
         rows.pivot_table(
             index=group_cols,
-            columns="_pack_bucket",
+            columns="_pack_label",
             values="request_pack",
             aggfunc="sum",
             dropna=False,
@@ -2115,11 +2114,11 @@ def build_production_power_main_view(rows: pd.DataFrame, shortage_only: bool = F
         .reset_index()
         .rename_axis(None, axis=1)
     )
-    for bucket in [*STANDARD_PACK_BUCKETS, "기타팩"]:
-        if bucket not in pack_pivot.columns:
-            pack_pivot[bucket] = 0.0
+    for label in pack_labels:
+        if label not in pack_pivot.columns:
+            pack_pivot[label] = 0.0
 
-    grouped = base.merge(pack_pivot[group_cols + [*STANDARD_PACK_BUCKETS, "기타팩"]], on=group_cols, how="left")
+    grouped = base.merge(pack_pivot[group_cols + pack_labels], on=group_cols, how="left")
     grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
     grouped["포장진도율"] = np.where(
         grouped["request_pack"] > 0,
@@ -2142,12 +2141,6 @@ def build_production_power_main_view(rows: pd.DataFrame, shortage_only: bool = F
         columns={
             "production_code_display": "생산코드",
             "representative_product": "대표 제품명",
-            "5P": "5P 필요팩",
-            "10P": "10P 필요팩",
-            "30P": "30P 필요팩",
-            "80P": "80P 필요팩",
-            "90P": "90P 필요팩",
-            "기타팩": "기타팩 필요팩",
             "request_pack": "요청합계(PACK)",
             "request_pcs": "요청합계(PCS)",
             "production_shortage_pcs": "생산부족수량",
@@ -2221,11 +2214,11 @@ def due_d_day_label(value: Any) -> str:
     return f"D-{days} 🟢"
 
 
-def render_pack_composition_chart(selected_row: pd.Series) -> None:
+def render_pack_composition_chart(selected_row: pd.Series, pack_labels: list[str]) -> None:
     chart_df = pd.DataFrame(
         {
-            "PACK": STANDARD_PACK_BUCKETS,
-            "필요팩": [float(selected_row.get(f"{bucket} 필요팩", 0.0)) for bucket in STANDARD_PACK_BUCKETS],
+            "PACK": pack_labels,
+            "필요팩": [float(selected_row.get(label, 0.0)) for label in pack_labels],
         }
     )
     fig = px.bar(
@@ -2286,7 +2279,7 @@ def build_production_sales_detail_view(rows: pd.DataFrame, production_code: str,
         return pd.DataFrame(columns=columns + ["_pack_sort"])
 
     grouped = (
-        scope.groupby(["sales_code", "product_name", "_pack_bucket", "_pack_bucket_sort"], dropna=False)
+        scope.groupby(["sales_code", "product_name", "_pack_label", "_pack_sort"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
@@ -2299,8 +2292,7 @@ def build_production_sales_detail_view(rows: pd.DataFrame, production_code: str,
             columns={
                 "sales_code": "판매코드",
                 "product_name": "제품명",
-                "_pack_bucket": "PACK 단위",
-                "_pack_bucket_sort": "_pack_sort",
+                "_pack_label": "PACK 단위",
                 "request_pack": "필요팩",
                 "request_pcs": "요청PCS",
                 "packing_pack": "포장완료PACK",
@@ -3783,7 +3775,8 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
         "생산코드 상세",
         "생산코드 + POWER 기준으로 부족, 병목, 납기 우선순위를 확인합니다.",
     )
-    pack_options = ["전체", *STANDARD_PACK_BUCKETS, "기타팩"]
+    pack_options = available_pack_options(code_summary)
+    pack_labels = pack_options[1:]
     power_options = available_production_power_options(code_summary)
     group_options = available_product_group_options(code_summary)
 
@@ -3840,11 +3833,15 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
         product_query=product_query,
         production_query=production_query,
         power_label=selected_power,
-        pack_bucket=selected_pack,
+        pack_label=selected_pack,
         sample_scope=sample_scope,
         product_group=selected_group,
     )
-    production_view = build_production_power_main_view(production_source, shortage_only=shortage_only)
+    production_view = build_production_power_main_view(
+        production_source,
+        pack_labels=pack_labels,
+        shortage_only=shortage_only,
+    )
     render_production_power_kpis(production_view)
 
     selected_production_row = render_selectable_table(
@@ -3869,7 +3866,7 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
 
     chart_col, progress_col = st.columns([1.4, 1.0], gap="small")
     with chart_col:
-        render_pack_composition_chart(selected_production_row)
+        render_pack_composition_chart(selected_production_row, pack_labels)
     with progress_col:
         render_production_progress_panel(selected_production_row)
 
