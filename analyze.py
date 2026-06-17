@@ -32,3 +32,4 @@ print()
 
 print('=== 컬럼 전체 확인 ===')
 print(df.columns.tolist())
+(.venv) PS C:\Users\유현아\Documents\GitHub\국내> █dir

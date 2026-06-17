@@ -4554,7 +4554,7 @@ def render_drilldown_tab(product_summary: pd.DataFrame, code_summary: pd.DataFra
 
 def main() -> None:
     render_style()
-    st.title("국내 제품 생산, 포장 모니터링")
+    st.title("생산현황 대시보드")
 
     base_dir = Path.cwd()
     try:
