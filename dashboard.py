@@ -198,11 +198,6 @@ def normalize_match_key(value: Any) -> str:
     return CODE_KEY_RE.sub("", clean_str(value)).upper()
 
 
-def widget_key_suffix(value: Any) -> str:
-    text = CODE_KEY_RE.sub("_", clean_str(value)).strip("_")
-    return text or "blank"
-
-
 def extract_pack_unit(value: Any) -> float:
     text = clean_str(value)
     if not text:
@@ -1641,171 +1636,32 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
     ).drop(columns=["_order"])
 
 
-def render_family_progress_cards(
-    family_df: pd.DataFrame,
-    max_rows: int = 14,
-    selected_family: str | None = None,
-) -> str | None:
+def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) -> None:
     if family_df.empty:
         st.warning("본품 분류별 진도현황을 표시할 데이터가 없습니다.")
-        return None
-
-    current_selection = selected_family
-    rows_df = family_df.head(max_rows).reset_index(drop=True)
-    for row_start in range(0, len(rows_df), 5):
-        cols = st.columns(5, gap="small")
-        for col_idx, (_, row) in enumerate(rows_df.iloc[row_start : row_start + 5].iterrows()):
-            family = str(row["본품분류"])
-            is_selected = family == current_selection
-            request_pack = format_int(float(row["요청 PACK"]))
-            production_progress = float(row["생산진도율"])
-            packing_progress = float(row["포장진도율"])
-            production_shortage = format_int(float(row["생산부족수량"]))
-            packing_shortage = format_int(float(row["포장부족수량"]))
-            label_lines = [
-                f"{'[선택됨] ' if is_selected else ''}{family}",
-                f"요청 {request_pack} PACK",
-                f"생산 {production_progress:.1f}% · 포장 {packing_progress:.1f}%",
-                f"생산부족 {production_shortage} · 포장부족 {packing_shortage}",
-            ]
-            with cols[col_idx]:
-                clicked = st.button(
-                    "\n".join(label_lines),
-                    key=f"family_card_{row_start}_{col_idx}_{widget_key_suffix(family)}",
-                    use_container_width=True,
-                    type="primary" if is_selected else "secondary",
-                )
-            if clicked:
-                if is_selected:
-                    current_selection = None
-                else:
-                    current_selection = family
-                    st.session_state[f"family_detail_unit_{widget_key_suffix(family)}"] = UNIT_PACK
-    return current_selection
-
-
-def build_family_detail_view(product_df: pd.DataFrame, code_summary: pd.DataFrame, family_name: str) -> pd.DataFrame:
-    detail_columns = [
-        "제품명",
-        "요청합계(PACK)",
-        "포장수량(PACK)",
-        "포장부족수량(PACK)",
-        "요청합계(PCS)",
-        "생산필요수량(PCS)",
-        "생산부족수량(PCS)",
-        "생산진도율",
-        "포장진도율",
-        "최소 납기일",
-        "_min_due_date_sort",
-    ]
-    if product_df.empty or "본품분류" not in product_df.columns:
-        return pd.DataFrame(columns=detail_columns)
-
-    scope = product_df[product_df["본품분류"].astype(str) == family_name].copy()
-    if scope.empty:
-        return pd.DataFrame(columns=detail_columns)
-
-    work = with_operational_columns(code_summary)
-    if work.empty:
-        due_by_product = pd.DataFrame(columns=["제품명", "request_due_date"])
-    else:
-        due_by_product = (
-            work.groupby("base_product_name", dropna=False)
-            .agg(request_due_date=("request_due_date", min_datetime))
-            .reset_index()
-            .rename(columns={"base_product_name": "제품명"})
-        )
-    out = scope.merge(due_by_product, on="제품명", how="left")
-    for source_col in ["요청 PACK", "포장 PACK", "포장부족수량", "요청 PCS", "생산부족수량"]:
-        if source_col not in out.columns:
-            out[source_col] = 0.0
-        out[source_col] = pd.to_numeric(out[source_col], errors="coerce").fillna(0.0)
-
-    out["요청합계(PACK)"] = out["요청 PACK"]
-    out["포장수량(PACK)"] = out["포장 PACK"]
-    out["포장부족수량(PACK)"] = out["포장부족수량"]
-    out["요청합계(PCS)"] = out["요청 PCS"]
-    out["생산필요수량(PCS)"] = out["생산부족수량"]
-    out["생산부족수량(PCS)"] = out["생산부족수량"]
-    for progress_col in ["생산진도율", "포장진도율"]:
-        if progress_col not in out.columns:
-            out[progress_col] = 0.0
-        out[progress_col] = pd.to_numeric(out[progress_col], errors="coerce").fillna(0.0)
-    out["_min_due_date_sort"] = pd.to_datetime(out["request_due_date"], errors="coerce")
-    out["최소 납기일"] = out["_min_due_date_sort"].map(display_date_or_dash)
-    return out[detail_columns].copy()
-
-
-def family_detail_column_order(unit_mode: str) -> list[str]:
-    if unit_mode == UNIT_PCS:
-        return [
-            "제품명",
-            "요청합계(PCS)",
-            "생산필요수량(PCS)",
-            "생산부족수량(PCS)",
-            "생산진도율",
-            "포장진도율",
-            "최소 납기일",
-        ]
-    return [
-        "제품명",
-        "요청합계(PACK)",
-        "포장수량(PACK)",
-        "포장부족수량(PACK)",
-        "생산부족수량(PCS)",
-        "생산진도율",
-        "포장진도율",
-        "최소 납기일",
-    ]
-
-
-def render_family_detail_table(product_df: pd.DataFrame, code_summary: pd.DataFrame, family_name: str) -> None:
-    detail_df = build_family_detail_view(product_df, code_summary, family_name)
-    if detail_df.empty:
-        st.info("선택한 분류에 표시할 제품 상세 데이터가 없습니다.")
         return
 
-    key_suffix = widget_key_suffix(family_name)
-    st.markdown(f"<div class='breadcrumb'>선택 분류 <span>{escape(family_name)}</span></div>", unsafe_allow_html=True)
-    unit_mode = render_unit_selector(f"family_detail_unit_{key_suffix}")
-
-    search_col, limit_col = st.columns([3.2, 1.0], gap="small")
-    with search_col:
-        query = st.text_input(
-            "상세 제품 검색",
-            value="",
-            placeholder="제품명 일부 입력",
-            key=f"family_detail_search_{key_suffix}",
+    rows: list[str] = []
+    for _, row in family_df.head(max_rows).iterrows():
+        family = escape(str(row["본품분류"]))
+        request_pack = format_int(float(row["요청 PACK"]))
+        production_progress = float(row["생산진도율"])
+        packing_progress = float(row["포장진도율"])
+        production_shortage = format_int(float(row["생산부족수량"]))
+        packing_shortage = format_int(float(row["포장부족수량"]))
+        rows.append(
+            "<div class='family-card'>"
+            f"<div class='family-head'><span>{family}</span><b>요청 {request_pack} PACK</b></div>"
+            f"{progress_cell_html(production_progress, '생산')}"
+            f"{progress_cell_html(packing_progress, '포장')}"
+            "<div class='family-shortages'>"
+            f"<span>생산부족 <b>{production_shortage}</b></span>"
+            f"<span>포장부족 <b>{packing_shortage}</b></span>"
+            "</div>"
+            "</div>"
         )
-    with limit_col:
-        limit = st.selectbox(
-            "표시 건수",
-            [10, 20, 50, 100],
-            index=1,
-            key=f"family_detail_limit_{key_suffix}",
-        )
 
-    view = detail_df.copy()
-    if query.strip():
-        view = view[view["제품명"].astype(str).str.contains(query.strip(), case=False, na=False, regex=False)]
-
-    sort_col = "생산부족수량(PCS)" if unit_mode == UNIT_PCS else "포장부족수량(PACK)"
-    view = view.sort_values(
-        [sort_col, "_min_due_date_sort", "제품명"],
-        ascending=[False, True, True],
-        na_position="last",
-        kind="stable",
-    )
-    shown = view.head(int(limit)).copy()
-    height = min(430, 88 + max(len(shown), 1) * 36)
-    st.dataframe(
-        shown,
-        hide_index=True,
-        height=height,
-        width="stretch",
-        column_config=drilldown_column_config(),
-        column_order=visible_columns(shown, family_detail_column_order(unit_mode)),
-    )
+    st.markdown("<div class='family-grid'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
 
 
 def build_top_shortage_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -4413,9 +4269,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "제품필요수량": st.column_config.NumberColumn("제품필요수량", format=numeric_format),
         "생산필요수량(PCS)": st.column_config.NumberColumn("생산필요수량(PCS)", format=numeric_format),
         "생산부족수량(PCS)": st.column_config.NumberColumn("생산부족수량(PCS)", format=numeric_format),
-        "포장수량(PACK)": st.column_config.NumberColumn("포장수량(PACK)", format=numeric_format),
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
-        "포장부족수량(PACK)": st.column_config.NumberColumn("포장부족수량(PACK)", format=numeric_format),
         "5P 필요팩": st.column_config.NumberColumn("5P 필요팩", format=numeric_format),
         "10P 필요팩": st.column_config.NumberColumn("10P 필요팩", format=numeric_format),
         "30P 필요팩": st.column_config.NumberColumn("30P 필요팩", format=numeric_format),
@@ -4523,19 +4377,8 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
         "본품 분류별 진도현황",
         "제품보다 상위 제품군 기준으로 생산/포장 진도와 부족수량을 먼저 확인합니다.",
     )
-    selected_family_key = "selected_family_progress_detail"
-    family_options = set(family_view["본품분류"].astype(str)) if not family_view.empty else set()
-    if st.session_state.get(selected_family_key) not in family_options:
-        st.session_state[selected_family_key] = None
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
-    selected_family = render_family_progress_cards(
-        family_view,
-        selected_family=st.session_state.get(selected_family_key),
-    )
-    st.session_state[selected_family_key] = selected_family
-    if selected_family:
-        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-        render_family_detail_table(main_products, code_summary, selected_family)
+    render_family_progress_cards(family_view)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
