@@ -4369,8 +4369,12 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     main_products, _ = split_main_sample(product_summary)
     pack_labels = available_pack_options(code_summary)[1:]
 
+<<<<<<< Updated upstream
     product_unit_mode = render_unit_selector("product_progress_unit_mode")
     render_kpi_scope_panels(code_summary, unit_mode=product_unit_mode)
+=======
+    render_kpi_scope_panels(code_summary)
+>>>>>>> Stashed changes
     stock_threshold_pack = float(
         st.session_state.get("inventory_stock_threshold_pack", INVENTORY_STOCK_THRESHOLD_DEFAULT)
     )
@@ -4421,7 +4425,11 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
             step=10,
             key="inventory_stock_threshold_pack",
         )
+<<<<<<< Updated upstream
     render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack), unit_mode=product_unit_mode)
+=======
+    render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack))
+>>>>>>> Stashed changes
 
     pf1, pf2, pf3 = st.columns([1.4, 2.4, 1.5], gap="small")
     with pf1:
