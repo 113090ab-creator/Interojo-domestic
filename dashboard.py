@@ -31,6 +31,7 @@ class SourceFiles:
     request_file: Path
     packing_file: Path
     progress_file: Path | None = None
+    inventory_file: Path | None = None
 
 
 STATUS_ORDER = ["미착수", "진행중", "완료"]
@@ -105,6 +106,26 @@ REQUEST_COLS = {
 PACKING_COLS = {
     "sales_code": ["판매코드", "판매 코드", "품목코드", "sales_code"],
     "packing_qty": ["팩수량", "포장수량", "포장완료수량", "수량", "packing_qty"],
+}
+
+INVENTORY_STOCK_THRESHOLD_DEFAULT = 100
+
+INVENTORY_COLS = {
+    "sales_code": ["제품코드", "제품 코드", "판매코드", "판매 코드", "품목코드", "SKU", "sku"],
+    "product_name": ["제품명", "제품 명", "품명", "product_name"],
+    "available_stock_pack": [
+        "실시간가용재고",
+        "실시간 가용재고",
+        "가용재고",
+        "가용 재고",
+        "재고수량",
+        "재고 수량",
+        "수량",
+        "available_stock",
+    ],
+    "total_stock_pack": ["총수량", "총 수량", "총재고", "총 재고", "total_stock"],
+    "product_spec": ["제품규격", "제품 규격", "규격", "product_spec"],
+    "updated_at": ["전송일자", "전송 일자", "수집일자", "업데이트일자", "updated_at"],
 }
 
 PROCESS_STEPS = [
@@ -231,6 +252,21 @@ def min_datetime(series: pd.Series) -> pd.Timestamp:
     return dates.min()
 
 
+def max_datetime(series: pd.Series) -> pd.Timestamp:
+    dates = pd.to_datetime(series, errors="coerce")
+    dates = dates.dropna()
+    if dates.empty:
+        return pd.NaT
+    return dates.max()
+
+
+def sum_numeric_or_nan(series: pd.Series) -> float:
+    numbers = pd.to_numeric(series, errors="coerce").dropna()
+    if numbers.empty:
+        return np.nan
+    return float(numbers.sum())
+
+
 def first_nonempty(series: pd.Series) -> str:
     for value in series:
         text = clean_str(value)
@@ -334,6 +370,7 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
     request_file = pick_latest_by_name(files, ["생산요청등록", "국내", "요청"])
     packing_file = pick_latest_by_name(files, ["포장설비투입현황", "포장설비투입", "포장실적", "포장"])
     progress_file = pick_latest_by_name(files, ["수요정보", "전공정"])
+    inventory_file = pick_latest_by_name(files, ["용마WMS재고현황", "WMS재고현황", "WMS", "재고현황"])
 
     if request_file is None or packing_file is None:
         for file in files:
@@ -349,6 +386,12 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
             if packing_file is None:
                 if has_alias(cols, PACKING_COLS["sales_code"]) and has_alias(cols, PACKING_COLS["packing_qty"]):
                     packing_file = file
+            if inventory_file is None:
+                if has_alias(cols, INVENTORY_COLS["sales_code"]) and has_alias(
+                    cols,
+                    INVENTORY_COLS["available_stock_pack"],
+                ):
+                    inventory_file = file
 
     messages: list[str] = []
     if request_file is None:
@@ -358,7 +401,12 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
     if messages:
         raise DashboardConfigError(messages)
 
-    return SourceFiles(request_file=request_file, packing_file=packing_file, progress_file=progress_file)
+    return SourceFiles(
+        request_file=request_file,
+        packing_file=packing_file,
+        progress_file=progress_file,
+        inventory_file=inventory_file,
+    )
 
 
 def normalize_request(path: Path) -> pd.DataFrame:
@@ -434,6 +482,53 @@ def normalize_packing(path: Path) -> pd.DataFrame:
             "packing_pack": to_number(raw[cols["packing_qty"]]),
         }
     )
+
+
+def empty_inventory_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "sales_code",
+            "sales_code_key",
+            "inventory_product_name",
+            "available_stock_pack",
+            "inventory_total_stock_pack",
+            "inventory_product_spec",
+            "inventory_updated_at",
+        ]
+    )
+
+
+def normalize_inventory(path: Path | None) -> pd.DataFrame:
+    if path is None:
+        return empty_inventory_df()
+
+    raw = pd.read_excel(path)
+    cols = resolve_columns(
+        raw,
+        INVENTORY_COLS,
+        required_keys=["sales_code", "available_stock_pack"],
+        file_label=path.name,
+    )
+    out = pd.DataFrame(
+        {
+            "sales_code": raw[cols["sales_code"]].map(clean_str),
+            "sales_code_key": raw[cols["sales_code"]].map(normalize_match_key),
+            "available_stock_pack": to_number(raw[cols["available_stock_pack"]]),
+        }
+    )
+    out["inventory_product_name"] = (
+        raw[cols["product_name"]].map(clean_str) if "product_name" in cols else ""
+    )
+    out["inventory_total_stock_pack"] = (
+        to_number(raw[cols["total_stock_pack"]]) if "total_stock_pack" in cols else np.nan
+    )
+    out["inventory_product_spec"] = (
+        raw[cols["product_spec"]].map(clean_str) if "product_spec" in cols else ""
+    )
+    out["inventory_updated_at"] = (
+        parse_datetime_series(raw[cols["updated_at"]]) if "updated_at" in cols else pd.NaT
+    )
+    return out[out["sales_code_key"] != ""].copy()
 
 
 def empty_progress_df() -> pd.DataFrame:
@@ -580,6 +675,16 @@ def format_date(value: Any) -> str:
     return date.strftime("%Y-%m-%d")
 
 
+def parse_datetime_series(series: pd.Series) -> pd.Series:
+    text = series.astype(str).str.strip()
+    korean_ampm = text.str.replace("오전", "AM", regex=False).str.replace("오후", "PM", regex=False)
+    parsed = pd.to_datetime(korean_ampm, format="%Y-%m-%d %p %I:%M:%S", errors="coerce")
+    missing = parsed.isna()
+    if missing.any():
+        parsed.loc[missing] = pd.to_datetime(series.loc[missing], errors="coerce")
+    return parsed
+
+
 def summarize_progress(progress_df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
     if progress_df.empty:
         base_columns = group_cols + ["누수규격검사 생산수량"]
@@ -722,6 +827,61 @@ def build_summaries(
     product_summary["제품분류"] = product_summary["제품명"].map(classify_product_group)
     product_summary["본품분류"] = product_summary["제품명"].map(classify_main_product_family)
     return product_summary, unmatched_packing_total, matched_code_summary
+
+
+def attach_inventory_to_code_summary(code_summary: pd.DataFrame, inventory_df: pd.DataFrame) -> pd.DataFrame:
+    out = code_summary.copy()
+    if inventory_df.empty:
+        out["available_stock_pack"] = np.nan
+        out["inventory_total_stock_pack"] = np.nan
+        out["inventory_product_name"] = ""
+        out["inventory_product_spec"] = ""
+        out["inventory_updated_at"] = pd.NaT
+        out["inventory_matched"] = False
+        return out
+
+    inventory_by_code = (
+        inventory_df.groupby("sales_code_key", dropna=False)
+        .agg(
+            available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
+            inventory_total_stock_pack=("inventory_total_stock_pack", sum_numeric_or_nan),
+            inventory_product_name=("inventory_product_name", join_unique),
+            inventory_product_spec=("inventory_product_spec", first_nonempty),
+            inventory_updated_at=("inventory_updated_at", max_datetime),
+        )
+        .reset_index()
+    )
+    out = out.merge(inventory_by_code, on="sales_code_key", how="left")
+    out["inventory_matched"] = out["available_stock_pack"].notna()
+    return out
+
+
+def attach_inventory_to_product_summary(product_summary: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
+    out = product_summary.copy()
+    if code_summary.empty or "available_stock_pack" not in code_summary.columns:
+        out["용마창고재고 (PACK)"] = np.nan
+        out["재고매칭SKU수"] = 0
+        return out
+
+    work = with_operational_columns(code_summary)
+    stock_by_product = (
+        work.groupby("base_product_name", dropna=False)
+        .agg(
+            current_stock_pack=("available_stock_pack", sum_numeric_or_nan),
+            inventory_matched_count=("inventory_matched", "sum"),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "base_product_name": "제품명",
+                "current_stock_pack": "용마창고재고 (PACK)",
+                "inventory_matched_count": "재고매칭SKU수",
+            }
+        )
+    )
+    out = out.merge(stock_by_product, on="제품명", how="left")
+    out["재고매칭SKU수"] = out["재고매칭SKU수"].fillna(0).astype(int)
+    return out
 
 
 def enrich_product_summary(product_summary: pd.DataFrame, progress_df: pd.DataFrame) -> pd.DataFrame:
@@ -1830,16 +1990,118 @@ def pct_from_parts(done: Any, total: Any) -> float:
     return min(100.0, max(0.0, done_num / total_num * 100.0))
 
 
-def calc_operation_kpis(product_summary: pd.DataFrame, code_summary: pd.DataFrame) -> dict[str, float]:
+def d_day_number(value: Any) -> float:
+    due = pd.to_datetime(value, errors="coerce")
+    if pd.isna(due):
+        return np.nan
+    today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
+    return float((due.normalize() - today).days)
+
+
+def d_day_text(value: Any) -> str:
+    days = d_day_number(value)
+    if pd.isna(days):
+        return "-"
+    day_count = int(days)
+    if day_count < 0:
+        return f"D+{abs(day_count)}"
+    if day_count == 0:
+        return "D-Day"
+    return f"D-{day_count}"
+
+
+def priority_grade(shortage_pack: Any, due_date: Any, current_stock_pack: Any, stock_threshold_pack: float) -> str:
+    shortage = float(pd.to_numeric(shortage_pack, errors="coerce") or 0.0)
+    if shortage <= 0:
+        return "완료"
+
+    days = d_day_number(due_date)
+    stock = pd.to_numeric(current_stock_pack, errors="coerce")
+    stock_low = pd.notna(stock) and float(stock) <= float(stock_threshold_pack)
+    due_over = pd.notna(days) and days <= 0
+    due_very_close = pd.notna(days) and days <= 3
+    due_close = pd.notna(days) and days <= 7
+
+    if due_over or (due_very_close and stock_low):
+        return "A 긴급"
+    if due_close or stock_low:
+        return "B 주의"
+    return "C 일반"
+
+
+def priority_sort_value(value: Any) -> int:
+    order = {"A 긴급": 0, "B 주의": 1, "C 일반": 2, "완료": 3}
+    return order.get(str(value), 9)
+
+
+def add_priority_columns(
+    df: pd.DataFrame,
+    stock_threshold_pack: float,
+    shortage_col: str = "포장부족수량",
+    due_col: str = "request_due_date",
+    stock_col: str = "용마창고재고 (PACK)",
+    request_col: str | None = None,
+) -> pd.DataFrame:
+    out = df.copy()
+    if due_col not in out.columns:
+        out[due_col] = pd.NaT
+    if stock_col not in out.columns:
+        out[stock_col] = np.nan
+    stock = pd.to_numeric(out[stock_col], errors="coerce")
+    out["재고기준(PACK)"] = float(stock_threshold_pack)
+    if request_col and request_col in out.columns:
+        request = pd.to_numeric(out[request_col], errors="coerce").fillna(0.0)
+        out["재고부족(PACK)"] = np.where(stock.notna(), (request - stock).clip(lower=0.0), np.nan)
+    else:
+        out["재고부족(PACK)"] = np.where(stock.notna(), (float(stock_threshold_pack) - stock).clip(lower=0.0), np.nan)
+    out["D-Day"] = out[due_col].map(d_day_text)
+    out["우선등급"] = [
+        priority_grade(shortage, due, current_stock, stock_threshold_pack)
+        for shortage, due, current_stock in zip(out[shortage_col], out[due_col], out[stock_col])
+    ]
+    out["_priority_sort"] = out["우선등급"].map(priority_sort_value)
+    out["_request_due_date_sort"] = pd.to_datetime(out[due_col], errors="coerce")
+    return out
+
+
+def calc_operation_kpis(
+    product_summary: pd.DataFrame,
+    code_summary: pd.DataFrame,
+    stock_threshold_pack: float,
+) -> dict[str, float]:
     today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
     due_limit = today + pd.Timedelta(days=7)
     work = with_operational_columns(code_summary)
     work["request_due_date"] = pd.to_datetime(work["request_due_date"], errors="coerce")
-    shortage_mask = (work["request_pack"] - work["packing_pack"]).clip(lower=0.0) > 0
-    due_mask = work["request_due_date"].notna() & (work["request_due_date"] <= due_limit)
-    urgent_products = work.loc[shortage_mask & due_mask, "base_product_name"].dropna().astype(str).nunique()
+    if "available_stock_pack" not in work.columns:
+        work["available_stock_pack"] = np.nan
+    work["_packing_shortage_pack"] = (work["request_pack"] - work["packing_pack"]).clip(lower=0.0)
+    product_priority = (
+        work.groupby("base_product_name", dropna=False)
+        .agg(
+            packing_shortage_pack=("_packing_shortage_pack", "sum"),
+            request_due_date=("request_due_date", min_datetime),
+            current_stock_pack=("available_stock_pack", sum_numeric_or_nan),
+        )
+        .reset_index()
+    )
+    product_priority["우선등급"] = [
+        priority_grade(shortage, due, stock, stock_threshold_pack)
+        for shortage, due, stock in zip(
+            product_priority["packing_shortage_pack"],
+            product_priority["request_due_date"],
+            product_priority["current_stock_pack"],
+        )
+    ]
+    shortage_mask = product_priority["packing_shortage_pack"] > 0
+    due_mask = product_priority["request_due_date"].notna() & (product_priority["request_due_date"] <= due_limit)
+    stock = pd.to_numeric(product_priority["current_stock_pack"], errors="coerce")
+    stock_shortage_mask = stock.notna() & (stock <= float(stock_threshold_pack))
+    priority_mask = product_priority["우선등급"].isin(["A 긴급", "B 주의"])
     return {
-        "urgent_products": float(urgent_products),
+        "priority_products": float((shortage_mask & priority_mask).sum()),
+        "urgent_products": float((shortage_mask & due_mask).sum()),
+        "stock_shortage_products": float((shortage_mask & stock_shortage_mask).sum()),
         "packing_shortage_pack": float(product_summary["포장부족수량"].sum()) if not product_summary.empty else 0.0,
         "production_shortage_pcs": float(product_summary["생산부족수량"].sum())
         if "생산부족수량" in product_summary.columns and not product_summary.empty
@@ -1847,23 +2109,32 @@ def calc_operation_kpis(product_summary: pd.DataFrame, code_summary: pd.DataFram
     }
 
 
-def render_operation_kpis(product_summary: pd.DataFrame, code_summary: pd.DataFrame) -> None:
-    kpi = calc_operation_kpis(product_summary, code_summary)
-    c1, c2, c3 = st.columns(3, gap="small")
-    c1.metric("긴급품목 수", f"{int(kpi['urgent_products']):,}")
-    c2.metric("포장 부족 PACK", format_int(kpi["packing_shortage_pack"]))
-    c3.metric("생산 부족 PCS", format_int(kpi["production_shortage_pcs"]))
+def render_operation_kpis(
+    product_summary: pd.DataFrame,
+    code_summary: pd.DataFrame,
+    stock_threshold_pack: float,
+) -> None:
+    kpi = calc_operation_kpis(product_summary, code_summary, stock_threshold_pack)
+    c1, c2, c3, c4 = st.columns(4, gap="small")
+    c1.metric("우선품목 수", f"{int(kpi['priority_products']):,}")
+    c2.metric("재고부족 품목 수", f"{int(kpi['stock_shortage_products']):,}")
+    c3.metric("포장 부족 PACK", format_int(kpi["packing_shortage_pack"]))
+    c4.metric("생산 부족 PCS", format_int(kpi["production_shortage_pcs"]))
 
 
 def build_product_progress_main_view(
     product_summary: pd.DataFrame,
     code_summary: pd.DataFrame,
     pack_labels: list[str],
+    stock_threshold_pack: float = INVENTORY_STOCK_THRESHOLD_DEFAULT,
 ) -> pd.DataFrame:
     work = with_operational_columns(code_summary)
     due_by_product = (
         work.groupby("base_product_name", dropna=False)
-        .agg(production_due_date=("production_due_date", min_datetime))
+        .agg(
+            production_due_date=("production_due_date", min_datetime),
+            request_due_date=("request_due_date", min_datetime),
+        )
         .reset_index()
         .rename(columns={"base_product_name": "제품명"})
     )
@@ -1872,6 +2143,10 @@ def build_product_progress_main_view(
     out = product_summary.merge(pivot, on="제품명", how="left").merge(due_by_product, on="제품명", how="left")
     for label in pack_labels:
         out[label] = out[label].fillna(0.0)
+    if "용마창고재고 (PACK)" not in out.columns:
+        out["용마창고재고 (PACK)"] = np.nan
+    if "재고매칭SKU수" not in out.columns:
+        out["재고매칭SKU수"] = 0
     out["제품필요수량"] = out.get("생산부족수량", 0.0)
     out["진도율"] = out.get("생산진도율", 0.0)
     out["생산완료예상일"] = [
@@ -1879,30 +2154,26 @@ def build_product_progress_main_view(
         for date, shortage in zip(out["production_due_date"], out["제품필요수량"])
     ]
     out["전체진도율"] = out["포장진도율"]
-    ordered = [
-        "제품명",
-        *pack_labels,
-        "요청 PACK",
-        "요청 PCS",
-        "제품필요수량",
-        "진도율",
-        "생산완료예상일",
-        "포장부족수량",
-        "전체진도율",
-        "상태",
-    ]
+    out = add_priority_columns(out, stock_threshold_pack, request_col="요청 PACK")
     out = out.rename(columns={"요청 PACK": "요청합계(PACK)", "요청 PCS": "요청합계(PCS)"})
     ordered = [
+        "우선등급",
+        "D-Day",
         "제품명",
         *pack_labels,
         "요청합계(PACK)",
         "요청합계(PCS)",
+        "용마창고재고 (PACK)",
+        "재고기준(PACK)",
+        "재고부족(PACK)",
         "제품필요수량",
         "진도율",
         "생산완료예상일",
         "포장부족수량",
         "전체진도율",
         "상태",
+        "_priority_sort",
+        "_request_due_date_sort",
     ]
     return out[ordered].copy()
 
@@ -2333,10 +2604,15 @@ def sales_status_label(row: pd.Series) -> str:
     return "부족"
 
 
-def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
+def build_sales_order_main_view(
+    code_summary: pd.DataFrame,
+    stock_threshold_pack: float = INVENTORY_STOCK_THRESHOLD_DEFAULT,
+) -> pd.DataFrame:
     if code_summary.empty:
         return pd.DataFrame(
             columns=[
+                "우선등급",
+                "D-Day",
                 "판매코드",
                 "생산코드",
                 "제품명",
@@ -2344,6 +2620,9 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
                 "POWER",
                 "요청PACK",
                 "요청PCS",
+                "용마창고재고 (PACK)",
+                "재고기준(PACK)",
+                "재고부족(PACK)",
                 "생산부족",
                 "포장부족",
                 "생산진도율",
@@ -2364,6 +2643,7 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_pack", "sum"),
+            available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
             production_shortage=("_allocated_production_shortage_qty", "sum"),
             request_due_date=("request_due_date", min_datetime),
         )
@@ -2377,6 +2657,7 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
                 "power": "POWER",
                 "request_pack": "요청PACK",
                 "request_pcs": "요청PCS",
+                "available_stock_pack": "용마창고재고 (PACK)",
                 "production_shortage": "생산부족",
             }
         )
@@ -2387,8 +2668,18 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
     grouped["납기"] = grouped["request_due_date"].map(display_date_or_dash)
     grouped["상태"] = grouped.apply(sales_status_label, axis=1)
+    grouped = add_priority_columns(
+        grouped,
+        stock_threshold_pack,
+        shortage_col="포장부족",
+        due_col="request_due_date",
+        stock_col="용마창고재고 (PACK)",
+        request_col="요청PACK",
+    )
     return grouped[
         [
+            "우선등급",
+            "D-Day",
             "판매코드",
             "생산코드",
             "제품명",
@@ -2396,6 +2687,9 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             "POWER",
             "요청PACK",
             "요청PCS",
+            "용마창고재고 (PACK)",
+            "재고기준(PACK)",
+            "재고부족(PACK)",
             "생산부족",
             "포장부족",
             "생산진도율",
@@ -2403,8 +2697,69 @@ def build_sales_order_main_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             "납기",
             "상태",
             "power_value",
+            "_priority_sort",
+            "_request_due_date_sort",
         ]
-    ].sort_values(["포장부족", "생산부족", "요청PACK"], ascending=[False, False, False], kind="stable")
+    ].sort_values(
+        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "포장부족", "생산부족"],
+        ascending=[True, True, False, False, False],
+        na_position="last",
+        kind="stable",
+    )
+
+
+def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20) -> pd.DataFrame:
+    columns = [
+        "우선등급",
+        "D-Day",
+        "판매코드",
+        "제품명",
+        "POWER",
+        "PACK",
+        "용마창고재고 (PACK)",
+        "재고기준(PACK)",
+        "재고부족(PACK)",
+        "포장부족",
+        "생산부족",
+        "납기",
+    ]
+    if sales_view.empty:
+        return pd.DataFrame(columns=columns)
+
+    out = sales_view[
+        (pd.to_numeric(sales_view["포장부족"], errors="coerce").fillna(0.0) > 0)
+        & (sales_view["우선등급"].isin(["A 긴급", "B 주의"]))
+    ].copy()
+    if out.empty:
+        return pd.DataFrame(columns=columns)
+
+    out = out.sort_values(
+        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "포장부족", "생산부족"],
+        ascending=[True, True, False, False, False],
+        na_position="last",
+        kind="stable",
+    )
+    return out[columns].head(max_rows).copy()
+
+
+def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
+    urgent_view = build_urgent_sales_packing_view(sales_view)
+    render_panel_title(
+        "긴급 포장 리스트",
+        "납기와 용마창고재고를 함께 반영해 먼저 포장해야 할 판매코드를 표시합니다.",
+    )
+    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
+    if urgent_view.empty:
+        st.info("현재 기준에 해당하는 긴급 포장 판매코드가 없습니다.")
+    else:
+        st.dataframe(
+            urgent_view,
+            hide_index=True,
+            height=260,
+            width="stretch",
+            column_config=drilldown_column_config(),
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def sales_scope_from_row(code_summary: pd.DataFrame, sales_code: str) -> pd.DataFrame:
@@ -2486,7 +2841,43 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
 
 
 def empty_inventory_detail_view() -> pd.DataFrame:
-    return pd.DataFrame(columns=["LOT", "멸균NO", "ERP재고", "재작업 가능", "샘플 전환 가능"])
+    return pd.DataFrame(columns=["판매코드", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"])
+
+
+def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> pd.DataFrame:
+    if code_summary.empty:
+        return empty_inventory_detail_view()
+    work = with_operational_columns(code_summary)
+    scope = work[work["sales_code"].astype(str) == str(sales_code)].copy()
+    if scope.empty:
+        return empty_inventory_detail_view()
+
+    grouped = (
+        scope.groupby("sales_code", dropna=False)
+        .agg(
+            inventory_product_name=("inventory_product_name", first_nonempty),
+            available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
+            inventory_total_stock_pack=("inventory_total_stock_pack", sum_numeric_or_nan),
+            inventory_product_spec=("inventory_product_spec", first_nonempty),
+            inventory_updated_at=("inventory_updated_at", max_datetime),
+            inventory_matched=("inventory_matched", "max"),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "sales_code": "판매코드",
+                "inventory_product_name": "WMS제품명",
+                "available_stock_pack": "용마창고재고 (PACK)",
+                "inventory_total_stock_pack": "총수량(PACK)",
+                "inventory_product_spec": "제품규격",
+                "inventory_updated_at": "전송일자",
+                "inventory_matched": "매칭여부",
+            }
+        )
+    )
+    grouped["전송일자"] = grouped["전송일자"].map(display_date_or_dash)
+    grouped["매칭여부"] = np.where(grouped["매칭여부"], "매칭", "미매칭")
+    return grouped[["판매코드", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]]
 
 
 def ppt_rgb(hex_color: str) -> RGBColor:
@@ -3542,6 +3933,10 @@ def drilldown_column_config() -> dict[str, Any]:
     return {
         "요청합계(PACK)": st.column_config.NumberColumn("요청합계(PACK)", format=numeric_format),
         "요청합계(PCS)": st.column_config.NumberColumn("요청합계(PCS)", format=numeric_format),
+        "용마창고재고 (PACK)": st.column_config.NumberColumn("용마창고재고 (PACK)", format=numeric_format),
+        "총수량(PACK)": st.column_config.NumberColumn("총수량(PACK)", format=numeric_format),
+        "재고기준(PACK)": st.column_config.NumberColumn("재고기준(PACK)", format=numeric_format),
+        "재고부족(PACK)": st.column_config.NumberColumn("재고부족(PACK)", format=numeric_format),
         "제품필요수량": st.column_config.NumberColumn("제품필요수량", format=numeric_format),
         "5P 필요팩": st.column_config.NumberColumn("5P 필요팩", format=numeric_format),
         "10P 필요팩": st.column_config.NumberColumn("10P 필요팩", format=numeric_format),
@@ -3577,6 +3972,8 @@ def drilldown_column_config() -> dict[str, Any]:
         "power_value": None,
         "_power_sort": None,
         "_min_due_date_sort": None,
+        "_priority_sort": None,
+        "_request_due_date_sort": None,
         "_pack_sort": None,
     }
 
@@ -3631,7 +4028,16 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     pack_labels = available_pack_options(code_summary)[1:]
 
     render_kpi_scope_panels(code_summary)
-    render_operation_kpis(product_summary, code_summary)
+    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
+    with threshold_col:
+        stock_threshold_pack = st.number_input(
+            "재고 기준(PACK)",
+            min_value=0,
+            value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
+            step=10,
+            key="inventory_stock_threshold_pack",
+        )
+    render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack))
 
     family_view = build_family_progress_view(main_products)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
@@ -3685,12 +4091,18 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
 
     product_filter_base = apply_product_scope_filter(product_summary, product_scope)
     product_filter_base = apply_filters(product_filter_base, query=product_query, statuses=product_statuses)
-    product_view_all = build_product_progress_main_view(product_summary, code_summary, pack_labels)
+    product_view_all = build_product_progress_main_view(
+        product_summary,
+        code_summary,
+        pack_labels,
+        stock_threshold_pack=float(stock_threshold_pack),
+    )
     visible_products = set(product_filter_base["제품명"].astype(str))
     product_view = product_view_all[product_view_all["제품명"].astype(str).isin(visible_products)].copy()
     product_view = product_view.sort_values(
-        ["포장부족수량", "제품필요수량", "요청합계(PACK)"],
-        ascending=[False, False, False],
+        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "포장부족수량", "제품필요수량"],
+        ascending=[True, True, False, False, False],
+        na_position="last",
         kind="stable",
     )
     selected_product_row = render_selectable_table(
@@ -3888,6 +4300,23 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
 
+    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
+    with threshold_col:
+        stock_threshold_pack = st.number_input(
+            "긴급 재고 기준(PACK)",
+            min_value=0,
+            value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
+            step=10,
+            key="sales_inventory_stock_threshold_pack",
+        )
+
+    urgent_sales_base = build_sales_order_main_view(
+        code_summary,
+        stock_threshold_pack=float(stock_threshold_pack),
+    )
+    render_urgent_sales_packing_list(urgent_sales_base)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     sf1, sf2, sf3, sf4, sf5 = st.columns([1.9, 1.6, 1.6, 1.2, 1.2], gap="small")
     with sf1:
         product_query = st.text_input(
@@ -3923,7 +4352,10 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
         pack_label=selected_pack,
         power_label=selected_power,
     )
-    sales_view = build_sales_order_main_view(sales_source)
+    sales_view = build_sales_order_main_view(
+        sales_source,
+        stock_threshold_pack=float(stock_threshold_pack),
+    )
     selected_sales_row = render_selectable_table(
         "판매코드",
         f"판매코드 기준 출고/오더 상세 | 표시 건수: {len(sales_view):,}",
@@ -3936,10 +4368,11 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
 
     selected_sales = str(selected_sales_row["판매코드"])
     st.markdown(f"<div class='breadcrumb'>판매코드 <span>{escape(selected_sales)}</span></div>", unsafe_allow_html=True)
-    inventory_view = empty_inventory_detail_view()
-    render_panel_title("SKU 상세", "LOT/멸균NO/ERP재고/재작업/샘플 전환 가능 여부")
+    inventory_view = build_inventory_detail_view(code_summary, selected_sales)
+    render_panel_title("WMS 재고 상세", "용마WMS재고현황 기준 판매코드별 PACK 재고")
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
-    st.info("현재 연결된 엑셀 원천에는 LOT, 멸균NO, ERP재고 컬럼이 없어 상세 재고 항목은 빈 표로 표시합니다.")
+    if inventory_view.empty or set(inventory_view["매칭여부"].astype(str)) == {"미매칭"}:
+        st.info("선택한 판매코드와 매칭되는 WMS 재고가 없습니다.")
     st.dataframe(inventory_view, hide_index=True, height=120, width="stretch")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4128,10 +4561,13 @@ def main() -> None:
         files = discover_source_files(base_dir)
         request_df = normalize_request(files.request_file)
         packing_df = normalize_packing(files.packing_file)
+        inventory_df = normalize_inventory(files.inventory_file)
         product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df)
+        code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
         progress_df, _progress_info = normalize_progress(files.progress_file, request_df)
         product_summary = enrich_product_summary(product_summary, progress_df)
         code_summary = attach_progress_to_code_summary(code_summary, progress_df)
+        product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
         for msg in exc.messages:
