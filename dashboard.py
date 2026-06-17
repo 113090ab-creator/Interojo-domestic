@@ -2219,7 +2219,6 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
             "생산부족수량(PCS)",
             "생산진도율",
             "포장진도율",
-            "생산완료예상일",
             "상태",
         ]
     else:
@@ -2235,7 +2234,6 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
             "생산부족수량(PCS)",
             "포장진도율",
             "생산진도율",
-            "생산완료예상일",
             "상태",
         ]
     return visible_columns(df, columns)
@@ -2366,10 +2364,6 @@ def build_product_progress_main_view(
     out["생산필요수량(PCS)"] = out["제품필요수량"]
     out["생산부족수량(PCS)"] = out.get("생산부족수량", 0.0)
     out["진도율"] = out.get("생산진도율", 0.0)
-    out["생산완료예상일"] = [
-        display_date_or_dash(date) if float(shortage) > 0 else "-"
-        for date, shortage in zip(out["production_due_date"], out["제품필요수량"])
-    ]
     out["전체진도율"] = out["포장진도율"]
     out = add_priority_columns(out, stock_threshold_pack, request_col="요청 PACK")
     out = out.rename(columns={"요청 PACK": "요청합계(PACK)", "요청 PCS": "요청합계(PCS)"})
@@ -2389,7 +2383,6 @@ def build_product_progress_main_view(
         "제품필요수량",
         "진도율",
         "생산진도율",
-        "생산완료예상일",
         "포장부족수량",
         "포장진도율",
         "전체진도율",
