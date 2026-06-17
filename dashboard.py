@@ -4027,16 +4027,9 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     pack_labels = available_pack_options(code_summary)[1:]
 
     render_kpi_scope_panels(code_summary)
-    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
-    with threshold_col:
-        stock_threshold_pack = st.number_input(
-            "재고 기준(PACK)",
-            min_value=0,
-            value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
-            step=10,
-            key="inventory_stock_threshold_pack",
-        )
-    render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack))
+    stock_threshold_pack = float(
+        st.session_state.get("inventory_stock_threshold_pack", INVENTORY_STOCK_THRESHOLD_DEFAULT)
+    )
 
     family_view = build_family_progress_view(main_products)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
@@ -4157,6 +4150,18 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_family_progress_cards(family_view)
     st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
+    with threshold_col:
+        stock_threshold_pack = st.number_input(
+            "재고 기준(PACK)",
+            min_value=0,
+            value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
+            step=10,
+            key="inventory_stock_threshold_pack",
+        )
+    render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack))
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
