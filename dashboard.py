@@ -4036,6 +4036,27 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     gap_top_view = build_gap_top_view(product_summary, top_n=10)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "본품 분류별 진도현황",
+        "제품보다 상위 제품군 기준으로 생산/포장 진도와 부족수량을 먼저 확인합니다.",
+    )
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
+    with threshold_col:
+        stock_threshold_pack = st.number_input(
+            "재고 기준(PACK)",
+            min_value=0,
+            value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
+            step=10,
+            key="inventory_stock_threshold_pack",
+        )
+    render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack))
+
+    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
+    render_family_progress_cards(family_view)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     detail_col, report_col = st.columns([4.8, 1.2], gap="small", vertical_alignment="center")
     with detail_col:
         render_panel_title(
@@ -4141,27 +4162,6 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
                 key="product_sales_detail_table",
                 height=240,
             )
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
-        "본품 분류별 진도현황",
-        "제품보다 상위 제품군 기준으로 생산/포장 진도와 부족수량을 먼저 확인합니다.",
-    )
-    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
-    render_family_progress_cards(family_view)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
-    with threshold_col:
-        stock_threshold_pack = st.number_input(
-            "재고 기준(PACK)",
-            min_value=0,
-            value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
-            step=10,
-            key="inventory_stock_threshold_pack",
-        )
-    render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack))
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
