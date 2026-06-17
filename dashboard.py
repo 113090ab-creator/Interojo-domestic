@@ -2164,7 +2164,6 @@ def build_product_progress_main_view(
         "요청합계(PACK)",
         "요청합계(PCS)",
         "용마창고재고 (PACK)",
-        "재고기준(PACK)",
         "재고부족(PACK)",
         "제품필요수량",
         "진도율",
