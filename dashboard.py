@@ -2299,8 +2299,6 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "POWER",
             "PACK",
             "요청합계(PACK)",
-            "용마창고재고 (PACK)",
-            "재고부족(PACK)",
             "포장부족(PACK)",
             "생산부족수량(PCS)",
             "포장진도율",
