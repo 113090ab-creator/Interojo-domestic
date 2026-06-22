@@ -1172,7 +1172,7 @@ def format_power(value: Any) -> str:
     num = pd.to_numeric(value, errors="coerce")
     if pd.isna(num):
         return "(미기재)"
-    return f"-{abs(float(num)):.2f}"
+    return f"-{abs(float(num)):05.2f}"
 
 
 def classify_product_group(product_name: str) -> str:
