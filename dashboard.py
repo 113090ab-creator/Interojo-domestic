@@ -61,6 +61,13 @@ MAIN_PRODUCT_FAMILY_ORDER = [
 ]
 DETAIL_FAMILY_PLACEHOLDER = "본품분류 선택"
 FAMILY_CARD_SECTION_ORDER = ["1DAY", "FRP", "기타"]
+FAMILY_CARD_1DAY_NAMES = {
+    "O2O2 D 컬러",
+    "O2O2 D Micelia",
+    "O2O2 D Toric",
+    "Iris 컬러",
+    "Iris Toric",
+}
 STANDARD_PACK_BUCKETS = ["5P", "10P", "30P", "80P", "90P"]
 POWER_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*$")
 CODE_KEY_RE = re.compile(r"[^0-9A-Za-z가-힣]+")
@@ -1818,6 +1825,8 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
 def family_card_section(family: Any) -> str:
     text = clean_str(family)
     upper = text.upper()
+    if text in FAMILY_CARD_1DAY_NAMES:
+        return "1DAY"
     if "1DAY" in upper or "1 DAY" in upper:
         return "1DAY"
     if text in {"부자재/기타", "기타", "샘플"}:
