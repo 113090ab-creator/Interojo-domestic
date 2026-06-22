@@ -122,6 +122,16 @@ YONGMA_COLS = {
     "receipt_qty": ["수량", "입고수량", "용마입고수량", "receipt_qty"],
 }
 
+SAMPLE_AVAILABLE_COLS = {
+    "product_code": ["제품코드", "제품 코드", "품목코드", "생산코드", "production_code", "product_code"],
+    "sample_available_qty": [
+        "샘플 신청 가능 수량",
+        "샘플신청가능수량",
+        "샘플 신청가능수량",
+        "sample_available_qty",
+    ],
+}
+
 INVENTORY_STOCK_THRESHOLD_DEFAULT = 100
 
 INVENTORY_COLS = {
@@ -559,6 +569,38 @@ def normalize_yongma_movement(path: Path) -> pd.DataFrame:
     out["yongma_product_name"] = raw[cols["product_name"]].map(clean_str) if "product_name" in cols else ""
     out["yongma_lot_key"] = out["yongma_lot"].map(normalize_match_key)
     return out[(out["sales_code_key"] != "") & (out["yongma_in_pack"] > 0)].copy()
+
+
+def empty_sample_available_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "product_code",
+            "production_code_key",
+            "sample_available_pcs",
+        ]
+    )
+
+
+def normalize_sample_available(path: Path) -> pd.DataFrame:
+    sheet_name = "샘플신청가능수량"
+    if not has_excel_sheet(path, sheet_name):
+        return empty_sample_available_df()
+
+    raw = pd.read_excel(path, sheet_name=sheet_name)
+    cols = resolve_columns(
+        raw,
+        SAMPLE_AVAILABLE_COLS,
+        required_keys=["product_code", "sample_available_qty"],
+        file_label=f"{path.name}:{sheet_name}",
+    )
+    out = pd.DataFrame(
+        {
+            "product_code": raw[cols["product_code"]].map(clean_str),
+            "sample_available_pcs": to_number(raw[cols["sample_available_qty"]]),
+        }
+    )
+    out["production_code_key"] = out["product_code"].map(normalize_match_key)
+    return out[(out["production_code_key"] != "") & (out["sample_available_pcs"] > 0)].copy()
 
 
 def empty_inventory_df() -> pd.DataFrame:
@@ -1027,6 +1069,25 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
     return out
 
 
+def attach_sample_available_to_code_summary(code_summary: pd.DataFrame, sample_available_df: pd.DataFrame) -> pd.DataFrame:
+    out = code_summary.copy()
+    if "production_code_key" not in out.columns:
+        out["production_code_key"] = ""
+    out["sample_available_pcs"] = 0.0
+    if sample_available_df.empty:
+        return out
+
+    sample_by_code = (
+        sample_available_df.groupby("production_code_key", dropna=False)["sample_available_pcs"]
+        .sum()
+        .reset_index()
+        .rename(columns={"sample_available_pcs": "_sample_available_pcs"})
+    )
+    out = out.merge(sample_by_code, on="production_code_key", how="left")
+    out["sample_available_pcs"] = pd.to_numeric(out["_sample_available_pcs"], errors="coerce").fillna(0.0)
+    return out.drop(columns=["_sample_available_pcs"])
+
+
 def build_production_code_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     work = code_summary.copy()
     work["production_code"] = work["production_code"].replace("", "(생산코드 미기재)")
@@ -1490,12 +1551,18 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     work = code_summary.copy()
     if work.empty:
         work["_allocated_production_shortage_qty"] = 0.0
+        work["_allocated_sample_available_pcs"] = 0.0
         return work
 
     if "production_basis_qty" not in work.columns:
         work["production_basis_qty"] = 0.0
+    if "sample_available_pcs" not in work.columns:
+        work["sample_available_pcs"] = 0.0
     if "request_pcs" not in work.columns:
         work["request_pcs"] = work.get("request_pack", 0.0)
+    work["production_basis_qty"] = pd.to_numeric(work["production_basis_qty"], errors="coerce").fillna(0.0)
+    work["sample_available_pcs"] = pd.to_numeric(work["sample_available_pcs"], errors="coerce").fillna(0.0)
+    work["request_pcs"] = pd.to_numeric(work["request_pcs"], errors="coerce").fillna(0.0)
 
     production_key = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
     sales_key = work.get("sales_code_key", pd.Series("", index=work.index)).map(clean_str)
@@ -1505,8 +1572,10 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
 
     key_request = work.groupby("_production_alloc_key", dropna=False)["request_pcs"].transform("sum")
     key_shortage = work.groupby("_production_alloc_key", dropna=False)["production_basis_qty"].transform("max")
+    key_sample_available = work.groupby("_production_alloc_key", dropna=False)["sample_available_pcs"].transform("max")
     allocation_ratio = np.where(key_request > 0, work["request_pcs"] / key_request, 0.0)
     work["_allocated_production_shortage_qty"] = (key_shortage * allocation_ratio).clip(lower=0.0)
+    work["_allocated_sample_available_pcs"] = (key_sample_available * allocation_ratio).clip(lower=0.0)
     return work
 
 
@@ -2397,6 +2466,9 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "POWER",
             "PACK",
             "요청합계(PCS)",
+            "용마입고수량",
+            "용마입고대기수량",
+            "포장대기(PCS)",
             "생산필요수량(PCS)",
             "생산부족수량(PCS)",
             "생산진도율",
@@ -2414,6 +2486,9 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "POWER",
             "PACK",
             "요청합계(PACK)",
+            "용마입고수량",
+            "용마입고대기수량",
+            "포장대기(PCS)",
             "포장부족(PACK)",
             "생산부족수량(PCS)",
             "포장진도율",
@@ -3151,6 +3226,9 @@ def build_sales_order_main_view(
                 "POWER",
                 "요청PACK",
                 "요청PCS",
+                "용마입고수량",
+                "용마입고대기수량",
+                "포장대기(PCS)",
                 "용마창고재고 (PACK)",
                 "재고기준(PACK)",
                 "재고부족(PACK)",
@@ -3174,8 +3252,10 @@ def build_sales_order_main_view(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_pack", "sum"),
+            yongma_in_pack=("yongma_in_pack", "sum"),
             available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
             production_shortage=("_allocated_production_shortage_qty", "sum"),
+            sample_available_pcs=("_allocated_sample_available_pcs", "sum"),
             request_due_date=("request_due_date", min_datetime),
         )
         .reset_index()
@@ -3188,14 +3268,24 @@ def build_sales_order_main_view(
                 "power": "POWER",
                 "request_pack": "요청PACK",
                 "request_pcs": "요청PCS",
+                "yongma_in_pack": "용마입고수량",
                 "available_stock_pack": "용마창고재고 (PACK)",
                 "production_shortage": "생산부족",
+                "sample_available_pcs": "샘플신청가능수량",
             }
         )
     )
-    grouped["포장부족"] = (grouped["요청PACK"] - grouped["packing_pack"]).clip(lower=0.0)
+    grouped["용마입고대기수량"] = (grouped["packing_pack"] - grouped["용마입고수량"]).clip(lower=0.0)
+    grouped["포장대기(PCS)"] = (
+        grouped["요청PCS"] - grouped["생산부족"] + grouped["샘플신청가능수량"]
+    ).clip(lower=0.0)
+    grouped["포장부족"] = (grouped["요청PACK"] - grouped["용마입고수량"]).clip(lower=0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청PCS"], grouped["생산부족"])
-    grouped["포장진도율"] = np.where(grouped["요청PACK"] > 0, grouped["packing_pack"] / grouped["요청PACK"] * 100.0, 0.0)
+    grouped["포장진도율"] = np.where(
+        grouped["요청PACK"] > 0,
+        grouped["용마입고수량"] / grouped["요청PACK"] * 100.0,
+        0.0,
+    )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
     grouped["납기"] = grouped["request_due_date"].map(display_date_or_dash)
     grouped["상태"] = grouped.apply(sales_status_label, axis=1)
@@ -3225,6 +3315,10 @@ def build_sales_order_main_view(
             "요청PCS",
             "요청합계(PACK)",
             "요청합계(PCS)",
+            "용마입고수량",
+            "용마입고대기수량",
+            "포장대기(PCS)",
+            "샘플신청가능수량",
             "용마창고재고 (PACK)",
             "재고기준(PACK)",
             "재고부족(PACK)",
@@ -4547,6 +4641,9 @@ def drilldown_column_config() -> dict[str, Any]:
         "미입고": st.column_config.NumberColumn("미입고", format=numeric_format),
         "미입고 PACK": st.column_config.NumberColumn("미입고 PACK", format=numeric_format),
         "용마입고수량": st.column_config.NumberColumn("용마입고수량", format=numeric_format),
+        "용마입고대기수량": st.column_config.NumberColumn("용마입고대기수량", format=numeric_format),
+        "포장대기(PCS)": st.column_config.NumberColumn("포장대기(PCS)", format=numeric_format),
+        "샘플신청가능수량": st.column_config.NumberColumn("샘플신청가능수량", format=numeric_format),
         "미입고(PACK)": st.column_config.NumberColumn("미입고(PACK)", format=numeric_format),
         "미입고수량": st.column_config.NumberColumn("미입고수량", format=numeric_format),
         "입고대기수량": st.column_config.NumberColumn("입고대기수량", format=numeric_format),
@@ -5270,12 +5367,14 @@ def main() -> None:
         request_df = normalize_request(files.request_file)
         packing_df = normalize_packing(files.packing_file)
         yongma_df = normalize_yongma_movement(files.packing_file)
+        sample_available_df = normalize_sample_available(files.packing_file)
         inventory_df = normalize_inventory(files.inventory_file)
         product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
         code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
         progress_df, _progress_info = normalize_progress(files.progress_file, request_df)
         product_summary = enrich_product_summary(product_summary, progress_df)
         code_summary = attach_progress_to_code_summary(code_summary, progress_df)
+        code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
         product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
         lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
     except DashboardConfigError as exc:
