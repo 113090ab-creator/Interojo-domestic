@@ -41,13 +41,6 @@ class SourceFiles:
     inventory_file: Path | None = None
 
 
-@dataclass
-class DashboardData:
-    product_summary: pd.DataFrame
-    code_summary: pd.DataFrame
-    lot_status_df: pd.DataFrame
-
-
 STATUS_ORDER = ["미착수", "진행중", "완료"]
 UNIT_PACK = "PACK 기준"
 UNIT_PCS = "PCS 기준"
@@ -6367,7 +6360,7 @@ def load_dashboard_data(
     packing_fingerprint: tuple[str, int, int],
     progress_fingerprint: tuple[str, int, int] | None,
     inventory_fingerprint: tuple[str, int, int] | None,
-) -> DashboardData:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
@@ -6384,11 +6377,7 @@ def load_dashboard_data(
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
-    return DashboardData(
-        product_summary=product_summary,
-        code_summary=code_summary,
-        lot_status_df=lot_status_df,
-    )
+    return product_summary, code_summary, lot_status_df
 
 
 def render_dashboard_nav() -> str:
@@ -6410,15 +6399,12 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        data = load_dashboard_data(
+        product_summary, code_summary, lot_status_df = load_dashboard_data(
             file_fingerprint(files.request_file),
             file_fingerprint(files.packing_file),
             file_fingerprint(files.progress_file),
             file_fingerprint(files.inventory_file),
         )
-        product_summary = data.product_summary
-        code_summary = data.code_summary
-        lot_status_df = data.lot_status_df
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
         for msg in exc.messages:
