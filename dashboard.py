@@ -2567,7 +2567,11 @@ def build_sales_pack_detail_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     ]
 
 
-def build_lot_receipt_status_view(packing_df: pd.DataFrame, yongma_df: pd.DataFrame) -> pd.DataFrame:
+def build_lot_receipt_status_view(
+    packing_df: pd.DataFrame,
+    yongma_df: pd.DataFrame,
+    code_summary: pd.DataFrame,
+) -> pd.DataFrame:
     columns = [
         "제품코드",
         "제품명",
@@ -2578,13 +2582,22 @@ def build_lot_receipt_status_view(packing_df: pd.DataFrame, yongma_df: pd.DataFr
         "입고대기수량",
         "상태",
     ]
-    if packing_df.empty:
+    if packing_df.empty or code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    domestic_code_keys = set(code_summary.get("sales_code_key", pd.Series(dtype=str)).map(clean_str)) - {""}
+    if not domestic_code_keys:
         return pd.DataFrame(columns=columns)
 
     pack = packing_df.copy()
     for col in ["sales_code_key", "packing_lot_key", "packing_barcode_key"]:
         if col not in pack.columns:
             pack[col] = ""
+    pack["sales_code_key"] = pack["sales_code_key"].map(clean_str)
+    pack = pack[pack["sales_code_key"].isin(domestic_code_keys)].copy()
+    if pack.empty:
+        return pd.DataFrame(columns=columns)
+
     for col in ["packing_product_name", "packing_lot", "packing_barcode"]:
         if col not in pack.columns:
             pack[col] = ""
@@ -2615,6 +2628,7 @@ def build_lot_receipt_status_view(packing_df: pd.DataFrame, yongma_df: pd.DataFr
     if yongma_df is not None and not yongma_df.empty:
         yongma = yongma_df.copy()
         yongma["sales_code_key"] = yongma["sales_code_key"].map(clean_str)
+        yongma = yongma[yongma["sales_code_key"].isin(domestic_code_keys)].copy()
         yongma["yongma_lot_key"] = yongma["yongma_lot_key"].map(clean_str)
         for _, receipt in yongma.iterrows():
             code_key = clean_str(receipt.get("sales_code_key", ""))
@@ -5263,7 +5277,7 @@ def main() -> None:
         product_summary = enrich_product_summary(product_summary, progress_df)
         code_summary = attach_progress_to_code_summary(code_summary, progress_df)
         product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
-        lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df)
+        lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
         for msg in exc.messages:
