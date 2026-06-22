@@ -12,7 +12,10 @@ import pandas as pd
 import plotly.express as px
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.oxml.ns import qn
+from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 import streamlit as st
 
@@ -83,15 +86,31 @@ PACK_SUFFIX_RE = re.compile(
 )
 PACK_PREFIX_SUFFIX_RE = re.compile(r"^\d+(?:\.\d+)?\s*(?:P|팩)_", re.IGNORECASE)
 
-NAVY = "#1f3556"
-SOFT_NAVY = "#365276"
-WHITE = "#ffffff"
-LIGHT_GRAY = "#eef2f6"
-MID_GRAY = "#d7dee7"
-TEXT_DARK = "#1d2836"
-TEXT_MUTED = "#5f6d80"
-MUTED_ORANGE = "#c67a3d"
-MUTED_RED = "#b55a4a"
+COLOR_BLUE = "#185FA5"
+COLOR_TEAL = "#1D9E75"
+COLOR_ORANGE = "#D85A30"
+COLOR_AMBER = "#BA7517"
+COLOR_ALERT_BG = "#FAECE7"
+COLOR_ALERT_BD = "#F0997B"
+BG_PAGE = "#F4F4F2"
+BG_CARD = "#FFFFFF"
+BG_SECTION = "#EFEFEC"
+TEXT_PRIMARY = "#1A1A1A"
+TEXT_SECONDARY = "#6B6B68"
+TEXT_TERTIARY = "#9E9D99"
+BORDER_DEFAULT = "rgba(0,0,0,0.10)"
+BORDER_LIGHT = "rgba(0,0,0,0.06)"
+
+NAVY = COLOR_BLUE
+SOFT_NAVY = COLOR_TEAL
+WHITE = BG_CARD
+LIGHT_GRAY = BG_PAGE
+MID_GRAY = "#DEDED8"
+TEXT_DARK = TEXT_PRIMARY
+TEXT_MUTED = TEXT_SECONDARY
+MUTED_ORANGE = COLOR_ORANGE
+MUTED_RED = COLOR_ORANGE
+PPT_FONT_NAME = "Noto Sans KR"
 
 REQUEST_COLS = {
     "sales_code": ["판매코드", "판매 코드", "품목코드", "sales_code"],
@@ -1448,7 +1467,7 @@ def build_power_heatmap(power_df: pd.DataFrame) -> px.imshow | None:
         aspect="auto",
         zmin=0,
         zmax=100,
-        color_continuous_scale=[(0.0, "#f3f5f8"), (0.5, MID_GRAY), (1.0, NAVY)],
+        color_continuous_scale=[(0.0, BG_PAGE), (0.5, "#D9E7F3"), (1.0, COLOR_BLUE)],
         labels={"x": "POWER", "y": "제품명", "color": "포장진도율(%)"},
         title="제품/POWER 포장진도율 Heatmap",
     )
@@ -1642,30 +1661,37 @@ def progress_tone(progress: float) -> str:
         return "done"
     if progress >= 80:
         return "active"
-    if progress > 0:
+    if progress >= 50:
         return "warn"
     return "risk"
 
 
 def status_class(status: str) -> str:
-    if status == "완료":
+    if status in {"완료", "입고완료"}:
         return "done"
-    if status == "진행중":
+    if status in {"진행중"}:
         return "active"
-    if status == "부족":
+    if status in {"부족"}:
         return "warn"
+    if status in {"입고대기"}:
+        return "waiting"
     return "risk"
 
 
 def progress_cell_html(progress: float, label: str = "") -> str:
     width = max(0.0, min(100.0, float(progress)))
     tone = progress_tone(float(progress))
+    semantic = ""
+    if label in {"생산"}:
+        semantic = " production"
+    elif label in {"입고", "용마입고"}:
+        semantic = " receipt"
     prefix = f"<span class='progress-name'>{escape(label)}</span>" if label else ""
     return (
         "<div class='progress-cell'>"
         f"{prefix}"
         "<div class='progress-track'>"
-        f"<div class='progress-fill {tone}' style='width:{width:.1f}%'></div>"
+        f"<div class='progress-fill {tone}{semantic}' style='width:{width:.1f}%'></div>"
         "</div>"
         f"<span class='progress-text'>{progress:.1f}%</span>"
         "</div>"
@@ -2048,6 +2074,27 @@ def render_kpi_scope_panels(
             render_kpi_panel(title, kpi, unit_mode=unit_mode)
 
 
+def metric_progress_tone(progress: float) -> str:
+    if progress >= 80:
+        return "good"
+    if progress >= 50:
+        return "mid"
+    if progress > 0:
+        return "warn"
+    return "muted"
+
+
+def render_metric_card_grid(items: list[tuple[str, str, str]]) -> None:
+    cards = "".join(
+        "<div class='mini-kpi-card'>"
+        f"<div class='metric-label'>{escape(label)}</div>"
+        f"<div class='metric-value {tone}'>{escape(value)}</div>"
+        "</div>"
+        for label, value, tone in items
+    )
+    st.markdown(f"<div class='mini-kpi-grid'>{cards}</div>", unsafe_allow_html=True)
+
+
 def build_scope_kpis(code_summary: pd.DataFrame) -> list[tuple[str, dict[str, float]]]:
     sample_mask = (
         code_summary["product_name"].astype(str).map(is_sample_name)
@@ -2403,17 +2450,24 @@ def render_operation_kpis(
     unit_mode: str = UNIT_PACK,
 ) -> None:
     kpi = calc_operation_kpis(product_summary, code_summary, stock_threshold_pack)
-    c1, c2, c3, c4 = st.columns(4, gap="small")
     if unit_mode == UNIT_PCS:
-        c1.metric("요청합계(PCS)", format_int(kpi["request_pcs"]))
-        c2.metric("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]))
-        c3.metric("생산진도율", f"{kpi['production_progress_pct']:.1f}%")
-        c4.metric("용마입고율", f"{kpi['packing_progress_pct']:.1f}%")
+        render_metric_card_grid(
+            [
+                ("요청합계(PCS)", format_int(kpi["request_pcs"]), "normal"),
+                ("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "warn"),
+                ("생산진도율", f"{kpi['production_progress_pct']:.1f}%", metric_progress_tone(kpi["production_progress_pct"])),
+                ("용마입고율", f"{kpi['packing_progress_pct']:.1f}%", metric_progress_tone(kpi["packing_progress_pct"])),
+            ]
+        )
         return
-    c1.metric("우선품목 수", f"{int(kpi['priority_products']):,}")
-    c2.metric("재고부족 품목 수", f"{int(kpi['stock_shortage_products']):,}")
-    c3.metric("미입고(PACK)", format_int(kpi["packing_shortage_pack"]))
-    c4.metric("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]))
+    render_metric_card_grid(
+        [
+            ("우선품목 수", f"{int(kpi['priority_products']):,}", "normal"),
+            ("재고부족 품목 수", f"{int(kpi['stock_shortage_products']):,}", "normal"),
+            ("미입고(PACK)", format_int(kpi["packing_shortage_pack"]), "warn"),
+            ("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "warn"),
+        ]
+    )
 
 
 def render_unit_selector(key: str) -> str:
@@ -2822,10 +2876,14 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
     if statuses:
         view = view[view["상태"].isin(statuses)].copy()
 
-    kpi_cols = st.columns(3, gap="small")
-    kpi_cols[0].metric("포장실적수량", format_int(float(view["포장실적수량"].sum()) if not view.empty else 0.0))
-    kpi_cols[1].metric("용마입고수량", format_int(float(view["용마입고수량"].sum()) if not view.empty else 0.0))
-    kpi_cols[2].metric("입고대기수량", format_int(float(view["입고대기수량"].sum()) if not view.empty else 0.0))
+    waiting_qty = float(view["입고대기수량"].sum()) if not view.empty else 0.0
+    render_metric_card_grid(
+        [
+            ("포장실적수량", format_int(float(view["포장실적수량"].sum()) if not view.empty else 0.0), "normal"),
+            ("용마입고수량", format_int(float(view["용마입고수량"].sum()) if not view.empty else 0.0), "normal"),
+            ("입고대기수량", format_int(waiting_qty), "warn" if waiting_qty > 0 else "normal"),
+        ]
+    )
 
     st.dataframe(
         view,
@@ -3679,6 +3737,26 @@ def ppt_rgb(hex_color: str) -> RGBColor:
     return RGBColor.from_string(hex_color.replace("#", ""))
 
 
+def apply_ppt_font(
+    run: Any,
+    size: int | float,
+    bold: bool = False,
+    color: str = TEXT_DARK,
+) -> None:
+    run.font.name = PPT_FONT_NAME
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    run.font.color.rgb = ppt_rgb(color)
+
+    r_pr = run._r.get_or_add_rPr()
+    for tag in ("a:latin", "a:ea", "a:cs"):
+        font_el = r_pr.find(qn(tag))
+        if font_el is None:
+            font_el = OxmlElement(tag)
+            r_pr.append(font_el)
+        font_el.set("typeface", PPT_FONT_NAME)
+
+
 def set_cell_text(
     cell: Any,
     text: str,
@@ -3693,14 +3771,14 @@ def set_cell_text(
     cell.margin_top = Inches(0.02)
     cell.margin_bottom = Inches(0.02)
     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+    cell.text_frame.word_wrap = True
     paragraph = cell.text_frame.paragraphs[0]
     paragraph.alignment = align
+    paragraph.space_after = Pt(0)
+    paragraph.space_before = Pt(0)
     run = paragraph.add_run()
     run.text = text
-    run.font.name = "맑은 고딕"
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.color.rgb = ppt_rgb(color)
+    apply_ppt_font(run, size=size, bold=bold, color=color)
 
 
 def add_textbox(
@@ -3718,14 +3796,64 @@ def add_textbox(
     shape = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     frame = shape.text_frame
     frame.clear()
+    frame.margin_left = 0
+    frame.margin_right = 0
+    frame.margin_top = 0
+    frame.margin_bottom = 0
+    frame.word_wrap = True
     paragraph = frame.paragraphs[0]
     paragraph.alignment = align
+    paragraph.space_after = Pt(0)
+    paragraph.space_before = Pt(0)
     run = paragraph.add_run()
     run.text = text
-    run.font.name = "맑은 고딕"
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.color.rgb = ppt_rgb(color)
+    apply_ppt_font(run, size=size, bold=bold, color=color)
+
+
+def truncate_report_text(value: Any, max_chars: int = 34) -> str:
+    text = clean_str(value)
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "..."
+
+
+def add_report_rule(slide: Any, left: float, top: float, width: float, color: str = MID_GRAY) -> None:
+    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(0.01))
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = ppt_rgb(color)
+    shape.line.fill.background()
+
+
+def add_kpi_card(
+    slide: Any,
+    title: str,
+    kpi: dict[str, float],
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+) -> None:
+    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height))
+    card.fill.solid()
+    card.fill.fore_color.rgb = ppt_rgb("#f8fafc")
+    card.line.color.rgb = ppt_rgb(MID_GRAY)
+    card.line.width = Pt(0.75)
+
+    add_textbox(slide, title, left + 0.16, top + 0.12, width - 0.32, 0.24, 11, True, NAVY)
+    metrics = [
+        ("요청 PACK", format_report_value(kpi.get("request_pack", 0.0))),
+        ("용마입고 PACK", format_report_value(kpi.get("yongma_in_pack", 0.0))),
+        ("미입고 PACK", format_report_value(kpi.get("shortage_pack", 0.0))),
+        ("용마입고율", format_report_value(kpi.get("progress_pct", 0.0), True)),
+        ("생산진도율", format_report_value(kpi.get("production_progress_pct", 0.0), True)),
+    ]
+    row_top = top + 0.48
+    row_gap = 0.22
+    for idx, (label, value) in enumerate(metrics):
+        y = row_top + idx * row_gap
+        value_color = MUTED_ORANGE if label == "미입고 PACK" else TEXT_DARK
+        add_textbox(slide, label, left + 0.18, y, width * 0.52, 0.18, 7.5, False, TEXT_MUTED)
+        add_textbox(slide, value, left + width * 0.55, y - 0.01, width * 0.34, 0.2, 9.2, True, value_color, PP_ALIGN.RIGHT)
 
 
 def format_report_value(value: Any, is_percent: bool = False) -> str:
@@ -3736,19 +3864,23 @@ def format_report_value(value: Any, is_percent: bool = False) -> str:
 
 
 def build_priority_report_view(product_view: pd.DataFrame, max_rows: int = 8) -> pd.DataFrame:
+    columns = ["제품명", "요청 PACK", "생산진도율", "용마입고율", "생산부족수량", "미입고수량", "상태"]
     if product_view.empty:
-        return pd.DataFrame(
-            columns=["제품명", "요청 PACK", "생산진도율", "포장진도율", "생산부족수량", "포장부족수량", "상태"]
-        )
-    return (
-        product_view.sort_values(
-            ["포장부족수량", "생산부족수량", "요청 PACK"],
-            ascending=[False, False, False],
-            kind="stable",
-        )
-        .head(max_rows)
-        .copy()
-    )
+        return pd.DataFrame(columns=columns)
+
+    view = product_view.copy()
+    if "용마입고율" not in view.columns:
+        view["용마입고율"] = view.get("포장진도율", 0.0)
+    if "미입고수량" not in view.columns:
+        view["미입고수량"] = view.get("포장부족수량", 0.0)
+    for col in columns:
+        if col not in view.columns:
+            view[col] = ""
+    return view.sort_values(
+        ["미입고수량", "생산부족수량", "요청 PACK"],
+        ascending=[False, False, False],
+        kind="stable",
+    ).head(max_rows)[columns].copy()
 
 
 def build_ppt_report(
@@ -3769,94 +3901,103 @@ def build_ppt_report(
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = ppt_rgb(WHITE)
 
-    add_textbox(slide, "국내 제품 포장현황 운영 보고서", 0.35, 0.22, 8.8, 0.36, 20, True, NAVY)
+    add_textbox(slide, "국내 제품 포장현황 운영 보고서", 0.45, 0.26, 8.2, 0.34, 22, True, NAVY)
     generated_at = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M")
     add_textbox(
         slide,
-        f"기준: {scope_label} | 산출시각: {generated_at} | 포장 기준 운영 우선순위",
-        0.35,
-        0.62,
-        8.8,
-        0.25,
-        9,
+        f"기준: {scope_label} | 산출시각: {generated_at} | 용마입고 기준 진도 및 운영 우선순위",
+        0.45,
+        0.66,
+        9.4,
+        0.22,
+        8.5,
         False,
         TEXT_MUTED,
     )
+    add_report_rule(slide, 0.45, 0.94, 12.45)
 
-    kpi_table = slide.shapes.add_table(6, 4, Inches(0.35), Inches(1.05), Inches(12.65), Inches(1.65)).table
-    for idx, width in enumerate([2.4, 3.4, 3.4, 3.4]):
-        kpi_table.columns[idx].width = Inches(width)
-    header_labels = ["지표", "전체 KPI", "본품 KPI", "샘플 KPI"]
-    for col_idx, label in enumerate(header_labels):
-        cell = kpi_table.cell(0, col_idx)
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = ppt_rgb(NAVY)
-        set_cell_text(cell, label, size=9, bold=True, color=WHITE)
-
-    metric_rows = [
-        ("요청 PACK", "request_pack", False),
-        ("포장 PACK", "packing_pack", False),
-        ("부족 PACK", "shortage_pack", False),
-        ("포장진도율", "progress_pct", True),
-        ("생산진도율", "production_progress_pct", True),
-    ]
     kpi_map = {name: kpi for name, kpi in scope_kpis}
-    for row_idx, (label, key, is_percent) in enumerate(metric_rows, start=1):
-        set_cell_text(kpi_table.cell(row_idx, 0), label, size=9, bold=True, color=NAVY, align=PP_ALIGN.LEFT)
-        for col_idx, scope in enumerate(["전체", "본품", "샘플"], start=1):
-            cell = kpi_table.cell(row_idx, col_idx)
-            if key == "shortage_pack":
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = ppt_rgb("#fff7ef")
-                color = MUTED_ORANGE
-            else:
-                color = TEXT_DARK
-            set_cell_text(cell, format_report_value(kpi_map[scope].get(key, 0.0), is_percent), size=10, bold=True, color=color)
+    card_width = 4.02
+    card_gap = 0.2
+    for idx, scope in enumerate(["전체", "본품", "샘플"]):
+        add_kpi_card(
+            slide,
+            f"{scope} KPI",
+            kpi_map.get(scope, {}),
+            0.45 + idx * (card_width + card_gap),
+            1.12,
+            card_width,
+            1.72,
+        )
 
-    add_textbox(slide, "우선 대응 제품 TOP 8", 0.35, 3.0, 5.0, 0.25, 13, True, NAVY)
+    add_textbox(slide, "우선 대응 제품 TOP 8", 0.45, 3.12, 4.2, 0.26, 13.5, True, NAVY)
     add_textbox(
         slide,
-        "포장부족수량, 생산부족수량, 요청 PACK 순 정렬",
-        0.35,
-        3.28,
-        5.8,
-        0.22,
-        8,
+        "미입고 PACK, 생산부족 PCS, 요청 PACK 순 정렬",
+        0.45,
+        3.4,
+        6.4,
+        0.2,
+        7.5,
         False,
         TEXT_MUTED,
     )
 
     rows = max(2, len(priority_view) + 1)
-    table = slide.shapes.add_table(rows, 7, Inches(0.35), Inches(3.58), Inches(12.65), Inches(3.45)).table
-    widths = [3.9, 1.25, 1.25, 1.25, 1.55, 1.55, 0.9]
+    table = slide.shapes.add_table(rows, 7, Inches(0.45), Inches(3.72), Inches(12.45), Inches(3.22)).table
+    widths = [4.35, 1.2, 1.35, 1.35, 1.65, 1.65, 0.9]
     for idx, width in enumerate(widths):
         table.columns[idx].width = Inches(width)
-    headers = ["제품명", "요청", "생산진도", "포장진도", "생산부족", "포장부족", "상태"]
+    table.rows[0].height = Inches(0.34)
+    for row_idx in range(1, rows):
+        table.rows[row_idx].height = Inches(0.34)
+
+    headers = ["제품명", "요청 PACK", "생산진도", "용마입고", "생산부족 PCS", "미입고 PACK", "상태"]
     for col_idx, label in enumerate(headers):
         cell = table.cell(0, col_idx)
         cell.fill.solid()
         cell.fill.fore_color.rgb = ppt_rgb(SOFT_NAVY)
-        set_cell_text(cell, label, size=8, bold=True, color=WHITE)
+        set_cell_text(cell, label, size=7.8, bold=True, color=WHITE)
 
     if priority_view.empty:
-        set_cell_text(table.cell(1, 0), "조건에 맞는 제품 데이터가 없습니다.", size=9, color=TEXT_MUTED, align=PP_ALIGN.LEFT)
+        set_cell_text(table.cell(1, 0), "조건에 맞는 제품 데이터가 없습니다.", size=8, color=TEXT_MUTED, align=PP_ALIGN.LEFT)
         for col_idx in range(1, 7):
-            set_cell_text(table.cell(1, col_idx), "", size=8)
+            set_cell_text(table.cell(1, col_idx), "", size=7.5)
     else:
         for row_idx, (_, row) in enumerate(priority_view.iterrows(), start=1):
             values = [
-                str(row["제품명"]),
+                truncate_report_text(row["제품명"], max_chars=38),
                 format_report_value(row["요청 PACK"]),
                 format_report_value(row["생산진도율"], True),
-                format_report_value(row["포장진도율"], True),
+                format_report_value(row["용마입고율"], True),
                 format_report_value(row["생산부족수량"]),
-                format_report_value(row["포장부족수량"]),
+                format_report_value(row["미입고수량"]),
                 str(row["상태"]),
             ]
             for col_idx, value in enumerate(values):
                 color = MUTED_ORANGE if col_idx in {4, 5} else TEXT_DARK
                 align = PP_ALIGN.LEFT if col_idx == 0 else PP_ALIGN.CENTER
-                set_cell_text(table.cell(row_idx, col_idx), value, size=7 if col_idx == 0 else 8, bold=col_idx in {4, 5}, color=color, align=align)
+                set_cell_text(
+                    table.cell(row_idx, col_idx),
+                    value,
+                    size=7.2 if col_idx == 0 else 7.8,
+                    bold=col_idx in {4, 5},
+                    color=color,
+                    align=align,
+                )
+
+    add_report_rule(slide, 0.45, 7.08, 12.45)
+    add_textbox(
+        slide,
+        "자료: 생산요청물량, 포장실적 현황, 용마이동현황 | 수량 단위: PACK / PCS | 대시보드 산출 기준과 동일",
+        0.45,
+        7.18,
+        12.45,
+        0.14,
+        6.3,
+        False,
+        TEXT_MUTED,
+    )
 
     output = BytesIO()
     prs.save(output)
@@ -3910,7 +4051,7 @@ def build_progress_compare_chart(
         color="구분",
         title="전체/본품/샘플 진도율 비교",
         text="진도율(%)",
-        color_discrete_map={"전체": NAVY, "본품": SOFT_NAVY, "샘플": "#7087a5"},
+        color_discrete_map={"전체": COLOR_BLUE, "본품": COLOR_TEAL, "샘플": COLOR_AMBER},
     )
     fig.update_traces(texttemplate="%{text:.1f}%")
     fig.update_layout(
@@ -3946,7 +4087,7 @@ def build_shortage_top_chart(main_df: pd.DataFrame, sample_df: pd.DataFrame, top
         orientation="h",
         title=f"포장부족 TOP {min(top_n, len(source))}",
         text="포장부족수량",
-        color_discrete_map={"본품": MUTED_ORANGE, "샘플": "#d99a5f"},
+        color_discrete_map={"본품": COLOR_ORANGE, "샘플": COLOR_AMBER},
     )
     fig.update_traces(texttemplate="%{text:,.0f}")
     fig.update_layout(
@@ -3987,7 +4128,7 @@ def build_product_progress_gap_chart(df: pd.DataFrame, top_n: int = 18) -> px.ba
         category_orders={"제품명": product_order, "지표": ["생산진도율", "포장진도율"]},
         title="제품별 생산진도율 vs 포장진도율",
         text="진도율",
-        color_discrete_map={"생산진도율": SOFT_NAVY, "포장진도율": NAVY},
+        color_discrete_map={"생산진도율": COLOR_BLUE, "포장진도율": COLOR_TEAL},
     )
     fig.update_traces(texttemplate="%{text:.1f}%")
     fig.update_layout(
@@ -4005,23 +4146,197 @@ def render_style() -> None:
     st.markdown(
         f"""
         <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        html, body, [class*="css"], .stApp {{
+            font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif !important;
+            color: {TEXT_PRIMARY};
+        }}
         .stApp {{
-            background: {LIGHT_GRAY};
-            color: {TEXT_DARK};
+            background: {BG_PAGE};
+            color: {TEXT_PRIMARY};
         }}
         :root {{
             --ui-gap: 12px;
+            --color-blue: {COLOR_BLUE};
+            --color-teal: {COLOR_TEAL};
+            --color-orange: {COLOR_ORANGE};
+            --color-amber: {COLOR_AMBER};
+            --bg-page: {BG_PAGE};
+            --bg-card: {BG_CARD};
+            --bg-section: {BG_SECTION};
+            --text-primary: {TEXT_PRIMARY};
+            --text-secondary: {TEXT_SECONDARY};
+            --text-tertiary: {TEXT_TERTIARY};
+            --border-default: {BORDER_DEFAULT};
+            --border-light: {BORDER_LIGHT};
         }}
         .block-container {{
-            padding-top: 1.2rem;
-            padding-bottom: 2.0rem;
+            padding: 24px 32px 32px !important;
+            max-width: 1400px !important;
+        }}
+        h1 {{
+            font-size: 22px !important;
+            font-weight: 500 !important;
+            color: {TEXT_PRIMARY} !important;
+            margin-bottom: 4px !important;
+            letter-spacing: 0 !important;
+        }}
+        h2 {{
+            font-size: 15px !important;
+            font-weight: 500 !important;
+            color: {TEXT_PRIMARY} !important;
+            margin-bottom: 2px !important;
+            letter-spacing: 0 !important;
+        }}
+        h3 {{
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            color: {TEXT_PRIMARY} !important;
+            letter-spacing: 0 !important;
+        }}
+        [data-baseweb="tab-list"] {{
+            gap: 0 !important;
+            border-bottom: 1.5px solid {BORDER_DEFAULT} !important;
+            background: transparent !important;
+            margin-bottom: 20px !important;
+        }}
+        [data-baseweb="tab"] {{
+            font-size: 13px !important;
+            padding: 10px 20px !important;
+            color: {TEXT_SECONDARY} !important;
+            background: transparent !important;
+            letter-spacing: 0 !important;
+        }}
+        [aria-selected="true"][data-baseweb="tab"] {{
+            color: {COLOR_ORANGE} !important;
+            font-weight: 500 !important;
+        }}
+        [data-baseweb="tab-highlight"] {{
+            background-color: {COLOR_ORANGE} !important;
+            height: 2px !important;
+        }}
+        [data-baseweb="tab-border"] {{
+            display: none !important;
+        }}
+        [data-testid="stRadio"] label,
+        [data-testid="stCheckbox"] label {{
+            font-size: 13px !important;
+            color: {TEXT_SECONDARY} !important;
+        }}
+        [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p,
+        [data-testid="stCheckbox"] [data-testid="stMarkdownContainer"] p {{
+            font-size: 13px !important;
+            color: {TEXT_SECONDARY} !important;
+        }}
+        [data-testid="metric-container"] {{
+            background: {BG_CARD};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: none;
+        }}
+        [data-testid="stMetricLabel"] {{
+            font-size: 11px !important;
+            color: {TEXT_TERTIARY} !important;
+            font-weight: 400 !important;
+        }}
+        [data-testid="stMetricValue"] {{
+            font-size: 20px !important;
+            line-height: 1.1 !important;
+            font-weight: 500 !important;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        [data-testid="stMetricDelta"] {{
+            display: none !important;
+        }}
+        [data-testid="stDataFrame"] {{
+            border: 0.5px solid {BORDER_DEFAULT} !important;
+            border-radius: 12px !important;
+            overflow: hidden;
+            background: {BG_CARD};
+        }}
+        [data-testid="stDataFrame"] th {{
+            background: {BG_PAGE} !important;
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            color: {TEXT_SECONDARY} !important;
+            padding: 8px 12px !important;
+            border-bottom: 1px solid {BORDER_DEFAULT} !important;
+            white-space: nowrap;
+        }}
+        [data-testid="stDataFrame"] td {{
+            font-size: 12px !important;
+            color: {TEXT_PRIMARY} !important;
+            padding: 7px 12px !important;
+            border-bottom: 0.5px solid {BORDER_LIGHT} !important;
+        }}
+        [data-testid="stDataFrame"] tr:hover td {{
+            background: {BG_PAGE} !important;
+        }}
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stSelectbox"] > div > div,
+        [data-testid="stMultiSelect"] > div > div {{
+            font-size: 13px !important;
+            border-radius: 8px !important;
+            border: 0.5px solid rgba(0,0,0,0.15) !important;
+            background: {BG_CARD} !important;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        [data-testid="stTextInput"] label,
+        [data-testid="stNumberInput"] label,
+        [data-testid="stSelectbox"] label,
+        [data-testid="stMultiSelect"] label {{
+            font-size: 12px !important;
+            font-weight: 500 !important;
+            color: {TEXT_SECONDARY} !important;
+        }}
+        [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
+            background: {COLOR_ALERT_BG} !important;
+            color: #993C1D !important;
+            border-radius: 20px !important;
+            border: 0 !important;
+            font-size: 12px !important;
+            font-weight: 500 !important;
+        }}
+        [data-testid="stButton"] button,
+        [data-testid="stDownloadButton"] button {{
+            border-radius: 8px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            border: 0.5px solid rgba(0,0,0,0.15) !important;
+            background: {BG_CARD} !important;
+            color: {TEXT_PRIMARY} !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stButton"] button:hover,
+        [data-testid="stDownloadButton"] button:hover {{
+            background: {BG_PAGE} !important;
+            border-color: rgba(0,0,0,0.25) !important;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        hr {{
+            border-color: rgba(0,0,0,0.08) !important;
+            margin: 20px 0 !important;
+        }}
+        ::-webkit-scrollbar {{
+            width: 6px;
+            height: 6px;
+        }}
+        ::-webkit-scrollbar-track {{
+            background: transparent;
+        }}
+        ::-webkit-scrollbar-thumb {{
+            background: rgba(0,0,0,0.15);
+            border-radius: 3px;
         }}
         .kpi-panel {{
-            background: {WHITE};
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
-            padding: 12px;
-            box-shadow: 0 1px 3px rgba(17, 34, 58, 0.05);
+            background: {BG_CARD};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: none;
             margin-bottom: 0;
             height: 100%;
         }}
@@ -4029,9 +4344,9 @@ def render_style() -> None:
             margin-bottom: 12px;
         }}
         .kpi-title {{
-            font-size: 14px;
-            font-weight: 700;
-            color: {NAVY};
+            font-size: 15px;
+            font-weight: 500;
+            color: {TEXT_PRIMARY};
             margin-bottom: var(--ui-gap);
         }}
         .kpi-grid {{
@@ -4044,10 +4359,10 @@ def render_style() -> None:
             gap: 8px;
         }}
         .kpi-card {{
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
-            padding: 10px;
-            background: {WHITE};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 14px 18px;
+            background: {BG_CARD};
             min-height: 72px;
             display: flex;
             flex-direction: column;
@@ -4055,21 +4370,21 @@ def render_style() -> None:
         }}
         .metric-label {{
             font-size: 11px;
-            font-weight: 600;
-            color: {TEXT_MUTED};
-            margin-bottom: 5px;
+            font-weight: 400;
+            color: {TEXT_TERTIARY};
+            margin-bottom: 6px;
         }}
         .metric-value {{
-            font-size: clamp(18px, 1.35vw, 26px);
-            line-height: 1.0;
-            font-weight: 800;
-            color: {NAVY};
+            font-size: 20px;
+            line-height: 1.1;
+            font-weight: 500;
+            color: {TEXT_PRIMARY};
             white-space: nowrap;
             overflow-wrap: normal;
             word-break: normal;
         }}
         .scope-kpi .metric-value {{
-            font-size: clamp(18px, 1.15vw, 22px);
+            font-size: 20px;
         }}
         @media (max-width: 1100px) {{
             .scope-kpi .kpi-grid {{
@@ -4077,30 +4392,39 @@ def render_style() -> None:
             }}
         }}
         .metric-value.warn {{
-            color: {MUTED_ORANGE};
+            color: {COLOR_ORANGE};
         }}
         .metric-value.risk {{
-            color: {MUTED_RED};
+            color: {COLOR_ORANGE};
         }}
         .metric-value.normal {{
-            color: {NAVY};
+            color: {TEXT_PRIMARY};
+        }}
+        .metric-value.good {{
+            color: {COLOR_TEAL};
+        }}
+        .metric-value.mid {{
+            color: {COLOR_AMBER};
+        }}
+        .metric-value.muted {{
+            color: {TEXT_TERTIARY};
         }}
         .mini-kpi-grid {{
             display: grid;
-            grid-template-columns: repeat(6, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 10px;
             margin-bottom: 12px;
         }}
         .mini-kpi-card {{
-            background: {WHITE};
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
-            padding: 12px;
+            background: {BG_CARD};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 14px 18px;
             min-height: 76px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            box-shadow: 0 1px 3px rgba(17, 34, 58, 0.04);
+            box-shadow: none;
         }}
         @media (max-width: 1100px) {{
             .mini-kpi-grid {{
@@ -4108,15 +4432,15 @@ def render_style() -> None:
             }}
         }}
         .shortage-card {{
-            border-color: #efdcc8;
-            background: #fffaf5;
+            border-color: {COLOR_ALERT_BD};
+            background: {COLOR_ALERT_BG};
         }}
         .panel-box {{
-            background: {WHITE};
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
-            padding: 12px;
-            box-shadow: 0 1px 3px rgba(17, 34, 58, 0.04);
+            background: {BG_CARD};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 16px 20px;
+            box-shadow: none;
         }}
         .family-section {{
             display: flex;
@@ -4127,11 +4451,15 @@ def render_style() -> None:
             margin-top: 16px;
         }}
         .family-section-title {{
-            color: {TEXT_DARK};
-            font-size: 15px;
-            font-weight: 900;
+            display: inline-block;
+            width: fit-content;
+            color: #444441;
+            background: {BG_SECTION};
+            font-size: 13px;
+            font-weight: 500;
             line-height: 1.2;
-            padding: 0 2px;
+            padding: 5px 12px;
+            border-radius: 8px;
         }}
         .family-grid {{
             display: grid;
@@ -4139,14 +4467,18 @@ def render_style() -> None:
             gap: 10px;
         }}
         .family-card {{
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
-            background: {WHITE};
-            padding: 12px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            background: {BG_CARD};
+            padding: 14px 16px;
             min-height: 128px;
             display: flex;
             flex-direction: column;
             gap: 10px;
+        }}
+        .family-card:has(.progress-fill.production.risk),
+        .family-card:has(.progress-fill.production.warn) {{
+            border-color: {COLOR_ALERT_BD};
         }}
         .family-head {{
             display: flex;
@@ -4155,14 +4487,17 @@ def render_style() -> None:
             gap: 10px;
         }}
         .family-head span {{
-            color: {NAVY};
-            font-size: 14px;
-            font-weight: 800;
+            color: {TEXT_PRIMARY};
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }}
         .family-head b {{
-            color: {TEXT_MUTED};
-            font-size: 12px;
-            font-weight: 700;
+            color: {TEXT_TERTIARY};
+            font-size: 11px;
+            font-weight: 400;
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }}
@@ -4170,11 +4505,11 @@ def render_style() -> None:
             display: flex;
             justify-content: space-between;
             gap: 8px;
-            color: {TEXT_MUTED};
-            font-size: 12px;
+            color: {TEXT_SECONDARY};
+            font-size: 10px;
         }}
         .family-shortages b {{
-            color: {MUTED_ORANGE};
+            color: {COLOR_ORANGE};
             font-variant-numeric: tabular-nums;
         }}
         .top-list {{
@@ -4185,35 +4520,28 @@ def render_style() -> None:
         .top-row {{
             display: grid;
             grid-template-columns: 32px minmax(220px, 1fr) 120px minmax(240px, 0.9fr);
-            gap: 10px;
+            gap: 12px;
             align-items: center;
-            border: 1px solid #edf1f5;
-            border-radius: 8px;
-            padding: 8px 10px;
-            background: {WHITE};
+            border-bottom: 0.5px solid {BORDER_LIGHT};
+            padding: 10px 16px;
+            background: {BG_CARD};
         }}
         .top-rank {{
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: #eef3f9;
-            color: {NAVY};
-            display: flex;
-            align-items: center;
-            justify-content: center;
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 500;
+            color: {TEXT_TERTIARY};
+            text-align: center;
         }}
         .top-name {{
-            color: {TEXT_DARK};
-            font-size: 12px;
-            font-weight: 700;
+            color: {TEXT_PRIMARY};
+            font-size: 13px;
+            font-weight: 400;
             overflow-wrap: anywhere;
         }}
         .top-shortage {{
-            color: {MUTED_ORANGE};
+            color: {COLOR_ORANGE};
             font-size: 13px;
-            font-weight: 800;
+            font-weight: 500;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }}
@@ -4228,20 +4556,19 @@ def render_style() -> None:
         .gap-row {{
             display: grid;
             grid-template-columns: 32px minmax(220px, 1fr) minmax(220px, 0.78fr) minmax(220px, 0.78fr) 82px;
-            gap: 10px;
+            gap: 12px;
             align-items: center;
-            border: 1px solid #edf1f5;
-            border-radius: 8px;
-            padding: 8px 10px;
-            background: {WHITE};
+            border-bottom: 0.5px solid {BORDER_LIGHT};
+            padding: 10px 16px;
+            background: {BG_CARD};
         }}
         .gap-progress {{
             min-width: 0;
         }}
         .gap-value {{
-            color: {MUTED_ORANGE};
-            font-size: 14px;
-            font-weight: 800;
+            color: {COLOR_ORANGE};
+            font-size: 13px;
+            font-weight: 500;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }}
@@ -4274,9 +4601,9 @@ def render_style() -> None:
         .table-wrap {{
             max-height: 640px;
             overflow: auto;
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
-            background: {WHITE};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            background: {BG_CARD};
         }}
         .ops-table {{
             width: 100%;
@@ -4286,21 +4613,24 @@ def render_style() -> None:
         .ops-table th {{
             position: sticky;
             top: 0;
-            background: #f7f9fc;
-            color: {NAVY};
-            font-size: 12px;
-            font-weight: 700;
-            border-bottom: 1px solid {MID_GRAY};
-            padding: 8px 8px;
+            background: {BG_PAGE};
+            color: {TEXT_SECONDARY};
+            font-size: 11px;
+            font-weight: 500;
+            border-bottom: 1px solid {BORDER_DEFAULT};
+            padding: 8px 12px;
             z-index: 1;
         }}
         .ops-table td {{
-            border-bottom: 1px solid #edf1f5;
-            padding: 8px 8px;
+            border-bottom: 0.5px solid {BORDER_LIGHT};
+            padding: 7px 12px;
             font-size: 12px;
-            color: {TEXT_DARK};
+            color: {TEXT_PRIMARY};
             vertical-align: middle;
-            background: {WHITE};
+            background: {BG_CARD};
+        }}
+        .ops-table tbody tr:hover td {{
+            background: {BG_PAGE};
         }}
         .ops-table td.left, .ops-table th.left {{
             text-align: left;
@@ -4310,17 +4640,17 @@ def render_style() -> None:
             font-variant-numeric: tabular-nums;
         }}
         .ops-table td.num.shortage {{
-            color: {MUTED_ORANGE};
-            font-weight: 700;
+            color: {COLOR_ORANGE};
+            font-weight: 500;
         }}
         .ops-table td.power-cell {{
             text-align: center;
             font-variant-numeric: tabular-nums;
-            font-weight: 700;
-            color: {NAVY};
+            font-weight: 500;
+            color: {TEXT_PRIMARY};
         }}
         .ops-table td.power-cell.high {{
-            color: {NAVY};
+            color: {TEXT_PRIMARY};
         }}
         .progress-cell {{
             display: flex;
@@ -4329,123 +4659,134 @@ def render_style() -> None:
         }}
         .progress-name {{
             min-width: 28px;
-            color: {TEXT_MUTED};
+            color: {TEXT_SECONDARY};
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 500;
         }}
         .progress-track {{
             flex: 1;
             min-width: 80px;
-            height: 8px;
-            border-radius: 999px;
-            background: #edf2f7;
+            height: 5px;
+            border-radius: 3px;
+            background: {BG_SECTION};
             overflow: hidden;
         }}
         .progress-fill {{
             height: 100%;
-            border-radius: 999px;
+            border-radius: 3px;
         }}
         .progress-fill.done {{
-            background: {NAVY};
+            background: {COLOR_TEAL};
         }}
         .progress-fill.active {{
-            background: {SOFT_NAVY};
+            background: {COLOR_TEAL};
         }}
         .progress-fill.warn {{
-            background: {SOFT_NAVY};
+            background: {COLOR_AMBER};
         }}
         .progress-fill.risk {{
-            background: {MID_GRAY};
+            background: {COLOR_ORANGE};
+        }}
+        .progress-fill.production {{
+            background: {COLOR_BLUE};
+        }}
+        .progress-fill.receipt {{
+            background: {COLOR_TEAL};
+        }}
+        .progress-fill.risk.receipt {{
+            background: {TEXT_TERTIARY};
         }}
         .progress-text {{
             min-width: 52px;
             text-align: right;
             font-size: 11px;
-            color: {TEXT_MUTED};
+            color: {TEXT_TERTIARY};
             font-variant-numeric: tabular-nums;
         }}
         .status-badge {{
             display: inline-block;
             padding: 3px 8px;
-            border-radius: 999px;
+            border-radius: 6px;
             border: 1px solid transparent;
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 400;
             line-height: 1.2;
         }}
         .status-badge.done {{
-            background: #eef3f9;
-            color: {NAVY};
-            border-color: #dbe5f1;
+            background: #EAF3DE;
+            color: #3B6D11;
         }}
         .status-badge.active {{
-            background: #e8eef6;
-            color: {SOFT_NAVY};
-            border-color: #d2deeb;
+            background: #E6F1FB;
+            color: {COLOR_BLUE};
         }}
         .status-badge.warn {{
-            background: #f5f7fa;
-            color: {TEXT_MUTED};
-            border-color: #e1e7ef;
+            background: {COLOR_ALERT_BG};
+            color: #993C1D;
+            font-weight: 500;
+        }}
+        .status-badge.waiting {{
+            background: #F1EFE8;
+            color: #5F5E5A;
         }}
         .status-badge.risk {{
-            background: #f5f7fa;
-            color: {TEXT_MUTED};
-            border-color: #e1e7ef;
+            background: {COLOR_ALERT_BG};
+            color: #993C1D;
         }}
         .section-title {{
-            color: {NAVY};
-            font-weight: 700;
-            font-size: 16px;
-            margin-bottom: 6px;
+            color: {TEXT_PRIMARY};
+            font-weight: 500;
+            font-size: 15px;
+            margin-bottom: 4px;
         }}
         .section-sub {{
-            color: {TEXT_MUTED};
+            color: {TEXT_SECONDARY};
             font-size: 12px;
+            font-weight: 400;
             margin-bottom: 10px;
         }}
         .breadcrumb {{
             display: flex;
             gap: 8px;
             align-items: center;
-            color: {TEXT_MUTED};
+            color: {TEXT_SECONDARY};
             font-size: 12px;
             margin: 2px 0 10px 0;
         }}
         .breadcrumb span {{
-            color: {NAVY};
-            font-weight: 700;
+            color: {COLOR_BLUE};
+            font-weight: 500;
         }}
         .breadcrumb b {{
-            color: {TEXT_MUTED};
+            color: {TEXT_SECONDARY};
         }}
         .progress-summary-panel {{
             display: grid;
             grid-template-columns: minmax(0, 1fr) 160px;
             gap: 14px;
             align-items: stretch;
-            background: {WHITE};
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
-            padding: 12px;
+            background: {BG_CARD};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 16px 20px;
             margin-bottom: 12px;
         }}
         .progress-summary-panel .progress-cell {{
             margin: 10px 0;
         }}
         .dday-box {{
-            border: 1px solid {MID_GRAY};
-            border-radius: 8px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             padding: 12px;
             display: flex;
             flex-direction: column;
             justify-content: center;
-            background: #fbfcfe;
+            background: {BG_PAGE};
         }}
         .dday-value {{
-            color: {NAVY};
-            font-size: 26px;
-            font-weight: 800;
+            color: {COLOR_ORANGE};
+            font-size: 20px;
+            font-weight: 500;
             font-variant-numeric: tabular-nums;
         }}
         </style>
@@ -5288,7 +5629,6 @@ def render_power_tab(code_summary: pd.DataFrame) -> None:
 
     power_summary = build_power_summary_view(power_source)
     ops_kpi = calc_power_ops_kpi(power_detail_for_heatmap)
-    oc1, oc2, oc3, oc4, oc5 = st.columns(5, gap="small")
     if power_unit_mode == UNIT_PCS:
         request_pcs = float(power_summary["요청합계(PCS)"].sum()) if not power_summary.empty else 0.0
         production_shortage_pcs = (
@@ -5306,17 +5646,27 @@ def render_power_tab(code_summary: pd.DataFrame) -> None:
             if request_pack > 0
             else 0.0
         )
-        oc1.metric("대상 도수", f"{ops_kpi['rows']:,}")
-        oc2.metric("요청합계(PCS)", format_int(request_pcs))
-        oc3.metric("생산부족수량(PCS)", format_int(production_shortage_pcs))
-        oc4.metric("생산진도율", f"{min(100.0, max(0.0, production_progress)):.1f}%")
-        oc5.metric("포장진도율", f"{min(100.0, max(0.0, packing_progress)):.1f}%")
+        production_progress = min(100.0, max(0.0, production_progress))
+        packing_progress = min(100.0, max(0.0, packing_progress))
+        render_metric_card_grid(
+            [
+                ("대상 도수", f"{ops_kpi['rows']:,}", "normal"),
+                ("요청합계(PCS)", format_int(request_pcs), "normal"),
+                ("생산부족수량(PCS)", format_int(production_shortage_pcs), "warn"),
+                ("생산진도율", f"{production_progress:.1f}%", metric_progress_tone(production_progress)),
+                ("포장진도율", f"{packing_progress:.1f}%", metric_progress_tone(packing_progress)),
+            ]
+        )
     else:
-        oc1.metric("대상 도수", f"{ops_kpi['rows']:,}")
-        oc2.metric("포장부족 도수", f"{ops_kpi['shortage_rows']:,}")
-        oc3.metric("미착수 도수", f"{ops_kpi['not_started_rows']:,}")
-        oc4.metric("하이파워 부족", f"{ops_kpi['high_power_shortage_rows']:,}")
-        oc5.metric("포장부족(PACK) 합계", format_int(ops_kpi["shortage_qty"]))
+        render_metric_card_grid(
+            [
+                ("대상 도수", f"{ops_kpi['rows']:,}", "normal"),
+                ("포장부족 도수", f"{ops_kpi['shortage_rows']:,}", "warn"),
+                ("미착수 도수", f"{ops_kpi['not_started_rows']:,}", "warn"),
+                ("하이파워 부족", f"{ops_kpi['high_power_shortage_rows']:,}", "warn"),
+                ("포장부족(PACK) 합계", format_int(ops_kpi["shortage_qty"]), "warn"),
+            ]
+        )
 
     selected_power_row = render_selectable_table(
         "POWER 히트맵 상세",
