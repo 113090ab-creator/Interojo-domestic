@@ -3013,6 +3013,14 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
             ("입고대기수량", format_int(waiting_qty), "warn" if waiting_qty > 0 else "normal"),
         ]
     )
+    dl_col, _ = st.columns([1.2, 4.8], gap="small")
+    with dl_col:
+        render_excel_download(
+            "엑셀 다운로드",
+            "포장_LOT_상세",
+            {"포장 LOT 상세": view},
+            key="download_packing_lot_excel",
+        )
 
     st.dataframe(
         view,
@@ -4073,6 +4081,75 @@ def format_report_value(value: Any, is_percent: bool = False) -> str:
     return f"{float(num):.1f}%" if is_percent else format_int(float(num))
 
 
+def sanitize_excel_sheet_name(name: str) -> str:
+    cleaned = re.sub(r"[\[\]\:\*\?\/\\]", "_", clean_str(name))
+    return (cleaned or "Sheet")[:31]
+
+
+def dataframe_for_excel(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    drop_cols = [
+        col
+        for col in out.columns
+        if str(col).startswith("_") or str(col) in {"power_value"}
+    ]
+    if drop_cols:
+        out = out.drop(columns=drop_cols, errors="ignore")
+    for col in out.columns:
+        if pd.api.types.is_datetime64tz_dtype(out[col]):
+            out[col] = out[col].dt.tz_localize(None)
+    return out
+
+
+def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
+    output = BytesIO()
+    used_names: set[str] = set()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for raw_name, df in sheets.items():
+            base_name = sanitize_excel_sheet_name(raw_name)
+            sheet_name = base_name
+            suffix = 1
+            while sheet_name in used_names:
+                suffix += 1
+                sheet_name = f"{base_name[:28]}_{suffix}"
+            used_names.add(sheet_name)
+
+            excel_df = dataframe_for_excel(df)
+            if excel_df.empty:
+                excel_df = pd.DataFrame({"내용": ["조건에 맞는 데이터가 없습니다."]})
+            excel_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            worksheet = writer.sheets[sheet_name]
+            for col_idx, col_name in enumerate(excel_df.columns, start=1):
+                values = excel_df[col_name].astype(str).head(300)
+                max_len = max([len(str(col_name)), *(values.map(len).tolist() if not values.empty else [0])])
+                worksheet.column_dimensions[worksheet.cell(row=1, column=col_idx).column_letter].width = min(
+                    max(max_len + 2, 10),
+                    45,
+                )
+    return output.getvalue()
+
+
+def render_excel_download(
+    label: str,
+    file_prefix: str,
+    sheets: dict[str, pd.DataFrame],
+    key: str,
+    width: str = "stretch",
+) -> None:
+    timestamp = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y%m%d_%H%M")
+    st.download_button(
+        label,
+        data=build_excel_download_bytes(sheets),
+        file_name=f"{file_prefix}_{timestamp}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width=width,
+        key=key,
+    )
+
+
 def build_priority_report_view(product_view: pd.DataFrame, max_rows: int = 8) -> pd.DataFrame:
     columns = ["제품명", "요청 PACK", "생산진도율", "용마입고율", "생산부족수량", "미입고수량", "상태"]
     if product_view.empty:
@@ -4295,105 +4372,89 @@ def build_ppt_report(
     prs.slide_height = Inches(7.5)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
-    slide.background.fill.fore_color.rgb = ppt_rgb(WHITE)
+    slide.background.fill.fore_color.rgb = ppt_rgb(BG_PAGE)
 
-    add_textbox(slide, "국내 제품 포장현황 운영 보고서", 0.45, 0.26, 8.2, 0.34, 22, True, NAVY)
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0, 0, 13.333, 0.75, TEXT_DARK, TEXT_DARK)
+    add_textbox(
+        slide,
+        "국내 제품 포장현황 운영 보고서",
+        0.3,
+        0,
+        8.0,
+        0.75,
+        16,
+        True,
+        WHITE,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
     generated_at = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M")
     add_textbox(
         slide,
-        f"기준: {scope_label} | 산출시각: {generated_at} | 용마입고 기준 진도 및 운영 우선순위",
-        0.45,
-        0.66,
-        9.4,
-        0.22,
-        8.5,
+        f"기준: {scope_label}  |  산출시각: {generated_at}  |  용마입고 기준 우선순위",
+        7.5,
+        0,
+        5.5,
+        0.75,
+        9,
         False,
-        TEXT_MUTED,
+        "#AAAAAA",
+        PP_ALIGN.RIGHT,
+        MSO_ANCHOR.MIDDLE,
     )
-    add_report_rule(slide, 0.45, 0.94, 12.45)
 
     kpi_map = {name: kpi for name, kpi in scope_kpis}
-    card_width = 4.02
-    card_gap = 0.2
-    for idx, scope in enumerate(["전체", "본품", "샘플"]):
-        add_kpi_card(
-            slide,
-            f"{scope} KPI",
-            kpi_map.get(scope, {}),
-            0.45 + idx * (card_width + card_gap),
-            1.12,
-            card_width,
-            1.72,
+    total_kpi = kpi_map.get("전체", {})
+    total_progress = to_report_float(total_kpi.get("progress_pct", 0.0))
+    total_shortage = to_report_float(total_kpi.get("shortage_pack", 0.0))
+    if total_shortage > 0:
+        banner_fill = COLOR_ALERT_BG
+        banner_line = COLOR_ALERT_BD
+        banner_color = COLOR_ORANGE
+        banner_text = (
+            f"주의 | 전체 용마입고율 {total_progress:.1f}% - "
+            f"미입고 {format_report_value(total_shortage)} PACK. 용마입고 및 포장 우선순위 확인 필요."
         )
+    else:
+        banner_fill = "#E8F5F0"
+        banner_line = "#9ED8C5"
+        banner_color = COLOR_TEAL
+        banner_text = f"정상 | 전체 용마입고율 {total_progress:.1f}% - 미입고 물량 없음."
 
-    add_textbox(slide, "우선 대응 제품 TOP 8", 0.45, 3.12, 4.2, 0.26, 13.5, True, NAVY)
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.25, 0.88, 12.8, 0.3, banner_fill, banner_line, 0.5)
     add_textbox(
         slide,
-        "미입고 PACK, 생산부족 PCS, 요청 PACK 순 정렬",
-        0.45,
-        3.4,
-        6.4,
-        0.2,
+        banner_text,
+        0.35,
+        0.88,
+        12.6,
+        0.3,
+        8.5,
+        True,
+        banner_color,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
+
+    add_textbox(slide, "핵심 KPI", 0.25, 1.28, 2.0, 0.22, 8, True, TEXT_SECONDARY)
+    add_kpi_card(slide, "전체 KPI", total_kpi, COLOR_BLUE, 0.25, 1.52, 4.15, 0.92)
+    add_kpi_card(slide, "본품 KPI", kpi_map.get("본품", {}), COLOR_TEAL, 4.52, 1.52, 4.0, 0.92)
+    add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_ORANGE, 8.65, 1.52, 4.4, 0.92)
+
+    add_textbox(slide, "우선 대응 제품 TOP 8", 0.25, 2.56, 5.0, 0.22, 8, True, TEXT_SECONDARY)
+    add_textbox(
+        slide,
+        "미입고 PACK -> 생산부족 PCS -> 요청 PACK 순 정렬",
+        5.5,
+        2.56,
+        5.0,
+        0.22,
         7.5,
         False,
-        TEXT_MUTED,
+        "#AAAAAA",
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
     )
 
-    rows = max(2, len(priority_view) + 1)
-    table = slide.shapes.add_table(rows, 7, Inches(0.45), Inches(3.72), Inches(12.45), Inches(3.22)).table
-    widths = [4.35, 1.2, 1.35, 1.35, 1.65, 1.65, 0.9]
-    for idx, width in enumerate(widths):
-        table.columns[idx].width = Inches(width)
-    table.rows[0].height = Inches(0.34)
-    for row_idx in range(1, rows):
-        table.rows[row_idx].height = Inches(0.34)
-
-    headers = ["제품명", "요청 PACK", "생산진도", "용마입고", "생산부족 PCS", "미입고 PACK", "상태"]
-    for col_idx, label in enumerate(headers):
-        cell = table.cell(0, col_idx)
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = ppt_rgb(SOFT_NAVY)
-        set_cell_text(cell, label, size=7.8, bold=True, color=WHITE)
-
-    if priority_view.empty:
-        set_cell_text(table.cell(1, 0), "조건에 맞는 제품 데이터가 없습니다.", size=8, color=TEXT_MUTED, align=PP_ALIGN.LEFT)
-        for col_idx in range(1, 7):
-            set_cell_text(table.cell(1, col_idx), "", size=7.5)
-    else:
-        for row_idx, (_, row) in enumerate(priority_view.iterrows(), start=1):
-            values = [
-                truncate_report_text(row["제품명"], max_chars=38),
-                format_report_value(row["요청 PACK"]),
-                format_report_value(row["생산진도율"], True),
-                format_report_value(row["용마입고율"], True),
-                format_report_value(row["생산부족수량"]),
-                format_report_value(row["미입고수량"]),
-                str(row["상태"]),
-            ]
-            for col_idx, value in enumerate(values):
-                color = MUTED_ORANGE if col_idx in {4, 5} else TEXT_DARK
-                align = PP_ALIGN.LEFT if col_idx == 0 else PP_ALIGN.CENTER
-                set_cell_text(
-                    table.cell(row_idx, col_idx),
-                    value,
-                    size=7.2 if col_idx == 0 else 7.8,
-                    bold=col_idx in {4, 5},
-                    color=color,
-                    align=align,
-                )
-
-    add_report_rule(slide, 0.45, 7.08, 12.45)
-    add_textbox(
-        slide,
-        "자료: 생산요청물량, 포장실적 현황, 용마이동현황 | 수량 단위: PACK / PCS | 대시보드 산출 기준과 동일",
-        0.45,
-        7.18,
-        12.45,
-        0.14,
-        6.3,
-        False,
-        TEXT_MUTED,
-    )
+    add_priority_report_table(slide, priority_view)
+    add_report_legend(slide)
 
     output = BytesIO()
     prs.save(output)
@@ -5720,6 +5781,19 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
         na_position="last",
         kind="stable",
     )
+    dl_col, _ = st.columns([1.2, 4.8], gap="small")
+    with dl_col:
+        render_excel_download(
+            "엑셀 다운로드",
+            "제품_진도_현황",
+            {
+                "제품 진도 현황": product_view,
+                "본품 분류별 진도": family_view,
+                "미입고 TOP10": top_shortage_view,
+                "생산입고 GAP TOP10": gap_top_view,
+            },
+            key="download_product_progress_excel",
+        )
     selected_product_row = render_selectable_table(
         "제품 진도 현황",
         f"제품 기준 요청/생산/용마입고 현황 | 표시 건수: {len(product_view):,}",
@@ -5859,6 +5933,14 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
         shortage_only=shortage_only,
     )
     render_production_power_kpis(production_view, unit_mode=production_unit_mode)
+    dl_col, _ = st.columns([1.2, 4.8], gap="small")
+    with dl_col:
+        render_excel_download(
+            "엑셀 다운로드",
+            "생산코드_상세",
+            {"생산코드 POWER": production_view},
+            key="download_production_code_excel",
+        )
 
     selected_production_row = render_selectable_table(
         "생산코드 + POWER 메인 테이블",
@@ -5994,6 +6076,17 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
         sales_source,
         stock_threshold_pack=float(stock_threshold_pack),
     )
+    dl_col, _ = st.columns([1.2, 4.8], gap="small")
+    with dl_col:
+        render_excel_download(
+            "엑셀 다운로드",
+            "판매코드_상세",
+            {
+                "긴급 포장 리스트": urgent_sales_base,
+                "판매코드": sales_view,
+            },
+            key="download_sales_code_excel",
+        )
     selected_sales_row = render_selectable_table(
         "판매코드",
         f"판매코드 기준 출고/오더 상세 | 표시 건수: {len(sales_view):,}",
@@ -6085,6 +6178,18 @@ def render_power_tab(code_summary: pd.DataFrame) -> None:
                 ("하이파워 부족", f"{ops_kpi['high_power_shortage_rows']:,}", "warn"),
                 ("포장부족(PACK) 합계", format_int(ops_kpi["shortage_qty"]), "warn"),
             ]
+        )
+
+    dl_col, _ = st.columns([1.2, 4.8], gap="small")
+    with dl_col:
+        render_excel_download(
+            "엑셀 다운로드",
+            "POWER_상세",
+            {
+                "POWER 요약": power_summary,
+                "POWER 상세": power_detail_for_heatmap,
+            },
+            key="download_power_excel",
         )
 
     selected_power_row = render_selectable_table(
