@@ -3173,7 +3173,6 @@ def render_production_power_kpis(view: pd.DataFrame, unit_mode: str = UNIT_PACK)
             ("총 생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "risk"),
             ("생산진도율", f"{kpi['production_progress_pct']:.1f}%", "normal"),
             ("포장진도율", f"{kpi['packing_progress_pct']:.1f}%", "normal"),
-            ("생산 병목 수", f"{int(kpi['production_bottleneck_count']):,}", "risk"),
         ]
     else:
         items = [
@@ -3181,8 +3180,6 @@ def render_production_power_kpis(view: pd.DataFrame, unit_mode: str = UNIT_PACK)
             ("총 요청 PACK", format_int(kpi["request_pack"]), "normal"),
             ("총 포장부족(PACK)", format_int(kpi["packing_shortage_pack"]), "warn"),
             ("총 생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "risk"),
-            ("생산 병목 수", f"{int(kpi['production_bottleneck_count']):,}", "risk"),
-            ("포장 병목 수", f"{int(kpi['packing_bottleneck_count']):,}", "warn"),
         ]
     cards = "".join(
         "<div class='mini-kpi-card'>"
