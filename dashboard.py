@@ -60,6 +60,7 @@ MAIN_PRODUCT_FAMILY_ORDER = [
     "기타",
 ]
 DETAIL_FAMILY_PLACEHOLDER = "본품분류 선택"
+FAMILY_CARD_SECTION_ORDER = ["1DAY", "FRP", "기타"]
 STANDARD_PACK_BUCKETS = ["5P", "10P", "30P", "80P", "90P"]
 POWER_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*$")
 CODE_KEY_RE = re.compile(r"[^0-9A-Za-z가-힣]+")
@@ -1814,32 +1815,56 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
     ).drop(columns=["_order"])
 
 
+def family_card_section(family: Any) -> str:
+    text = clean_str(family)
+    upper = text.upper()
+    if "1DAY" in upper or "1 DAY" in upper:
+        return "1DAY"
+    if text in {"부자재/기타", "기타", "샘플"}:
+        return "기타"
+    return "FRP"
+
+
+def family_card_html(row: pd.Series) -> str:
+    family = escape(str(row["본품분류"]))
+    request_pack = format_int(float(row["요청 PACK"]))
+    production_progress = float(row["생산진도율"])
+    receipt_progress = float(row.get("용마입고율", row["포장진도율"]))
+    production_shortage = format_int(float(row["생산부족수량"]))
+    receipt_shortage = format_int(float(row.get("미입고수량", row["포장부족수량"])))
+    return (
+        "<div class='family-card'>"
+        f"<div class='family-head'><span>{family}</span><b>요청 {request_pack} PACK</b></div>"
+        f"{progress_cell_html(production_progress, '생산')}"
+        f"{progress_cell_html(receipt_progress, '입고')}"
+        "<div class='family-shortages'>"
+        f"<span>생산부족 <b>{production_shortage}</b></span>"
+        f"<span>미입고 <b>{receipt_shortage}</b></span>"
+        "</div>"
+        "</div>"
+    )
+
+
 def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) -> None:
     if family_df.empty:
         st.warning("본품 분류별 진도현황을 표시할 데이터가 없습니다.")
         return
 
-    rows: list[str] = []
-    for _, row in family_df.head(max_rows).iterrows():
-        family = escape(str(row["본품분류"]))
-        request_pack = format_int(float(row["요청 PACK"]))
-        production_progress = float(row["생산진도율"])
-        receipt_progress = float(row.get("용마입고율", row["포장진도율"]))
-        production_shortage = format_int(float(row["생산부족수량"]))
-        receipt_shortage = format_int(float(row.get("미입고수량", row["포장부족수량"])))
-        rows.append(
-            "<div class='family-card'>"
-            f"<div class='family-head'><span>{family}</span><b>요청 {request_pack} PACK</b></div>"
-            f"{progress_cell_html(production_progress, '생산')}"
-            f"{progress_cell_html(receipt_progress, '입고')}"
-            "<div class='family-shortages'>"
-            f"<span>생산부족 <b>{production_shortage}</b></span>"
-            f"<span>미입고 <b>{receipt_shortage}</b></span>"
-            "</div>"
-            "</div>"
+    view = family_df.head(max_rows).copy()
+    view["_section"] = view["본품분류"].map(family_card_section)
+    sections: list[str] = []
+    for section in FAMILY_CARD_SECTION_ORDER:
+        scoped = view[view["_section"] == section]
+        if scoped.empty:
+            continue
+        cards = "".join(family_card_html(row) for _, row in scoped.iterrows())
+        sections.append(
+            "<section class='family-section'>"
+            f"<div class='family-section-title'>{escape(section)}</div>"
+            f"<div class='family-grid'>{cards}</div>"
+            "</section>"
         )
-
-    st.markdown("<div class='family-grid'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
+    st.markdown("".join(sections), unsafe_allow_html=True)
 
 
 def build_top_shortage_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -4082,6 +4107,21 @@ def render_style() -> None:
             border-radius: 8px;
             padding: 12px;
             box-shadow: 0 1px 3px rgba(17, 34, 58, 0.04);
+        }}
+        .family-section {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+        .family-section + .family-section {{
+            margin-top: 16px;
+        }}
+        .family-section-title {{
+            color: {TEXT_DARK};
+            font-size: 15px;
+            font-weight: 900;
+            line-height: 1.2;
+            padding: 0 2px;
         }}
         .family-grid {{
             display: grid;
