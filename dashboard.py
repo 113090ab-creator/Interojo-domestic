@@ -2437,7 +2437,6 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
             "생산진도율",
             "포장진도율",
             "최소 납기일",
-            "병목 상태",
             "상태",
         ]
     else:
@@ -2452,7 +2451,6 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
             "포장진도율",
             "생산진도율",
             "최소 납기일",
-            "병목 상태",
             "상태",
         ]
     return visible_columns(df, columns)
@@ -4952,7 +4950,7 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
 def render_production_code_tab(code_summary: pd.DataFrame) -> None:
     render_panel_title(
         "생산코드 상세",
-        "생산코드 + POWER 기준으로 부족, 병목, 납기 우선순위를 확인합니다.",
+        "생산코드 + POWER 기준으로 부족과 납기 우선순위를 확인합니다.",
     )
     production_unit_mode = render_unit_selector("production_progress_unit_mode")
     pack_options = available_pack_options(code_summary)
