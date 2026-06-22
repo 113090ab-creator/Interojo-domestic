@@ -2443,7 +2443,6 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
             "생산부족수량(PCS)",
             "생산진도율",
             "용마입고율",
-            "상태",
         ]
     else:
         columns = [
@@ -2458,7 +2457,6 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
             "생산부족수량(PCS)",
             "용마입고율",
             "생산진도율",
-            "상태",
         ]
     return visible_columns(df, columns)
 
