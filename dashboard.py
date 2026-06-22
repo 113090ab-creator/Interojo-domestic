@@ -20,7 +20,11 @@ from pptx.util import Inches, Pt
 import streamlit as st
 
 
-st.set_page_config(page_title="국내 제품 생산, 포장 모니터링", layout="wide")
+st.set_page_config(
+    page_title="국내 제품 생산, 포장 모니터링",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 
 class DashboardConfigError(Exception):
@@ -4173,7 +4177,7 @@ def render_style() -> None:
         }}
         .block-container {{
             padding: 24px 32px 32px !important;
-            max-width: 1400px !important;
+            max-width: 100% !important;
         }}
         h1 {{
             font-size: 22px !important;
