@@ -2083,6 +2083,10 @@ def sorted_pack_labels(labels: list[str]) -> list[str]:
     return sorted(unique, key=pack_sort_key)
 
 
+def pack_pcs_label(label: Any) -> str:
+    return f"{clean_str(label)}(PCS)"
+
+
 def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
     work = code_summary.copy()
     if "base_product_name" not in work.columns:
@@ -2427,10 +2431,12 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
 
 def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit_mode: str) -> list[str]:
     if unit_mode == UNIT_PCS:
+        pack_pcs_labels = [pack_pcs_label(label) for label in pack_labels]
         columns = [
             "생산코드",
             "대표 제품명",
             "POWER",
+            *pack_pcs_labels,
             "요청합계(PCS)",
             "생산필요수량(PCS)",
             "생산부족수량(PCS)",
@@ -2903,11 +2909,13 @@ def build_production_power_main_view(
     pack_labels: list[str],
     shortage_only: bool = False,
 ) -> pd.DataFrame:
+    pack_pcs_labels = [pack_pcs_label(label) for label in pack_labels]
     visible_columns = [
         "생산코드",
         "대표 제품명",
         "POWER",
         *pack_labels,
+        *pack_pcs_labels,
         "요청합계(PACK)",
         "요청합계(PCS)",
         "생산부족수량",
@@ -2952,7 +2960,27 @@ def build_production_power_main_view(
         if label not in pack_pivot.columns:
             pack_pivot[label] = 0.0
 
+    pack_pcs_pivot = (
+        rows.pivot_table(
+            index=group_cols,
+            columns="_pack_label",
+            values="request_pcs",
+            aggfunc="sum",
+            dropna=False,
+        )
+        .fillna(0.0)
+        .reset_index()
+        .rename_axis(None, axis=1)
+    )
+    for label in pack_labels:
+        if label not in pack_pcs_pivot.columns:
+            pack_pcs_pivot[label] = 0.0
+    pack_pcs_pivot = pack_pcs_pivot.rename(columns={label: pack_pcs_label(label) for label in pack_labels})
+
     grouped = base.merge(pack_pivot[group_cols + pack_labels], on=group_cols, how="left")
+    grouped = grouped.merge(pack_pcs_pivot[group_cols + pack_pcs_labels], on=group_cols, how="left")
+    for label in pack_pcs_labels:
+        grouped[label] = grouped[label].fillna(0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
     grouped["포장진도율"] = np.where(
         grouped["request_pack"] > 0,
@@ -4768,7 +4796,7 @@ def render_selectable_table(
         return None
     column_config = drilldown_column_config()
     for col in df.columns:
-        if re.match(r"^\d+(?:\.\d+)?P$", str(col)):
+        if re.match(r"^\d+(?:\.\d+)?P(?:\(PCS\))?$", str(col)):
             column_config[col] = st.column_config.NumberColumn(str(col), format="%,.0f")
     event = st.dataframe(
         df,
