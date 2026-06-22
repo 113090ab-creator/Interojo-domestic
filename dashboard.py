@@ -3226,6 +3226,7 @@ def build_sales_order_main_view(
                 "POWER",
                 "요청PACK",
                 "요청PCS",
+                "생산요청물량",
                 "용마입고수량",
                 "용마입고대기수량",
                 "포장대기(PCS)",
@@ -3299,6 +3300,7 @@ def build_sales_order_main_view(
     )
     grouped["요청합계(PACK)"] = grouped["요청PACK"]
     grouped["요청합계(PCS)"] = grouped["요청PCS"]
+    grouped["생산요청물량"] = grouped["요청PCS"]
     grouped["생산필요수량(PCS)"] = grouped["생산부족"]
     grouped["생산부족수량(PCS)"] = grouped["생산부족"]
     grouped["포장부족(PACK)"] = grouped["포장부족"]
@@ -3315,6 +3317,7 @@ def build_sales_order_main_view(
             "요청PCS",
             "요청합계(PACK)",
             "요청합계(PCS)",
+            "생산요청물량",
             "용마입고수량",
             "용마입고대기수량",
             "포장대기(PCS)",
@@ -3351,9 +3354,7 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         "제품명",
         "POWER",
         "PACK",
-        "용마창고재고 (PACK)",
-        "재고기준(PACK)",
-        "재고부족(PACK)",
+        "생산요청물량",
         "포장부족(PACK)",
         "생산부족수량(PCS)",
         "납기",
@@ -3381,7 +3382,7 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
     urgent_view = build_urgent_sales_packing_view(sales_view)
     render_panel_title(
         "긴급 포장 리스트",
-        "납기와 용마창고재고를 함께 반영해 먼저 포장해야 할 판매코드를 표시합니다.",
+        "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 생산요청물량과 부족 수량만 표시합니다.",
     )
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if urgent_view.empty:
@@ -4632,6 +4633,7 @@ def drilldown_column_config() -> dict[str, Any]:
     return {
         "요청합계(PACK)": st.column_config.NumberColumn("요청합계(PACK)", format=numeric_format),
         "요청합계(PCS)": st.column_config.NumberColumn("요청합계(PCS)", format=numeric_format),
+        "생산요청물량": st.column_config.NumberColumn("생산요청물량", format=numeric_format),
         "용마창고재고 (PACK)": st.column_config.NumberColumn("용마창고재고 (PACK)", format=numeric_format),
         "총수량(PACK)": st.column_config.NumberColumn("총수량(PACK)", format=numeric_format),
         "재고기준(PACK)": st.column_config.NumberColumn("재고기준(PACK)", format=numeric_format),
