@@ -68,6 +68,7 @@ FAMILY_CARD_1DAY_NAMES = {
     "Iris 컬러",
     "Iris Toric",
 }
+FAMILY_CARD_MISC_NAMES = {"PIA 1Day", "PIA Monthly"}
 STANDARD_PACK_BUCKETS = ["5P", "10P", "30P", "80P", "90P"]
 POWER_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*$")
 CODE_KEY_RE = re.compile(r"[^0-9A-Za-z가-힣]+")
@@ -1825,6 +1826,8 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
 def family_card_section(family: Any) -> str:
     text = clean_str(family)
     upper = text.upper()
+    if text in FAMILY_CARD_MISC_NAMES:
+        return "기타"
     if text in FAMILY_CARD_1DAY_NAMES:
         return "1DAY"
     if "1DAY" in upper or "1 DAY" in upper:
