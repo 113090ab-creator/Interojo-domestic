@@ -4096,6 +4096,17 @@ def dataframe_for_excel(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def excel_text_length(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        if pd.isna(value):
+            return 0
+    except (TypeError, ValueError):
+        pass
+    return len(str(value))
+
+
 def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
     output = BytesIO()
     used_names: set[str] = set()
@@ -4116,8 +4127,8 @@ def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
 
             worksheet = writer.sheets[sheet_name]
             for col_idx, col_name in enumerate(excel_df.columns, start=1):
-                values = excel_df[col_name].astype(str).head(300)
-                max_len = max([len(str(col_name)), *(values.map(len).tolist() if not values.empty else [0])])
+                value_lengths = [excel_text_length(value) for value in excel_df[col_name].head(300).tolist()]
+                max_len = max([len(str(col_name)), *(value_lengths if value_lengths else [0])])
                 worksheet.column_dimensions[worksheet.cell(row=1, column=col_idx).column_letter].width = min(
                     max(max_len + 2, 10),
                     45,
