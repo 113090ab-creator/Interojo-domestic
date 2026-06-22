@@ -3918,6 +3918,7 @@ def add_textbox(
     bold: bool = False,
     color: str = TEXT_DARK,
     align: PP_ALIGN = PP_ALIGN.LEFT,
+    vertical_anchor: Any | None = None,
 ) -> None:
     shape = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     frame = shape.text_frame
@@ -3927,6 +3928,8 @@ def add_textbox(
     frame.margin_top = 0
     frame.margin_bottom = 0
     frame.word_wrap = True
+    if vertical_anchor is not None:
+        frame.vertical_anchor = vertical_anchor
     paragraph = frame.paragraphs[0]
     paragraph.alignment = align
     paragraph.space_after = Pt(0)
@@ -3950,36 +3953,117 @@ def add_report_rule(slide: Any, left: float, top: float, width: float, color: st
     shape.line.fill.background()
 
 
+def add_report_shape(
+    slide: Any,
+    shape_type: Any,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    fill_color: str,
+    line_color: str | None = None,
+    line_width: float = 0.5,
+) -> Any:
+    shape = slide.shapes.add_shape(shape_type, Inches(left), Inches(top), Inches(width), Inches(height))
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = ppt_rgb(fill_color)
+    if line_color:
+        shape.line.color.rgb = ppt_rgb(line_color)
+        shape.line.width = Pt(line_width)
+    else:
+        shape.line.fill.background()
+    return shape
+
+
+def report_progress_color(value: Any) -> str:
+    num = pd.to_numeric(value, errors="coerce")
+    if pd.isna(num):
+        return COLOR_ORANGE
+    return COLOR_TEAL if float(num) >= 80.0 else COLOR_ORANGE
+
+
 def add_kpi_card(
     slide: Any,
     title: str,
     kpi: dict[str, float],
+    dot_color: str,
     left: float,
     top: float,
     width: float,
     height: float,
 ) -> None:
-    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height))
-    card.fill.solid()
-    card.fill.fore_color.rgb = ppt_rgb("#f8fafc")
-    card.line.color.rgb = ppt_rgb(MID_GRAY)
-    card.line.width = Pt(0.75)
+    add_report_shape(
+        slide,
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        left,
+        top,
+        width,
+        height,
+        WHITE,
+        "#E0DED8",
+        0.5,
+    )
+    add_report_shape(slide, MSO_SHAPE.OVAL, left + 0.12, top + 0.13, 0.1, 0.1, dot_color, dot_color, 0.5)
+    add_textbox(
+        slide,
+        title,
+        left + 0.25,
+        top + 0.08,
+        width - 0.3,
+        0.2,
+        8,
+        True,
+        TEXT_SECONDARY,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
+    add_report_rule(slide, left + 0.12, top + 0.32, width - 0.24, "#E8E6E0")
 
-    add_textbox(slide, title, left + 0.16, top + 0.12, width - 0.32, 0.24, 11, True, NAVY)
     metrics = [
-        ("요청 PACK", format_report_value(kpi.get("request_pack", 0.0))),
-        ("용마입고 PACK", format_report_value(kpi.get("yongma_in_pack", 0.0))),
-        ("미입고 PACK", format_report_value(kpi.get("shortage_pack", 0.0))),
-        ("용마입고율", format_report_value(kpi.get("progress_pct", 0.0), True)),
-        ("생산진도율", format_report_value(kpi.get("production_progress_pct", 0.0), True)),
+        ("요청 PACK", format_report_value(kpi.get("request_pack", 0.0)), TEXT_DARK, True),
+        ("용마입고", format_report_value(kpi.get("yongma_in_pack", 0.0)), TEXT_DARK, False),
+        ("미입고", format_report_value(kpi.get("shortage_pack", 0.0)), COLOR_ORANGE, False),
+        (
+            "용마입고율",
+            format_report_value(kpi.get("progress_pct", 0.0), True),
+            report_progress_color(kpi.get("progress_pct", 0.0)),
+            True,
+        ),
+        (
+            "생산진도율",
+            format_report_value(kpi.get("production_progress_pct", 0.0), True),
+            report_progress_color(kpi.get("production_progress_pct", 0.0)),
+            True,
+        ),
     ]
-    row_top = top + 0.48
-    row_gap = 0.22
-    for idx, (label, value) in enumerate(metrics):
-        y = row_top + idx * row_gap
-        value_color = MUTED_ORANGE if label == "미입고 PACK" else TEXT_DARK
-        add_textbox(slide, label, left + 0.18, y, width * 0.52, 0.18, 7.5, False, TEXT_MUTED)
-        add_textbox(slide, value, left + width * 0.55, y - 0.01, width * 0.34, 0.2, 9.2, True, value_color, PP_ALIGN.RIGHT)
+    col_width = (width - 0.24) / len(metrics)
+    for idx, (label, value, value_color, big) in enumerate(metrics):
+        metric_left = left + 0.12 + idx * col_width
+        add_textbox(
+            slide,
+            label,
+            metric_left,
+            top + 0.38,
+            col_width,
+            0.16,
+            7,
+            False,
+            TEXT_TERTIARY,
+            PP_ALIGN.CENTER,
+            MSO_ANCHOR.MIDDLE,
+        )
+        add_textbox(
+            slide,
+            value,
+            metric_left,
+            top + 0.55,
+            col_width,
+            0.26,
+            13 if big else 11,
+            True,
+            value_color,
+            PP_ALIGN.CENTER,
+            MSO_ANCHOR.MIDDLE,
+        )
 
 
 def format_report_value(value: Any, is_percent: bool = False) -> str:
@@ -4007,6 +4091,192 @@ def build_priority_report_view(product_view: pd.DataFrame, max_rows: int = 8) ->
         ascending=[False, False, False],
         kind="stable",
     ).head(max_rows)[columns].copy()
+
+
+def to_report_float(value: Any) -> float:
+    num = pd.to_numeric(value, errors="coerce")
+    if pd.isna(num):
+        return 0.0
+    return float(num)
+
+
+def add_report_status_badge(slide: Any, status: str, left: float, top: float, width: float, height: float) -> None:
+    status_text = clean_str(status) or "-"
+    if status_text in {"완료", "입고완료"}:
+        fill_color = "#E8F5F0"
+        line_color = "#9ED8C5"
+        text_color = COLOR_TEAL
+    elif status_text in {"진행중"}:
+        fill_color = "#FFF4DE"
+        line_color = "#E4B968"
+        text_color = COLOR_AMBER
+    else:
+        fill_color = COLOR_ALERT_BG
+        line_color = COLOR_ALERT_BD
+        text_color = COLOR_ORANGE
+
+    add_report_shape(
+        slide,
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        left,
+        top,
+        width,
+        height,
+        fill_color,
+        line_color,
+        0.5,
+    )
+    add_textbox(
+        slide,
+        status_text,
+        left,
+        top,
+        width,
+        height,
+        7.5,
+        True,
+        text_color,
+        PP_ALIGN.CENTER,
+        MSO_ANCHOR.MIDDLE,
+    )
+
+
+def add_priority_report_table(slide: Any, priority_view: pd.DataFrame) -> None:
+    add_report_shape(
+        slide,
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        0.25,
+        2.8,
+        12.8,
+        4.35,
+        WHITE,
+        "#E0DED8",
+        0.5,
+    )
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.25, 2.8, 12.8, 0.38, BG_PAGE, "#E0DED8", 0.5)
+
+    headers = ["#", "제품명", "요청\nPACK", "생산\n진도율", "용마\n입고율", "생산\n부족", "미입고\nPACK", "상태"]
+    col_widths = [0.35, 4.95, 1.05, 1.1, 1.1, 1.35, 1.35, 0.9]
+    col_lefts = [0.35]
+    for width in col_widths[:-1]:
+        col_lefts.append(col_lefts[-1] + width)
+
+    for idx, header in enumerate(headers):
+        add_textbox(
+            slide,
+            header,
+            col_lefts[idx],
+            2.82,
+            col_widths[idx],
+            0.34,
+            7.5,
+            True,
+            TEXT_SECONDARY,
+            PP_ALIGN.LEFT if idx <= 1 else PP_ALIGN.CENTER,
+            MSO_ANCHOR.MIDDLE,
+        )
+
+    if priority_view.empty:
+        add_textbox(
+            slide,
+            "조건에 맞는 제품 데이터가 없습니다.",
+            0.45,
+            3.35,
+            12.2,
+            0.35,
+            8,
+            False,
+            TEXT_MUTED,
+            PP_ALIGN.LEFT,
+            MSO_ANCHOR.MIDDLE,
+        )
+        return
+
+    row_height = 0.46
+    for row_idx, (_, row) in enumerate(priority_view.iterrows(), start=1):
+        row_top = 3.18 + (row_idx - 1) * row_height
+        production_progress = to_report_float(row["생산진도율"])
+        receipt_progress = to_report_float(row["용마입고율"])
+        production_shortage = to_report_float(row["생산부족수량"])
+        receipt_shortage = to_report_float(row["미입고수량"])
+        alert_row = production_progress < 80.0 and production_shortage > 0
+
+        if row_idx % 2 == 0:
+            add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.26, row_top, 12.78, row_height, "#FAFAF8")
+        if alert_row:
+            add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.26, row_top, 0.04, row_height, COLOR_ORANGE, COLOR_ORANGE)
+
+        cell_top = row_top + 0.01
+        cell_height = row_height - 0.02
+        values = [
+            str(row_idx),
+            truncate_report_text(row["제품명"], max_chars=44),
+            format_report_value(row["요청 PACK"]),
+            format_report_value(production_progress, True),
+            format_report_value(receipt_progress, True),
+            format_report_value(production_shortage),
+            format_report_value(receipt_shortage),
+        ]
+        colors = [
+            "#AAAAAA",
+            TEXT_DARK,
+            TEXT_DARK,
+            report_progress_color(production_progress),
+            report_progress_color(receipt_progress),
+            "#AAAAAA" if production_shortage <= 0 else COLOR_AMBER,
+            "#AAAAAA" if receipt_shortage <= 0 else COLOR_ORANGE,
+        ]
+        bolds = [False, alert_row, False, True, True, production_shortage > 0, receipt_shortage > 0]
+        aligns = [PP_ALIGN.CENTER, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER]
+
+        for col_idx, value in enumerate(values):
+            add_textbox(
+                slide,
+                value,
+                col_lefts[col_idx],
+                cell_top,
+                col_widths[col_idx],
+                cell_height,
+                8.5 if col_idx != 0 else 8,
+                bolds[col_idx],
+                colors[col_idx],
+                aligns[col_idx],
+                MSO_ANCHOR.MIDDLE,
+            )
+
+        add_report_status_badge(
+            slide,
+            str(row["상태"]),
+            col_lefts[7] + 0.07,
+            row_top + 0.1,
+            0.66,
+            0.25,
+        )
+        add_report_rule(slide, 0.26, row_top + row_height, 12.78, BG_SECTION)
+
+
+def add_report_legend(slide: Any) -> None:
+    legend_items = [
+        (COLOR_TEAL, "진도율 정상 (>=80%)"),
+        (COLOR_ORANGE, "진도율 미달 / 미입고 / 경고"),
+        (COLOR_AMBER, "생산부족 발생"),
+        ("#AAAAAA", "부족 없음"),
+    ]
+    for idx, (color, label) in enumerate(legend_items):
+        left = 0.3 + idx * 3.1
+        add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, 7.28, 0.18, 0.1, color, color)
+        add_textbox(
+            slide,
+            label,
+            left + 0.22,
+            7.22,
+            2.8,
+            0.22,
+            7.5,
+            False,
+            TEXT_SECONDARY,
+            vertical_anchor=MSO_ANCHOR.MIDDLE,
+        )
 
 
 def build_ppt_report(
@@ -6035,19 +6305,15 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        request_df = normalize_request(files.request_file)
-        packing_df = normalize_packing(files.packing_file)
-        yongma_df = normalize_yongma_movement(files.packing_file)
-        sample_available_df = normalize_sample_available(files.packing_file)
-        inventory_df = normalize_inventory(files.inventory_file)
-        product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
-        code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
-        progress_df, _progress_info = normalize_progress(files.progress_file, request_df)
-        product_summary = enrich_product_summary(product_summary, progress_df)
-        code_summary = attach_progress_to_code_summary(code_summary, progress_df)
-        code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
-        product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
-        lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
+        data = load_dashboard_data(
+            file_fingerprint(files.request_file),
+            file_fingerprint(files.packing_file),
+            file_fingerprint(files.progress_file),
+            file_fingerprint(files.inventory_file),
+        )
+        product_summary = data.product_summary
+        code_summary = data.code_summary
+        lot_status_df = data.lot_status_df
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
         for msg in exc.messages:
@@ -6057,19 +6323,16 @@ def main() -> None:
         st.error(f"처리 중 오류가 발생했습니다: {exc}")
         st.stop()
 
-    tab_summary, tab_production, tab_sales, tab_power, tab_lot = st.tabs(
-        ["제품 진도 현황", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
-    )
-
-    with tab_summary:
+    active_tab = render_dashboard_nav()
+    if active_tab == "제품 진도 현황":
         render_product_summary_tab(product_summary, code_summary)
-    with tab_production:
+    elif active_tab == "생산코드 상세":
         render_production_code_tab(code_summary)
-    with tab_sales:
+    elif active_tab == "판매코드 상세":
         render_sales_code_tab(code_summary)
-    with tab_power:
+    elif active_tab == "POWER 상세":
         render_power_tab(code_summary)
-    with tab_lot:
+    elif active_tab == "포장 LOT 상세":
         render_packing_lot_tab(lot_status_df)
 
 
