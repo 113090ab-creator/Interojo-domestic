@@ -108,7 +108,18 @@ REQUEST_COLS = {
 
 PACKING_COLS = {
     "sales_code": ["판매코드", "판매 코드", "품목코드", "sales_code"],
+    "product_name": ["판매명", "생산명", "제품명", "제품 명", "품명", "product_name"],
+    "lot_no": ["LOTNO", "LOT NO", "LOT", "lot_no"],
+    "barcode_info": ["바코드정보", "바코드 정보", "barcode_info"],
+    "packing_date": ["마킹일", "마킹시간", "포장일", "일자", "date"],
     "packing_qty": ["팩수량", "포장수량", "포장완료수량", "수량", "packing_qty"],
+}
+
+YONGMA_COLS = {
+    "sales_code": ["제품코드", "제품 코드", "판매코드", "판매 코드", "품목코드", "sales_code"],
+    "product_name": ["품명", "제품명", "제품 명", "product_name"],
+    "lot_no": ["LOTNO", "LOT NO", "LOT", "lot_no"],
+    "receipt_qty": ["수량", "입고수량", "용마입고수량", "receipt_qty"],
 }
 
 INVENTORY_STOCK_THRESHOLD_DEFAULT = 100
@@ -412,6 +423,22 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
     )
 
 
+def read_excel_preferred_sheet(path: Path, preferred_sheet: str) -> pd.DataFrame:
+    try:
+        xl = pd.ExcelFile(path)
+    except Exception:
+        return pd.read_excel(path)
+    sheet_name = preferred_sheet if preferred_sheet in xl.sheet_names else xl.sheet_names[0]
+    return pd.read_excel(path, sheet_name=sheet_name)
+
+
+def has_excel_sheet(path: Path, sheet_name: str) -> bool:
+    try:
+        return sheet_name in pd.ExcelFile(path).sheet_names
+    except Exception:
+        return False
+
+
 def normalize_request(path: Path) -> pd.DataFrame:
     raw = pd.read_excel(path)
     cols = resolve_columns(
@@ -472,19 +499,66 @@ def normalize_request(path: Path) -> pd.DataFrame:
 
 
 def normalize_packing(path: Path) -> pd.DataFrame:
-    raw = pd.read_excel(path)
+    raw = read_excel_preferred_sheet(path, "포장실적")
     cols = resolve_columns(
         raw,
         PACKING_COLS,
         required_keys=["sales_code", "packing_qty"],
         file_label=path.name,
     )
-    return pd.DataFrame(
+    out = pd.DataFrame(
         {
             "sales_code": raw[cols["sales_code"]].map(clean_str),
             "packing_pack": to_number(raw[cols["packing_qty"]]),
         }
     )
+    out["sales_code_key"] = out["sales_code"].map(normalize_match_key)
+    out["packing_product_name"] = raw[cols["product_name"]].map(clean_str) if "product_name" in cols else ""
+    out["packing_lot"] = raw[cols["lot_no"]].map(clean_str) if "lot_no" in cols else ""
+    out["packing_lot_key"] = out["packing_lot"].map(normalize_match_key)
+    out["packing_barcode"] = raw[cols["barcode_info"]].map(clean_str) if "barcode_info" in cols else ""
+    out["packing_barcode_key"] = out["packing_barcode"].map(normalize_match_key)
+    out["packing_date"] = (
+        parse_datetime_series(raw[cols["packing_date"]]) if "packing_date" in cols else pd.NaT
+    )
+    return out
+
+
+def empty_yongma_movement_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "sales_code",
+            "sales_code_key",
+            "yongma_product_name",
+            "yongma_lot",
+            "yongma_lot_key",
+            "yongma_in_pack",
+        ]
+    )
+
+
+def normalize_yongma_movement(path: Path) -> pd.DataFrame:
+    if not has_excel_sheet(path, "용마이동현황"):
+        return empty_yongma_movement_df()
+
+    raw = pd.read_excel(path, sheet_name="용마이동현황")
+    cols = resolve_columns(
+        raw,
+        YONGMA_COLS,
+        required_keys=["sales_code", "lot_no", "receipt_qty"],
+        file_label=f"{path.name}:용마이동현황",
+    )
+    out = pd.DataFrame(
+        {
+            "sales_code": raw[cols["sales_code"]].map(clean_str),
+            "yongma_lot": raw[cols["lot_no"]].map(clean_str),
+            "yongma_in_pack": to_number(raw[cols["receipt_qty"]]),
+        }
+    )
+    out["sales_code_key"] = out["sales_code"].map(normalize_match_key)
+    out["yongma_product_name"] = raw[cols["product_name"]].map(clean_str) if "product_name" in cols else ""
+    out["yongma_lot_key"] = out["yongma_lot"].map(normalize_match_key)
+    return out[(out["sales_code_key"] != "") & (out["yongma_in_pack"] > 0)].copy()
 
 
 def empty_inventory_df() -> pd.DataFrame:
@@ -709,18 +783,23 @@ def classify_status(packing_pack: float, packing_progress_pct: float) -> str:
 
 def finalize_summary(summary: pd.DataFrame) -> pd.DataFrame:
     out = summary.copy()
+    if "용마입고 PACK" not in out.columns:
+        out["용마입고 PACK"] = out["포장 PACK"] if "포장 PACK" in out.columns else 0.0
     out["포장부족수량"] = (out["요청 PACK"] - out["포장 PACK"]).clip(lower=0.0)
+    out["미입고수량"] = (out["요청 PACK"] - out["용마입고 PACK"]).clip(lower=0.0)
+    out["입고대기수량"] = (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0)
     raw_progress = np.where(
         out["요청 PACK"] > 0,
-        out["포장 PACK"] / out["요청 PACK"] * 100.0,
+        out["용마입고 PACK"] / out["요청 PACK"] * 100.0,
         0.0,
     )
-    out["포장진도율"] = np.clip(raw_progress, 0.0, 100.0)
-    out["부족 PACK"] = out["포장부족수량"]
-    out["진도율(%)"] = out["포장진도율"]
+    out["용마입고율"] = np.clip(raw_progress, 0.0, 100.0)
+    out["포장진도율"] = out["용마입고율"]
+    out["부족 PACK"] = out["미입고수량"]
+    out["진도율(%)"] = out["용마입고율"]
     out["상태"] = [
         classify_status(float(packing), float(progress))
-        for packing, progress in zip(out["포장 PACK"], out["포장진도율"])
+        for packing, progress in zip(out["용마입고 PACK"], out["용마입고율"])
     ]
     return out
 
@@ -736,6 +815,7 @@ def calc_production_progress_pct(request_qty: Any, production_shortage_qty: Any)
 def build_summaries(
     request_df: pd.DataFrame,
     packing_df: pd.DataFrame,
+    yongma_df: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, float, pd.DataFrame]:
     request_work = request_df.copy()
     optional_cols = [
@@ -805,16 +885,24 @@ def build_summaries(
         .reset_index()
     )
     packing_by_code = packing_df.groupby("sales_code", dropna=False)["packing_pack"].sum().reset_index()
+    if yongma_df is None or yongma_df.empty:
+        yongma_by_key = pd.DataFrame(columns=["sales_code_key", "yongma_in_pack"])
+    else:
+        yongma_by_key = yongma_df.groupby("sales_code_key", dropna=False)["yongma_in_pack"].sum().reset_index()
 
     matched_code_summary = request_by_code.merge(packing_by_code, on="sales_code", how="left")
     matched_code_summary["packing_pack"] = matched_code_summary["packing_pack"].fillna(0.0)
+    matched_code_summary = matched_code_summary.merge(yongma_by_key, on="sales_code_key", how="left")
+    matched_code_summary["yongma_in_pack"] = matched_code_summary["yongma_in_pack"].fillna(0.0)
 
     request_codes = set(request_by_code["sales_code"].astype(str))
     unmatched_pack = packing_by_code[~packing_by_code["sales_code"].astype(str).isin(request_codes)].copy()
     unmatched_packing_total = float(unmatched_pack["packing_pack"].sum()) if not unmatched_pack.empty else 0.0
 
     product_summary = (
-        matched_code_summary.groupby("base_product_name", dropna=False)[["request_pack", "request_pcs", "packing_pack"]]
+        matched_code_summary.groupby("base_product_name", dropna=False)[
+            ["request_pack", "request_pcs", "packing_pack", "yongma_in_pack"]
+        ]
         .sum()
         .reset_index()
         .rename(
@@ -823,6 +911,7 @@ def build_summaries(
                 "request_pack": "요청 PACK",
                 "request_pcs": "요청 PCS",
                 "packing_pack": "포장 PACK",
+                "yongma_in_pack": "용마입고 PACK",
             }
         )
     )
@@ -1352,8 +1441,11 @@ def apply_product_family_filter(df: pd.DataFrame, family: str) -> pd.DataFrame:
 def calc_kpi(df: pd.DataFrame) -> dict[str, float]:
     request_pack = float(df["요청 PACK"].sum()) if not df.empty else 0.0
     packing_pack = float(df["포장 PACK"].sum()) if not df.empty else 0.0
-    shortage_pack = float(df["포장부족수량"].sum()) if "포장부족수량" in df.columns and not df.empty else 0.0
-    progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
+    yongma_in_pack = (
+        float(df["용마입고 PACK"].sum()) if "용마입고 PACK" in df.columns and not df.empty else packing_pack
+    )
+    shortage_pack = float(df["미입고수량"].sum()) if "미입고수량" in df.columns and not df.empty else max(0.0, request_pack - yongma_in_pack)
+    progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     request_pcs = float(df["요청 PCS"].sum()) if "요청 PCS" in df.columns and not df.empty else 0.0
     production_shortage_qty = (
         float(df["생산부족수량"].sum()) if "생산부족수량" in df.columns and not df.empty else 0.0
@@ -1367,6 +1459,7 @@ def calc_kpi(df: pd.DataFrame) -> dict[str, float]:
         "request_pack": request_pack,
         "request_pcs": request_pcs,
         "packing_pack": packing_pack,
+        "yongma_in_pack": yongma_in_pack,
         "shortage_pack": shortage_pack,
         "production_shortage_pcs": production_shortage_qty,
         "progress_pct": min(100.0, max(0.0, progress)),
@@ -1423,6 +1516,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
             "request_pack": 0.0,
             "request_pcs": 0.0,
             "packing_pack": 0.0,
+            "yongma_in_pack": 0.0,
             "shortage_pack": 0.0,
             "production_shortage_pcs": 0.0,
             "progress_pct": 0.0,
@@ -1431,8 +1525,11 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
 
     request_pack = float(code_summary["request_pack"].sum())
     packing_pack = float(code_summary["packing_pack"].sum())
-    shortage_pack = max(0.0, request_pack - packing_pack)
-    packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
+    yongma_in_pack = (
+        float(code_summary["yongma_in_pack"].sum()) if "yongma_in_pack" in code_summary.columns else packing_pack
+    )
+    shortage_pack = max(0.0, request_pack - yongma_in_pack)
+    receipt_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
 
     work = (
         code_summary.copy()
@@ -1447,9 +1544,10 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
         "request_pack": request_pack,
         "request_pcs": request_pcs,
         "packing_pack": packing_pack,
+        "yongma_in_pack": yongma_in_pack,
         "shortage_pack": shortage_pack,
         "production_shortage_pcs": shortage_pcs,
-        "progress_pct": min(100.0, max(0.0, packing_progress)),
+        "progress_pct": min(100.0, max(0.0, receipt_progress)),
         "production_progress_pct": min(100.0, max(0.0, production_progress)),
     }
 
@@ -1592,10 +1690,13 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
                 "요청 PACK",
                 "요청 PCS",
                 "포장 PACK",
+                "용마입고 PACK",
                 "생산부족수량",
                 "포장부족수량",
+                "미입고수량",
                 "생산진도율",
                 "포장진도율",
+                "용마입고율",
             ]
         )
 
@@ -1605,8 +1706,10 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
             request_pack=("요청 PACK", "sum"),
             request_pcs=("요청 PCS", "sum"),
             packing_pack=("포장 PACK", "sum"),
+            yongma_in_pack=("용마입고 PACK", "sum"),
             production_shortage_qty=("생산부족수량", "sum"),
             packing_shortage_qty=("포장부족수량", "sum"),
+            receipt_shortage_qty=("미입고수량", "sum"),
         )
         .reset_index()
         .rename(
@@ -1614,18 +1717,21 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
                 "request_pack": "요청 PACK",
                 "request_pcs": "요청 PCS",
                 "packing_pack": "포장 PACK",
+                "yongma_in_pack": "용마입고 PACK",
                 "production_shortage_qty": "생산부족수량",
                 "packing_shortage_qty": "포장부족수량",
+                "receipt_shortage_qty": "미입고수량",
             }
         )
     )
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족수량"])
-    grouped["포장진도율"] = np.where(
+    grouped["용마입고율"] = np.where(
         grouped["요청 PACK"] > 0,
-        grouped["포장 PACK"] / grouped["요청 PACK"] * 100.0,
+        grouped["용마입고 PACK"] / grouped["요청 PACK"] * 100.0,
         0.0,
     )
-    grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
+    grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
+    grouped["포장진도율"] = grouped["용마입고율"]
     grouped["_order"] = grouped["본품분류"].map(
         {name: idx for idx, name in enumerate(MAIN_PRODUCT_FAMILY_ORDER)}
     ).fillna(999)
@@ -1646,17 +1752,17 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
         family = escape(str(row["본품분류"]))
         request_pack = format_int(float(row["요청 PACK"]))
         production_progress = float(row["생산진도율"])
-        packing_progress = float(row["포장진도율"])
+        receipt_progress = float(row.get("용마입고율", row["포장진도율"]))
         production_shortage = format_int(float(row["생산부족수량"]))
-        packing_shortage = format_int(float(row["포장부족수량"]))
+        receipt_shortage = format_int(float(row.get("미입고수량", row["포장부족수량"])))
         rows.append(
             "<div class='family-card'>"
             f"<div class='family-head'><span>{family}</span><b>요청 {request_pack} PACK</b></div>"
             f"{progress_cell_html(production_progress, '생산')}"
-            f"{progress_cell_html(packing_progress, '포장')}"
+            f"{progress_cell_html(receipt_progress, '입고')}"
             "<div class='family-shortages'>"
             f"<span>생산부족 <b>{production_shortage}</b></span>"
-            f"<span>포장부족 <b>{packing_shortage}</b></span>"
+            f"<span>미입고 <b>{receipt_shortage}</b></span>"
             "</div>"
             "</div>"
         )
@@ -1666,60 +1772,60 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
 
 def build_top_shortage_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     if product_df.empty:
-        return pd.DataFrame(columns=["제품명", "포장부족수량", "포장진도율"])
+        return pd.DataFrame(columns=["제품명", "미입고수량", "용마입고율"])
     return (
-        product_df[product_df["포장부족수량"] > 0]
-        .sort_values("포장부족수량", ascending=False, kind="stable")
-        .head(top_n)[["제품명", "포장부족수량", "포장진도율"]]
+        product_df[product_df["미입고수량"] > 0]
+        .sort_values("미입고수량", ascending=False, kind="stable")
+        .head(top_n)[["제품명", "미입고수량", "용마입고율"]]
         .copy()
     )
 
 
 def render_top_shortage_list(top_df: pd.DataFrame) -> None:
     if top_df.empty:
-        st.warning("포장부족 제품이 없습니다.")
+        st.warning("미입고 제품이 없습니다.")
         return
 
     rows: list[str] = []
     for idx, (_, row) in enumerate(top_df.iterrows(), start=1):
         product = escape(str(row["제품명"]))
-        shortage = format_int(float(row["포장부족수량"]))
-        progress = float(row["포장진도율"])
+        shortage = format_int(float(row["미입고수량"]))
+        progress = float(row["용마입고율"])
         rows.append(
             "<div class='top-row'>"
             f"<div class='top-rank'>{idx}</div>"
             f"<div class='top-name'>{product}</div>"
             f"<div class='top-shortage'>{shortage}</div>"
-            f"<div class='top-progress'>{progress_cell_html(progress, '포장')}</div>"
+            f"<div class='top-progress'>{progress_cell_html(progress, '입고')}</div>"
             "</div>"
         )
     st.markdown("<div class='top-list'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
 
 
 def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    columns = ["제품명", "생산진도율", "포장진도율", "GAP", "포장부족수량"]
+    columns = ["제품명", "생산진도율", "용마입고율", "GAP", "미입고수량"]
     if product_df.empty:
         return pd.DataFrame(columns=columns)
 
     source = product_df.copy()
     if "생산진도율" not in source.columns:
         source["생산진도율"] = 0.0
-    if "포장진도율" not in source.columns:
-        source["포장진도율"] = 0.0
-    if "포장부족수량" not in source.columns:
-        source["포장부족수량"] = 0.0
+    if "용마입고율" not in source.columns:
+        source["용마입고율"] = source.get("포장진도율", 0.0)
+    if "미입고수량" not in source.columns:
+        source["미입고수량"] = 0.0
     if "요청 PACK" not in source.columns:
         source["요청 PACK"] = 0.0
     source["생산진도율"] = pd.to_numeric(source["생산진도율"], errors="coerce").fillna(0.0)
-    source["포장진도율"] = pd.to_numeric(source["포장진도율"], errors="coerce").fillna(0.0)
-    source["GAP"] = source["생산진도율"] - source["포장진도율"]
+    source["용마입고율"] = pd.to_numeric(source["용마입고율"], errors="coerce").fillna(0.0)
+    source["GAP"] = source["생산진도율"] - source["용마입고율"]
     source = source[source["GAP"] > 0].copy()
     if source.empty:
         return pd.DataFrame(columns=columns)
 
     return (
         source.sort_values(
-            ["GAP", "포장부족수량", "요청 PACK"],
+            ["GAP", "미입고수량", "요청 PACK"],
             ascending=[False, False, False],
             kind="stable",
         )
@@ -1730,21 +1836,21 @@ def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFram
 
 def render_gap_top_list(gap_df: pd.DataFrame) -> None:
     if gap_df.empty:
-        st.warning("생산진도율이 포장진도율보다 높은 GAP 제품이 없습니다.")
+        st.warning("생산진도율이 용마입고율보다 높은 GAP 제품이 없습니다.")
         return
 
     rows: list[str] = []
     for idx, (_, row) in enumerate(gap_df.iterrows(), start=1):
         product = escape(str(row["제품명"]))
         production_progress = float(row["생산진도율"])
-        packing_progress = float(row["포장진도율"])
+        receipt_progress = float(row["용마입고율"])
         gap = float(row["GAP"])
         rows.append(
             "<div class='gap-row'>"
             f"<div class='top-rank'>{idx}</div>"
             f"<div class='top-name'>{product}</div>"
             f"<div class='gap-progress'>{progress_cell_html(production_progress, '생산')}</div>"
-            f"<div class='gap-progress'>{progress_cell_html(packing_progress, '포장')}</div>"
+            f"<div class='gap-progress'>{progress_cell_html(receipt_progress, '입고')}</div>"
             f"<div class='gap-value'>+{gap:.1f}</div>"
             "</div>"
         )
@@ -1775,11 +1881,11 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
               <div class='metric-value'>{production_progress:.1f}%</div>
             </div>
             <div class='kpi-card'>
-              <div class='metric-label'>포장 PACK</div>
-              <div class='metric-value'>{format_int(kpi['packing_pack'])}</div>
+              <div class='metric-label'>용마입고 PACK</div>
+              <div class='metric-value'>{format_int(kpi.get('yongma_in_pack', kpi['packing_pack']))}</div>
             </div>
             <div class='kpi-card'>
-              <div class='metric-label'>포장진도율</div>
+              <div class='metric-label'>용마입고율</div>
               <div class='metric-value'>{progress:.1f}%</div>
             </div>
           </div>
@@ -1797,15 +1903,15 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
           <div class='metric-value'>{format_int(kpi['request_pack'])}</div>
         </div>
         <div class='kpi-card'>
-          <div class='metric-label'>포장 PACK</div>
-          <div class='metric-value'>{format_int(kpi['packing_pack'])}</div>
+          <div class='metric-label'>용마입고 PACK</div>
+          <div class='metric-value'>{format_int(kpi.get('yongma_in_pack', kpi['packing_pack']))}</div>
         </div>
         <div class='kpi-card'>
-          <div class='metric-label'>부족 PACK</div>
+          <div class='metric-label'>미입고 PACK</div>
           <div class='{shortage_class}'>{format_int(kpi['shortage_pack'])}</div>
         </div>
         <div class='kpi-card'>
-          <div class='metric-label'>포장진도율</div>
+          <div class='metric-label'>용마입고율</div>
           <div class='metric-value'>{progress:.1f}%</div>
         </div>
         <div class='kpi-card'>
@@ -2120,11 +2226,14 @@ def calc_operation_kpis(
     work["request_due_date"] = pd.to_datetime(work["request_due_date"], errors="coerce")
     if "available_stock_pack" not in work.columns:
         work["available_stock_pack"] = np.nan
+    if "yongma_in_pack" not in work.columns:
+        work["yongma_in_pack"] = work["packing_pack"]
     work["_packing_shortage_pack"] = (work["request_pack"] - work["packing_pack"]).clip(lower=0.0)
+    work["_receipt_shortage_pack"] = (work["request_pack"] - work["yongma_in_pack"]).clip(lower=0.0)
     product_priority = (
         work.groupby("base_product_name", dropna=False)
         .agg(
-            packing_shortage_pack=("_packing_shortage_pack", "sum"),
+            packing_shortage_pack=("_receipt_shortage_pack", "sum"),
             request_due_date=("request_due_date", min_datetime),
             current_stock_pack=("available_stock_pack", sum_numeric_or_nan),
         )
@@ -2146,12 +2255,17 @@ def calc_operation_kpis(
     request_pack = float(product_summary["요청 PACK"].sum()) if "요청 PACK" in product_summary.columns and not product_summary.empty else 0.0
     request_pcs = float(product_summary["요청 PCS"].sum()) if "요청 PCS" in product_summary.columns and not product_summary.empty else 0.0
     packing_pack = float(product_summary["포장 PACK"].sum()) if "포장 PACK" in product_summary.columns and not product_summary.empty else 0.0
+    yongma_in_pack = (
+        float(product_summary["용마입고 PACK"].sum())
+        if "용마입고 PACK" in product_summary.columns and not product_summary.empty
+        else packing_pack
+    )
     production_shortage_pcs = (
         float(product_summary["생산부족수량"].sum())
         if "생산부족수량" in product_summary.columns and not product_summary.empty
         else 0.0
     )
-    packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
+    packing_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     production_progress = (
         (request_pcs - production_shortage_pcs) / request_pcs * 100.0
         if request_pcs > 0
@@ -2162,7 +2276,7 @@ def calc_operation_kpis(
         "urgent_products": float((shortage_mask & due_mask).sum()),
         "stock_shortage_products": float((shortage_mask & stock_shortage_mask).sum()),
         "request_pcs": request_pcs,
-        "packing_shortage_pack": float(product_summary["포장부족수량"].sum()) if not product_summary.empty else 0.0,
+        "packing_shortage_pack": float(product_summary["미입고수량"].sum()) if "미입고수량" in product_summary.columns and not product_summary.empty else 0.0,
         "production_shortage_pcs": production_shortage_pcs,
         "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
         "production_progress_pct": min(100.0, max(0.0, production_progress)),
@@ -2181,11 +2295,11 @@ def render_operation_kpis(
         c1.metric("요청합계(PCS)", format_int(kpi["request_pcs"]))
         c2.metric("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]))
         c3.metric("생산진도율", f"{kpi['production_progress_pct']:.1f}%")
-        c4.metric("포장진도율", f"{kpi['packing_progress_pct']:.1f}%")
+        c4.metric("용마입고율", f"{kpi['packing_progress_pct']:.1f}%")
         return
     c1.metric("우선품목 수", f"{int(kpi['priority_products']):,}")
     c2.metric("재고부족 품목 수", f"{int(kpi['stock_shortage_products']):,}")
-    c3.metric("포장부족(PACK)", format_int(kpi["packing_shortage_pack"]))
+    c3.metric("미입고(PACK)", format_int(kpi["packing_shortage_pack"]))
     c4.metric("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]))
 
 
@@ -2200,7 +2314,7 @@ def render_unit_selector(key: str) -> str:
     if unit_mode == UNIT_PCS:
         st.caption("생산 필요수량·생산부족 기준 조회")
     else:
-        st.caption("포장·재고 기준 조회 · 단, 생산부족수량은 수요정보 기준으로 PCS 표시")
+        st.caption("용마입고·재고 기준 조회 · 단, 생산부족수량은 수요정보 기준으로 PCS 표시")
     return unit_mode
 
 
@@ -2218,7 +2332,7 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
             "생산필요수량(PCS)",
             "생산부족수량(PCS)",
             "생산진도율",
-            "포장진도율",
+            "용마입고율",
             "상태",
         ]
     else:
@@ -2228,10 +2342,11 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
             "제품명",
             *pack_labels,
             "요청합계(PACK)",
+            "용마입고 PACK",
             "재고부족(PACK)",
-            "포장부족(PACK)",
+            "미입고(PACK)",
             "생산부족수량(PCS)",
-            "포장진도율",
+            "용마입고율",
             "생산진도율",
             "상태",
         ]
@@ -2361,10 +2476,11 @@ def build_product_progress_main_view(
     out["생산필요수량(PCS)"] = out["제품필요수량"]
     out["생산부족수량(PCS)"] = out.get("생산부족수량", 0.0)
     out["진도율"] = out.get("생산진도율", 0.0)
-    out["전체진도율"] = out["포장진도율"]
-    out = add_priority_columns(out, stock_threshold_pack, request_col="요청 PACK")
+    out["전체진도율"] = out["용마입고율"]
+    out = add_priority_columns(out, stock_threshold_pack, shortage_col="미입고수량", request_col="요청 PACK")
     out = out.rename(columns={"요청 PACK": "요청합계(PACK)", "요청 PCS": "요청합계(PCS)"})
     out["포장부족(PACK)"] = out["포장부족수량"]
+    out["미입고(PACK)"] = out["미입고수량"]
     ordered = [
         "우선등급",
         "D-Day",
@@ -2372,8 +2488,10 @@ def build_product_progress_main_view(
         *pack_labels,
         "요청합계(PACK)",
         "요청합계(PCS)",
+        "용마입고 PACK",
         "용마창고재고 (PACK)",
         "재고부족(PACK)",
+        "미입고(PACK)",
         "포장부족(PACK)",
         "생산필요수량(PCS)",
         "생산부족수량(PCS)",
@@ -2381,7 +2499,9 @@ def build_product_progress_main_view(
         "진도율",
         "생산진도율",
         "포장부족수량",
+        "미입고수량",
         "포장진도율",
+        "용마입고율",
         "전체진도율",
         "상태",
         "_priority_sort",
@@ -2396,13 +2516,14 @@ def build_product_sku_detail_view(code_summary: pd.DataFrame, product_name: str)
     if scope.empty:
         scope = work[work["product_name"] == product_name].copy()
     if scope.empty:
-        return pd.DataFrame(columns=["SKU", "생산코드", "판매코드 수", "요청 PACK", "부족 PACK", "진도율"])
+        return pd.DataFrame(columns=["SKU", "생산코드", "판매코드 수", "요청 PACK", "용마입고 PACK", "미입고 PACK", "용마입고율"])
     grouped = (
         scope.groupby(["product_name", "production_code_display"], dropna=False)
         .agg(
             sales_code_count=("sales_code", "nunique"),
             request_pack=("request_pack", "sum"),
             packing_pack=("packing_pack", "sum"),
+            yongma_in_pack=("yongma_in_pack", "sum"),
         )
         .reset_index()
         .rename(
@@ -2411,37 +2532,181 @@ def build_product_sku_detail_view(code_summary: pd.DataFrame, product_name: str)
                 "production_code_display": "생산코드",
                 "sales_code_count": "판매코드 수",
                 "request_pack": "요청 PACK",
+                "yongma_in_pack": "용마입고 PACK",
             }
         )
     )
-    grouped["부족 PACK"] = (grouped["요청 PACK"] - grouped["packing_pack"]).clip(lower=0.0)
-    grouped["진도율"] = np.where(grouped["요청 PACK"] > 0, grouped["packing_pack"] / grouped["요청 PACK"] * 100.0, 0.0)
-    grouped["진도율"] = np.clip(grouped["진도율"], 0.0, 100.0)
-    return grouped[["SKU", "생산코드", "판매코드 수", "요청 PACK", "부족 PACK", "진도율"]].sort_values(
-        ["부족 PACK", "요청 PACK"], ascending=[False, False], kind="stable"
+    grouped["미입고 PACK"] = (grouped["요청 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
+    grouped["용마입고율"] = np.where(grouped["요청 PACK"] > 0, grouped["용마입고 PACK"] / grouped["요청 PACK"] * 100.0, 0.0)
+    grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
+    return grouped[["SKU", "생산코드", "판매코드 수", "요청 PACK", "용마입고 PACK", "미입고 PACK", "용마입고율"]].sort_values(
+        ["미입고 PACK", "요청 PACK"], ascending=[False, False], kind="stable"
     )
 
 
 def build_sales_pack_detail_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     if code_summary.empty:
-        return pd.DataFrame(columns=["판매코드", "PACK", "요청", "포장", "부족", "납기"])
+        return pd.DataFrame(columns=["판매코드", "PACK", "요청", "용마입고", "미입고", "납기"])
     work = with_operational_columns(code_summary)
     out = (
         work.groupby(["sales_code", "_pack_label"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
             packing_pack=("packing_pack", "sum"),
+            yongma_in_pack=("yongma_in_pack", "sum"),
             request_due_date=("request_due_date", min_datetime),
         )
         .reset_index()
-        .rename(columns={"sales_code": "판매코드", "_pack_label": "PACK", "request_pack": "요청", "packing_pack": "포장"})
+        .rename(columns={"sales_code": "판매코드", "_pack_label": "PACK", "request_pack": "요청", "yongma_in_pack": "용마입고"})
     )
-    out["부족"] = (out["요청"] - out["포장"]).clip(lower=0.0)
+    out["미입고"] = (out["요청"] - out["용마입고"]).clip(lower=0.0)
     out["납기"] = out["request_due_date"].map(display_date_or_dash)
     out["_pack_sort"] = out["PACK"].map(pack_sort_key)
-    return out.sort_values(["부족", "_pack_sort", "요청"], ascending=[False, True, False], kind="stable")[
-        ["판매코드", "PACK", "요청", "포장", "부족", "납기"]
+    return out.sort_values(["미입고", "_pack_sort", "요청"], ascending=[False, True, False], kind="stable")[
+        ["판매코드", "PACK", "요청", "용마입고", "미입고", "납기"]
     ]
+
+
+def build_lot_receipt_status_view(packing_df: pd.DataFrame, yongma_df: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "제품코드",
+        "제품명",
+        "LOTNO",
+        "포장일",
+        "포장실적수량",
+        "용마입고수량",
+        "입고대기수량",
+        "상태",
+    ]
+    if packing_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    pack = packing_df.copy()
+    for col in ["sales_code_key", "packing_lot_key", "packing_barcode_key"]:
+        if col not in pack.columns:
+            pack[col] = ""
+    for col in ["packing_product_name", "packing_lot", "packing_barcode"]:
+        if col not in pack.columns:
+            pack[col] = ""
+    if "packing_date" not in pack.columns:
+        pack["packing_date"] = pd.NaT
+
+    grouped = (
+        pack.groupby(
+            [
+                "sales_code_key",
+                "sales_code",
+                "packing_product_name",
+                "packing_lot",
+                "packing_lot_key",
+                "packing_barcode",
+                "packing_barcode_key",
+            ],
+            dropna=False,
+        )
+        .agg(
+            packing_pack=("packing_pack", "sum"),
+            packing_date=("packing_date", min_datetime),
+        )
+        .reset_index()
+    )
+    grouped["용마입고수량"] = 0.0
+
+    if yongma_df is not None and not yongma_df.empty:
+        yongma = yongma_df.copy()
+        yongma["sales_code_key"] = yongma["sales_code_key"].map(clean_str)
+        yongma["yongma_lot_key"] = yongma["yongma_lot_key"].map(clean_str)
+        for _, receipt in yongma.iterrows():
+            code_key = clean_str(receipt.get("sales_code_key", ""))
+            lot_key = clean_str(receipt.get("yongma_lot_key", ""))
+            qty_value = pd.to_numeric(receipt.get("yongma_in_pack", 0.0), errors="coerce")
+            qty = 0.0 if pd.isna(qty_value) else float(qty_value)
+            if not code_key or not lot_key or qty <= 0:
+                continue
+
+            candidates = grouped[grouped["sales_code_key"] == code_key]
+            if candidates.empty:
+                continue
+            exact = candidates[candidates["packing_lot_key"] == lot_key]
+            target = exact
+            if target.empty:
+                barcode_match = candidates[
+                    candidates["packing_barcode_key"].astype(str).str.contains(lot_key, regex=False, na=False)
+                ]
+                target = barcode_match
+            if target.empty:
+                continue
+            grouped.loc[target.index[0], "용마입고수량"] += qty
+
+    grouped["포장실적수량"] = pd.to_numeric(grouped["packing_pack"], errors="coerce").fillna(0.0)
+    grouped["용마입고수량"] = pd.to_numeric(grouped["용마입고수량"], errors="coerce").fillna(0.0)
+    grouped["입고대기수량"] = (grouped["포장실적수량"] - grouped["용마입고수량"]).clip(lower=0.0)
+    grouped["상태"] = np.where(grouped["입고대기수량"] > 0, "입고대기", "입고완료")
+    grouped["_status_sort"] = np.where(grouped["상태"] == "입고대기", 0, 1)
+    grouped["포장일"] = grouped["packing_date"].map(display_date_or_dash)
+    grouped = grouped.rename(
+        columns={
+            "sales_code": "제품코드",
+            "packing_product_name": "제품명",
+            "packing_lot": "LOTNO",
+        }
+    )
+    grouped["제품명"] = grouped["제품명"].replace("", "(미기재)")
+    return grouped.sort_values(
+        ["_status_sort", "입고대기수량", "포장실적수량"],
+        ascending=[True, False, False],
+        kind="stable",
+    )[columns].copy()
+
+
+def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
+    render_panel_title(
+        "세부 포장 진도 현황",
+        "LOT 기준 포장실적과 용마입고수량을 비교합니다.",
+    )
+    if lot_status_df.empty:
+        st.warning("표시할 포장 LOT 데이터가 없습니다.")
+        return
+
+    f1, f2 = st.columns([2.4, 1.2], gap="small")
+    with f1:
+        query = st.text_input(
+            "제품코드/제품명/LOTNO 검색",
+            value="",
+            key="packing_lot_query",
+        )
+    with f2:
+        statuses = st.multiselect(
+            "상태 필터",
+            ["입고대기", "입고완료"],
+            default=["입고대기", "입고완료"],
+            key="packing_lot_status",
+        )
+
+    view = lot_status_df.copy()
+    if query.strip():
+        q = query.strip()
+        mask = (
+            view["제품코드"].astype(str).str.contains(q, case=False, na=False)
+            | view["제품명"].astype(str).str.contains(q, case=False, na=False)
+            | view["LOTNO"].astype(str).str.contains(q, case=False, na=False)
+        )
+        view = view[mask].copy()
+    if statuses:
+        view = view[view["상태"].isin(statuses)].copy()
+
+    kpi_cols = st.columns(3, gap="small")
+    kpi_cols[0].metric("포장실적수량", format_int(float(view["포장실적수량"].sum()) if not view.empty else 0.0))
+    kpi_cols[1].metric("용마입고수량", format_int(float(view["용마입고수량"].sum()) if not view.empty else 0.0))
+    kpi_cols[2].metric("입고대기수량", format_int(float(view["입고대기수량"].sum()) if not view.empty else 0.0))
+
+    st.dataframe(
+        view,
+        hide_index=True,
+        height=620,
+        width="stretch",
+        column_config=drilldown_column_config(),
+    )
 
 
 def build_production_progress_main_view(code_summary: pd.DataFrame, pack_labels: list[str]) -> pd.DataFrame:
@@ -4263,6 +4528,14 @@ def drilldown_column_config() -> dict[str, Any]:
         "총수량(PACK)": st.column_config.NumberColumn("총수량(PACK)", format=numeric_format),
         "재고기준(PACK)": st.column_config.NumberColumn("재고기준(PACK)", format=numeric_format),
         "재고부족(PACK)": st.column_config.NumberColumn("재고부족(PACK)", format=numeric_format),
+        "용마입고 PACK": st.column_config.NumberColumn("용마입고 PACK", format=numeric_format),
+        "용마입고": st.column_config.NumberColumn("용마입고", format=numeric_format),
+        "미입고": st.column_config.NumberColumn("미입고", format=numeric_format),
+        "미입고 PACK": st.column_config.NumberColumn("미입고 PACK", format=numeric_format),
+        "용마입고수량": st.column_config.NumberColumn("용마입고수량", format=numeric_format),
+        "미입고(PACK)": st.column_config.NumberColumn("미입고(PACK)", format=numeric_format),
+        "미입고수량": st.column_config.NumberColumn("미입고수량", format=numeric_format),
+        "입고대기수량": st.column_config.NumberColumn("입고대기수량", format=numeric_format),
         "제품필요수량": st.column_config.NumberColumn("제품필요수량", format=numeric_format),
         "생산필요수량(PCS)": st.column_config.NumberColumn("생산필요수량(PCS)", format=numeric_format),
         "생산부족수량(PCS)": st.column_config.NumberColumn("생산부족수량(PCS)", format=numeric_format),
@@ -4296,6 +4569,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "생산부족수량": st.column_config.NumberColumn("생산부족수량", format=numeric_format),
         "포장부족수량": st.column_config.NumberColumn("포장부족수량", format=numeric_format),
         "생산진도율": st.column_config.ProgressColumn("생산진도율", min_value=0, max_value=100, format="%.1f%%"),
+        "용마입고율": st.column_config.ProgressColumn("용마입고율", min_value=0, max_value=100, format="%.1f%%"),
         "포장수량": st.column_config.NumberColumn("포장수량", format=numeric_format),
         "부족수량": st.column_config.NumberColumn("부족수량", format=numeric_format),
         "포장진도율": st.column_config.ProgressColumn("포장진도율", min_value=0, max_value=100, format="%.1f%%"),
@@ -4372,7 +4646,7 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
         "본품 분류별 진도현황",
-        "제품보다 상위 제품군 기준으로 생산/포장 진도와 부족수량을 먼저 확인합니다.",
+        "제품보다 상위 제품군 기준으로 생산/입고 진도와 부족수량을 먼저 확인합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_family_progress_cards(family_view)
@@ -4383,7 +4657,7 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     with detail_col:
         render_panel_title(
             "제품 진도 현황",
-            "제품명 기준 PACK pivot, 생산 필요수량, 포장 전체진도율을 한 번에 확인합니다.",
+            "제품명 기준 PACK pivot, 생산 필요수량, 용마입고율을 한 번에 확인합니다.",
         )
     with report_col:
         ppt_bytes = build_ppt_report(
@@ -4447,14 +4721,14 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
     visible_products = set(product_filter_base["제품명"].astype(str))
     product_view = product_view_all[product_view_all["제품명"].astype(str).isin(visible_products)].copy()
     product_view = product_view.sort_values(
-        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "포장부족수량", "제품필요수량"],
+        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "미입고수량", "제품필요수량"],
         ascending=[True, True, False, False, False],
         na_position="last",
         kind="stable",
     )
     selected_product_row = render_selectable_table(
         "제품 진도 현황",
-        f"제품 기준 요청/생산/포장 현황 | 표시 건수: {len(product_view):,}",
+        f"제품 기준 요청/생산/용마입고 현황 | 표시 건수: {len(product_view):,}",
         product_view,
         key="product_progress_main_table",
         height=430,
@@ -4500,8 +4774,8 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "포장부족 TOP10",
-        "오늘 우선 대응해야 할 제품을 포장부족수량 기준으로 표시합니다.",
+        "미입고 TOP10",
+        "오늘 우선 확인해야 할 제품을 미입고수량 기준으로 표시합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_top_shortage_list(top_shortage_view)
@@ -4509,8 +4783,8 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "생산/포장 GAP TOP10",
-        "생산진도율 대비 포장진도율이 뒤처진 제품을 GAP 기준으로 표시합니다.",
+        "생산/입고 GAP TOP10",
+        "생산진도율 대비 용마입고율이 뒤처진 제품을 GAP 기준으로 표시합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_gap_top_list(gap_top_view)
@@ -4981,13 +5255,15 @@ def main() -> None:
         files = discover_source_files(base_dir)
         request_df = normalize_request(files.request_file)
         packing_df = normalize_packing(files.packing_file)
+        yongma_df = normalize_yongma_movement(files.packing_file)
         inventory_df = normalize_inventory(files.inventory_file)
-        product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df)
+        product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
         code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
         progress_df, _progress_info = normalize_progress(files.progress_file, request_df)
         product_summary = enrich_product_summary(product_summary, progress_df)
         code_summary = attach_progress_to_code_summary(code_summary, progress_df)
         product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
+        lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df)
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
         for msg in exc.messages:
@@ -4997,8 +5273,8 @@ def main() -> None:
         st.error(f"처리 중 오류가 발생했습니다: {exc}")
         st.stop()
 
-    tab_summary, tab_production, tab_sales, tab_power = st.tabs(
-        ["제품 진도 현황", "생산코드 상세", "판매코드 상세", "POWER 상세"]
+    tab_summary, tab_production, tab_sales, tab_power, tab_lot = st.tabs(
+        ["제품 진도 현황", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
     )
 
     with tab_summary:
@@ -5009,6 +5285,8 @@ def main() -> None:
         render_sales_code_tab(code_summary)
     with tab_power:
         render_power_tab(code_summary)
+    with tab_lot:
+        render_packing_lot_tab(lot_status_df)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $projectDir
 
 $preferredPort = 8514
+$hostAddress = "127.0.0.1"
 $fallbackPorts = @()
 $pidFile = Join-Path $projectDir ".dashboard_pid"
 $portFile = Join-Path $projectDir ".dashboard_port"
@@ -39,7 +40,7 @@ function Start-DashboardProcess([string]$pythonExe, [int]$port) {
     $args = @(
         "-m", "streamlit", "run", "dashboard.py",
         "--server.port", "$port",
-        "--server.address", "localhost",
+        "--server.address", $hostAddress,
         "--server.headless", "true"
     )
 
@@ -87,7 +88,7 @@ try {
     $target = Resolve-TargetPort
 
     if ($target.mode -eq "reuse") {
-        Start-Process "http://localhost:$($target.port)/?v=$([int](Get-Random))"
+        Start-Process "http://${hostAddress}:$($target.port)"
         Write-Host "[INFO] Dashboard already running on PID $($target.pid) (port $($target.port))."
         exit 0
     }
@@ -99,8 +100,8 @@ try {
     if (Wait-Ready -port $target.port -timeoutSec 30) {
         Set-Content -LiteralPath $pidFile -Value "$($proc.Id)" -Encoding ascii
         Set-Content -LiteralPath $portFile -Value "$($target.port)" -Encoding ascii
-        Start-Process "http://localhost:$($target.port)/?v=$([int](Get-Random))"
-        Write-Host "[DONE] Dashboard is ready at http://localhost:$($target.port) (PID $($proc.Id))."
+        Start-Process "http://${hostAddress}:$($target.port)"
+        Write-Host "[DONE] Dashboard is ready at http://${hostAddress}:$($target.port) (PID $($proc.Id))."
         exit 0
     }
 

@@ -3,7 +3,7 @@ $ErrorActionPreference = "SilentlyContinue"
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $projectDir
 
-$port = 8512
+$port = 8514
 $pidFile = Join-Path $projectDir ".dashboard_pid"
 
 function Stop-Pid([int]$pidNum) {
