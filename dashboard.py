@@ -2381,9 +2381,9 @@ def render_unit_selector(key: str) -> str:
         key=key,
     )
     if unit_mode == UNIT_PCS:
-        st.caption("생산 필요수량·생산부족 기준 조회")
+        st.caption("포장대기·생산부족 기준 조회")
     else:
-        st.caption("용마입고·재고 기준 조회 · 단, 생산부족수량은 수요정보 기준으로 PCS 표시")
+        st.caption("용마입고·포장부족 기준 조회")
     return unit_mode
 
 
@@ -2465,14 +2465,13 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "제품명",
             "POWER",
             "PACK",
-            "요청합계(PCS)",
-            "용마입고수량",
-            "용마입고대기수량",
+            "생산요청물량(PCS)",
+            "용마입고수량(PCS)",
+            "용마입고대기수량(PCS)",
             "포장대기(PCS)",
-            "생산필요수량(PCS)",
-            "생산부족수량(PCS)",
+            "포장부족(PCS)",
+            "생산부족(PCS)",
             "생산진도율",
-            "포장진도율",
             "납기",
             "상태",
         ]
@@ -2485,14 +2484,11 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "제품명",
             "POWER",
             "PACK",
-            "요청합계(PACK)",
-            "용마입고수량",
-            "용마입고대기수량",
-            "포장대기(PCS)",
+            "생산요청물량(PACK)",
+            "용마입고수량(PACK)",
+            "용마입고대기수량(PACK)",
             "포장부족(PACK)",
-            "생산부족수량(PCS)",
             "포장진도율",
-            "생산진도율",
             "납기",
             "상태",
         ]
@@ -3227,14 +3223,22 @@ def build_sales_order_main_view(
                 "요청PACK",
                 "요청PCS",
                 "생산요청물량",
+                "생산요청물량(PACK)",
+                "생산요청물량(PCS)",
                 "용마입고수량",
+                "용마입고수량(PACK)",
+                "용마입고수량(PCS)",
                 "용마입고대기수량",
+                "용마입고대기수량(PACK)",
+                "용마입고대기수량(PCS)",
                 "포장대기(PCS)",
                 "용마창고재고 (PACK)",
                 "재고기준(PACK)",
                 "재고부족(PACK)",
                 "생산부족",
+                "생산부족(PCS)",
                 "포장부족",
+                "포장부족(PCS)",
                 "생산진도율",
                 "포장진도율",
                 "납기",
@@ -3242,6 +3246,18 @@ def build_sales_order_main_view(
             ]
         )
     work = add_allocated_production_basis(with_operational_columns(code_summary))
+    pack_unit = pd.to_numeric(work.get("pack_unit", pd.Series(np.nan, index=work.index)), errors="coerce")
+    request_pack = pd.to_numeric(work.get("request_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    implied_unit = np.where(request_pack > 0, request_pcs / request_pack, np.nan)
+    pcs_per_pack = pack_unit.where(pack_unit > 0, implied_unit)
+    pcs_per_pack = pd.Series(pcs_per_pack, index=work.index).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    pcs_per_pack = pcs_per_pack.where(pcs_per_pack > 0, 1.0)
+    yongma_in_pack = pd.to_numeric(work.get("yongma_in_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    packing_pack = pd.to_numeric(work.get("packing_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    work["_yongma_in_pcs"] = (yongma_in_pack * pcs_per_pack).clip(lower=0.0)
+    work["_yongma_wait_pcs"] = ((packing_pack - yongma_in_pack).clip(lower=0.0) * pcs_per_pack).clip(lower=0.0)
+    work["_packing_shortage_pcs"] = ((request_pack - yongma_in_pack).clip(lower=0.0) * pcs_per_pack).clip(lower=0.0)
     grouped = (
         work.groupby("sales_code", dropna=False)
         .agg(
@@ -3254,6 +3270,9 @@ def build_sales_order_main_view(
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_pack", "sum"),
             yongma_in_pack=("yongma_in_pack", "sum"),
+            yongma_in_pcs=("_yongma_in_pcs", "sum"),
+            yongma_wait_pcs=("_yongma_wait_pcs", "sum"),
+            packing_shortage_pcs=("_packing_shortage_pcs", "sum"),
             available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
             production_shortage=("_allocated_production_shortage_qty", "sum"),
             sample_available_pcs=("_allocated_sample_available_pcs", "sum"),
@@ -3270,6 +3289,9 @@ def build_sales_order_main_view(
                 "request_pack": "요청PACK",
                 "request_pcs": "요청PCS",
                 "yongma_in_pack": "용마입고수량",
+                "yongma_in_pcs": "용마입고수량(PCS)",
+                "yongma_wait_pcs": "용마입고대기수량(PCS)",
+                "packing_shortage_pcs": "포장부족(PCS)",
                 "available_stock_pack": "용마창고재고 (PACK)",
                 "production_shortage": "생산부족",
                 "sample_available_pcs": "샘플신청가능수량",
@@ -3277,6 +3299,8 @@ def build_sales_order_main_view(
         )
     )
     grouped["용마입고대기수량"] = (grouped["packing_pack"] - grouped["용마입고수량"]).clip(lower=0.0)
+    grouped["용마입고수량(PACK)"] = grouped["용마입고수량"]
+    grouped["용마입고대기수량(PACK)"] = grouped["용마입고대기수량"]
     grouped["포장대기(PCS)"] = (
         grouped["요청PCS"] - grouped["생산부족"] + grouped["샘플신청가능수량"]
     ).clip(lower=0.0)
@@ -3301,8 +3325,11 @@ def build_sales_order_main_view(
     grouped["요청합계(PACK)"] = grouped["요청PACK"]
     grouped["요청합계(PCS)"] = grouped["요청PCS"]
     grouped["생산요청물량"] = grouped["요청PCS"]
+    grouped["생산요청물량(PACK)"] = grouped["요청PACK"]
+    grouped["생산요청물량(PCS)"] = grouped["요청PCS"]
     grouped["생산필요수량(PCS)"] = grouped["생산부족"]
     grouped["생산부족수량(PCS)"] = grouped["생산부족"]
+    grouped["생산부족(PCS)"] = grouped["생산부족"]
     grouped["포장부족(PACK)"] = grouped["포장부족"]
     return grouped[
         [
@@ -3318,8 +3345,14 @@ def build_sales_order_main_view(
             "요청합계(PACK)",
             "요청합계(PCS)",
             "생산요청물량",
+            "생산요청물량(PACK)",
+            "생산요청물량(PCS)",
             "용마입고수량",
+            "용마입고수량(PACK)",
+            "용마입고수량(PCS)",
             "용마입고대기수량",
+            "용마입고대기수량(PACK)",
+            "용마입고대기수량(PCS)",
             "포장대기(PCS)",
             "샘플신청가능수량",
             "용마창고재고 (PACK)",
@@ -3328,8 +3361,10 @@ def build_sales_order_main_view(
             "생산부족",
             "생산필요수량(PCS)",
             "생산부족수량(PCS)",
+            "생산부족(PCS)",
             "포장부족",
             "포장부족(PACK)",
+            "포장부족(PCS)",
             "생산진도율",
             "포장진도율",
             "납기",
@@ -3354,9 +3389,8 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         "제품명",
         "POWER",
         "PACK",
-        "생산요청물량",
+        "생산요청물량(PACK)",
         "포장부족(PACK)",
-        "생산부족수량(PCS)",
         "납기",
     ]
     if sales_view.empty:
@@ -3382,7 +3416,7 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
     urgent_view = build_urgent_sales_packing_view(sales_view)
     render_panel_title(
         "긴급 포장 리스트",
-        "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 생산요청물량과 부족 수량만 표시합니다.",
+        "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 PACK 기준 요청·부족 수량만 표시합니다.",
     )
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if urgent_view.empty:
@@ -4634,6 +4668,8 @@ def drilldown_column_config() -> dict[str, Any]:
         "요청합계(PACK)": st.column_config.NumberColumn("요청합계(PACK)", format=numeric_format),
         "요청합계(PCS)": st.column_config.NumberColumn("요청합계(PCS)", format=numeric_format),
         "생산요청물량": st.column_config.NumberColumn("생산요청물량", format=numeric_format),
+        "생산요청물량(PACK)": st.column_config.NumberColumn("생산요청물량(PACK)", format=numeric_format),
+        "생산요청물량(PCS)": st.column_config.NumberColumn("생산요청물량(PCS)", format=numeric_format),
         "용마창고재고 (PACK)": st.column_config.NumberColumn("용마창고재고 (PACK)", format=numeric_format),
         "총수량(PACK)": st.column_config.NumberColumn("총수량(PACK)", format=numeric_format),
         "재고기준(PACK)": st.column_config.NumberColumn("재고기준(PACK)", format=numeric_format),
@@ -4643,7 +4679,11 @@ def drilldown_column_config() -> dict[str, Any]:
         "미입고": st.column_config.NumberColumn("미입고", format=numeric_format),
         "미입고 PACK": st.column_config.NumberColumn("미입고 PACK", format=numeric_format),
         "용마입고수량": st.column_config.NumberColumn("용마입고수량", format=numeric_format),
+        "용마입고수량(PACK)": st.column_config.NumberColumn("용마입고수량(PACK)", format=numeric_format),
+        "용마입고수량(PCS)": st.column_config.NumberColumn("용마입고수량(PCS)", format=numeric_format),
         "용마입고대기수량": st.column_config.NumberColumn("용마입고대기수량", format=numeric_format),
+        "용마입고대기수량(PACK)": st.column_config.NumberColumn("용마입고대기수량(PACK)", format=numeric_format),
+        "용마입고대기수량(PCS)": st.column_config.NumberColumn("용마입고대기수량(PCS)", format=numeric_format),
         "포장대기(PCS)": st.column_config.NumberColumn("포장대기(PCS)", format=numeric_format),
         "샘플신청가능수량": st.column_config.NumberColumn("샘플신청가능수량", format=numeric_format),
         "미입고(PACK)": st.column_config.NumberColumn("미입고(PACK)", format=numeric_format),
@@ -4653,6 +4693,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "생산필요수량(PCS)": st.column_config.NumberColumn("생산필요수량(PCS)", format=numeric_format),
         "생산부족수량(PCS)": st.column_config.NumberColumn("생산부족수량(PCS)", format=numeric_format),
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
+        "포장부족(PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format),
         "5P 필요팩": st.column_config.NumberColumn("5P 필요팩", format=numeric_format),
         "10P 필요팩": st.column_config.NumberColumn("10P 필요팩", format=numeric_format),
         "30P 필요팩": st.column_config.NumberColumn("30P 필요팩", format=numeric_format),
@@ -4679,6 +4720,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "포장완료PACK": st.column_config.NumberColumn("포장완료PACK", format=numeric_format),
         "포장부족PACK": st.column_config.NumberColumn("포장부족PACK", format=numeric_format),
         "요청수량": st.column_config.NumberColumn("요청수량", format=numeric_format),
+        "생산부족(PCS)": st.column_config.NumberColumn("생산부족(PCS)", format=numeric_format),
         "생산부족수량": st.column_config.NumberColumn("생산부족수량", format=numeric_format),
         "포장부족수량": st.column_config.NumberColumn("포장부족수량", format=numeric_format),
         "생산진도율": st.column_config.ProgressColumn("생산진도율", min_value=0, max_value=100, format="%.1f%%"),
