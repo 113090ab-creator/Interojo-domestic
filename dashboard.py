@@ -46,7 +46,7 @@ MAIN_PRODUCT_FAMILY_ORDER = [
     "O2O2 1Day",
     "O2O2 D 컬러",
     "O2O2 D Micelia",
-    "O2O2 Toric",
+    "O2O2 D Toric",
     "O2O2 Monthly",
     "O2O2 M Micelia",
     "Clear",
@@ -54,7 +54,8 @@ MAIN_PRODUCT_FAMILY_ORDER = [
     "PIA Monthly",
     "Iris 컬러",
     "Iris Toric",
-    "Toric",
+    "T38 Toric",
+    "기타 Toric",
     "부자재/기타",
     "기타",
 ]
@@ -1198,11 +1199,13 @@ def classify_main_product_family(product_name: str) -> str:
             return "PIA Monthly"
         return "PIA 기타"
     if "O2O2 D TORIC" in upper or "O2O2 D_TORIC" in upper or "O2O2 D TORIC_" in upper:
-        return "O2O2 Toric"
+        return "O2O2 D Toric"
     if "IRIS TORIC" in upper:
         return "Iris Toric"
-    if "TORIC" in upper or "사축" in text or "정축" in text or upper.startswith("T38"):
-        return "Toric"
+    if upper.startswith("T38") or "T38" in upper or "사축" in text or "정축" in text:
+        return "T38 Toric"
+    if "TORIC" in upper:
+        return "기타 Toric"
     if "O2O2 1DAY" in upper:
         return "O2O2 1Day"
     if "O2O2 D_MICELIA" in upper or "O2O2 D MICELIA" in upper:
