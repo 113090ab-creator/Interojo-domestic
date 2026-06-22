@@ -41,10 +41,18 @@ class SourceFiles:
     inventory_file: Path | None = None
 
 
+@dataclass
+class DashboardData:
+    product_summary: pd.DataFrame
+    code_summary: pd.DataFrame
+    lot_status_df: pd.DataFrame
+
+
 STATUS_ORDER = ["미착수", "진행중", "완료"]
 UNIT_PACK = "PACK 기준"
 UNIT_PCS = "PCS 기준"
 UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
+DASHBOARD_TABS = ["제품 진도 현황", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 MAIN_PRODUCT_FAMILY_ORDER = [
@@ -472,7 +480,7 @@ def read_excel_preferred_sheet(path: Path, preferred_sheet: str) -> pd.DataFrame
     except Exception:
         return pd.read_excel(path)
     sheet_name = preferred_sheet if preferred_sheet in xl.sheet_names else xl.sheet_names[0]
-    return pd.read_excel(path, sheet_name=sheet_name)
+    return xl.parse(sheet_name=sheet_name)
 
 
 def has_excel_sheet(path: Path, sheet_name: str) -> bool:
@@ -480,6 +488,24 @@ def has_excel_sheet(path: Path, sheet_name: str) -> bool:
         return sheet_name in pd.ExcelFile(path).sheet_names
     except Exception:
         return False
+
+
+def read_resolved_excel_sheet(
+    xl: pd.ExcelFile,
+    sheet_name: str,
+    alias_map: dict[str, list[str]],
+    required_keys: list[str],
+    file_label: str,
+) -> pd.DataFrame:
+    header = xl.parse(sheet_name=sheet_name, nrows=0)
+    cols = resolve_columns(
+        header,
+        alias_map,
+        required_keys=required_keys,
+        file_label=file_label,
+    )
+    usecols = list(dict.fromkeys(cols.values()))
+    return xl.parse(sheet_name=sheet_name, usecols=usecols)
 
 
 def normalize_request(path: Path) -> pd.DataFrame:
@@ -541,13 +567,12 @@ def normalize_request(path: Path) -> pd.DataFrame:
     return out
 
 
-def normalize_packing(path: Path) -> pd.DataFrame:
-    raw = read_excel_preferred_sheet(path, "포장실적")
+def normalize_packing_frame(raw: pd.DataFrame, file_label: str) -> pd.DataFrame:
     cols = resolve_columns(
         raw,
         PACKING_COLS,
         required_keys=["sales_code", "packing_qty"],
-        file_label=path.name,
+        file_label=file_label,
     )
     out = pd.DataFrame(
         {
@@ -567,6 +592,24 @@ def normalize_packing(path: Path) -> pd.DataFrame:
     return out
 
 
+def normalize_packing(path: Path) -> pd.DataFrame:
+    try:
+        xl = pd.ExcelFile(path)
+        sheet_name = "포장실적" if "포장실적" in xl.sheet_names else xl.sheet_names[0]
+        raw = read_resolved_excel_sheet(
+            xl,
+            sheet_name,
+            PACKING_COLS,
+            required_keys=["sales_code", "packing_qty"],
+            file_label=path.name,
+        )
+    except DashboardConfigError:
+        raise
+    except Exception:
+        raw = read_excel_preferred_sheet(path, "포장실적")
+    return normalize_packing_frame(raw, path.name)
+
+
 def empty_yongma_movement_df() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -580,16 +623,12 @@ def empty_yongma_movement_df() -> pd.DataFrame:
     )
 
 
-def normalize_yongma_movement(path: Path) -> pd.DataFrame:
-    if not has_excel_sheet(path, "용마이동현황"):
-        return empty_yongma_movement_df()
-
-    raw = pd.read_excel(path, sheet_name="용마이동현황")
+def normalize_yongma_movement_frame(raw: pd.DataFrame, file_label: str) -> pd.DataFrame:
     cols = resolve_columns(
         raw,
         YONGMA_COLS,
         required_keys=["sales_code", "lot_no", "receipt_qty"],
-        file_label=f"{path.name}:용마이동현황",
+        file_label=file_label,
     )
     out = pd.DataFrame(
         {
@@ -604,6 +643,27 @@ def normalize_yongma_movement(path: Path) -> pd.DataFrame:
     return out[(out["sales_code_key"] != "") & (out["yongma_in_pack"] > 0)].copy()
 
 
+def normalize_yongma_movement(path: Path) -> pd.DataFrame:
+    sheet_name = "용마이동현황"
+    if not has_excel_sheet(path, sheet_name):
+        return empty_yongma_movement_df()
+
+    try:
+        xl = pd.ExcelFile(path)
+        raw = read_resolved_excel_sheet(
+            xl,
+            sheet_name,
+            YONGMA_COLS,
+            required_keys=["sales_code", "lot_no", "receipt_qty"],
+            file_label=f"{path.name}:{sheet_name}",
+        )
+    except DashboardConfigError:
+        raise
+    except Exception:
+        raw = pd.read_excel(path, sheet_name=sheet_name)
+    return normalize_yongma_movement_frame(raw, f"{path.name}:{sheet_name}")
+
+
 def empty_sample_available_df() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -614,17 +674,12 @@ def empty_sample_available_df() -> pd.DataFrame:
     )
 
 
-def normalize_sample_available(path: Path) -> pd.DataFrame:
-    sheet_name = "샘플신청가능수량"
-    if not has_excel_sheet(path, sheet_name):
-        return empty_sample_available_df()
-
-    raw = pd.read_excel(path, sheet_name=sheet_name)
+def normalize_sample_available_frame(raw: pd.DataFrame, file_label: str) -> pd.DataFrame:
     cols = resolve_columns(
         raw,
         SAMPLE_AVAILABLE_COLS,
         required_keys=["product_code", "sample_available_qty"],
-        file_label=f"{path.name}:{sheet_name}",
+        file_label=file_label,
     )
     out = pd.DataFrame(
         {
@@ -634,6 +689,76 @@ def normalize_sample_available(path: Path) -> pd.DataFrame:
     )
     out["production_code_key"] = out["product_code"].map(normalize_match_key)
     return out[(out["production_code_key"] != "") & (out["sample_available_pcs"] > 0)].copy()
+
+
+def normalize_sample_available(path: Path) -> pd.DataFrame:
+    sheet_name = "샘플신청가능수량"
+    if not has_excel_sheet(path, sheet_name):
+        return empty_sample_available_df()
+
+    try:
+        xl = pd.ExcelFile(path)
+        raw = read_resolved_excel_sheet(
+            xl,
+            sheet_name,
+            SAMPLE_AVAILABLE_COLS,
+            required_keys=["product_code", "sample_available_qty"],
+            file_label=f"{path.name}:{sheet_name}",
+        )
+    except DashboardConfigError:
+        raise
+    except Exception:
+        raw = pd.read_excel(path, sheet_name=sheet_name)
+    return normalize_sample_available_frame(raw, f"{path.name}:{sheet_name}")
+
+
+def normalize_packing_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    try:
+        xl = pd.ExcelFile(path)
+    except Exception:
+        return (
+            normalize_packing(path),
+            normalize_yongma_movement(path),
+            normalize_sample_available(path),
+        )
+
+    packing_sheet = "포장실적" if "포장실적" in xl.sheet_names else xl.sheet_names[0]
+    packing_raw = read_resolved_excel_sheet(
+        xl,
+        packing_sheet,
+        PACKING_COLS,
+        required_keys=["sales_code", "packing_qty"],
+        file_label=path.name,
+    )
+    packing_df = normalize_packing_frame(packing_raw, path.name)
+
+    yongma_sheet = "용마이동현황"
+    if yongma_sheet in xl.sheet_names:
+        yongma_raw = read_resolved_excel_sheet(
+            xl,
+            yongma_sheet,
+            YONGMA_COLS,
+            required_keys=["sales_code", "lot_no", "receipt_qty"],
+            file_label=f"{path.name}:{yongma_sheet}",
+        )
+        yongma_df = normalize_yongma_movement_frame(yongma_raw, f"{path.name}:{yongma_sheet}")
+    else:
+        yongma_df = empty_yongma_movement_df()
+
+    sample_sheet = "샘플신청가능수량"
+    if sample_sheet in xl.sheet_names:
+        sample_raw = read_resolved_excel_sheet(
+            xl,
+            sample_sheet,
+            SAMPLE_AVAILABLE_COLS,
+            required_keys=["product_code", "sample_available_qty"],
+            file_label=f"{path.name}:{sample_sheet}",
+        )
+        sample_available_df = normalize_sample_available_frame(sample_raw, f"{path.name}:{sample_sheet}")
+    else:
+        sample_available_df = empty_sample_available_df()
+
+    return packing_df, yongma_df, sample_available_df
 
 
 def empty_inventory_df() -> pd.DataFrame:
@@ -4220,6 +4345,29 @@ def render_style() -> None:
         [data-baseweb="tab-border"] {{
             display: none !important;
         }}
+        [data-testid="stSegmentedControl"] {{
+            margin: 2px 0 14px 0 !important;
+        }}
+        [data-testid="stSegmentedControl"] button {{
+            border: 0 !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            color: {TEXT_SECONDARY} !important;
+            font-size: 13px !important;
+            font-weight: 400 !important;
+            padding: 10px 20px !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
+            color: {COLOR_ORANGE} !important;
+            font-weight: 500 !important;
+            border-bottom: 2px solid {COLOR_ORANGE} !important;
+        }}
+        .dashboard-nav-divider {{
+            height: 1.5px;
+            background: {BORDER_DEFAULT};
+            margin: -15px 0 20px 0;
+        }}
         [data-testid="stRadio"] label,
         [data-testid="stCheckbox"] label {{
             font-size: 13px !important;
@@ -5829,6 +5977,55 @@ def render_drilldown_tab(product_summary: pd.DataFrame, code_summary: pd.DataFra
         key="drill_power_table",
         height=240,
     )
+
+
+def file_fingerprint(path: Path | None) -> tuple[str, int, int] | None:
+    if path is None:
+        return None
+    stat = path.stat()
+    return (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
+
+
+@st.cache_data(show_spinner="엑셀 데이터를 읽고 대시보드 요약을 계산하는 중입니다.")
+def load_dashboard_data(
+    request_fingerprint: tuple[str, int, int],
+    packing_fingerprint: tuple[str, int, int],
+    progress_fingerprint: tuple[str, int, int] | None,
+    inventory_fingerprint: tuple[str, int, int] | None,
+) -> DashboardData:
+    request_file = Path(request_fingerprint[0])
+    packing_file = Path(packing_fingerprint[0])
+    progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
+    inventory_file = Path(inventory_fingerprint[0]) if inventory_fingerprint is not None else None
+
+    request_df = normalize_request(request_file)
+    packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
+    inventory_df = normalize_inventory(inventory_file)
+    product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
+    code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
+    progress_df, _progress_info = normalize_progress(progress_file, request_df)
+    product_summary = enrich_product_summary(product_summary, progress_df)
+    code_summary = attach_progress_to_code_summary(code_summary, progress_df)
+    code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
+    product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
+    lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
+    return DashboardData(
+        product_summary=product_summary,
+        code_summary=code_summary,
+        lot_status_df=lot_status_df,
+    )
+
+
+def render_dashboard_nav() -> str:
+    selected = st.segmented_control(
+        "대시보드 메뉴",
+        options=DASHBOARD_TABS,
+        default=DASHBOARD_TABS[0],
+        label_visibility="collapsed",
+        key="dashboard_active_tab",
+    )
+    st.markdown("<div class='dashboard-nav-divider'></div>", unsafe_allow_html=True)
+    return str(selected or DASHBOARD_TABS[0])
 
 
 def main() -> None:
