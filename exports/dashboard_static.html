@@ -6,55 +6,67 @@
   <title>국내 생산·포장 현황 대시보드</title>
   <style>
     :root {
-      --bg:#f4f7fa; --panel:#ffffff; --line:#d8e0e8; --text:#172437; --muted:#657386;
-      --primary:#24496f; --accent:#ff4b4b; --risk:#d94b22; --soft:#fff1ed;
+      --bg:#e7e9ec; --panel:#ffffff; --line:rgba(62,74,88,0.16); --line-soft:rgba(62,74,88,0.08);
+      --text:#202832; --muted:#6f7782; --muted2:#a5adb6;
+      --blue:#24a6cf; --amber:#ffbf4a; --risk:#f5575c; --soft:#fff0f0; --section:#f2f4f6;
+      --shadow:0 10px 22px rgba(38,52,67,0.08);
     }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--bg); color:var(--text); font-family:"Noto Sans KR","Segoe UI",Arial,sans-serif; }
-    main { max-width:1440px; margin:0 auto; padding:30px 32px 48px; }
+    main { max-width:1440px; margin:0 auto; padding:28px 30px 48px; }
     header { display:flex; justify-content:space-between; gap:20px; align-items:flex-end; margin-bottom:22px; }
-    h1 { margin:0; font-size:32px; line-height:1.2; letter-spacing:0; }
-    h2 { margin:0 0 12px; font-size:18px; }
+    h1 { margin:0; font-size:30px; line-height:1.2; letter-spacing:0; font-weight:800; }
+    h2 { margin:0 0 12px; font-size:18px; font-weight:800; }
     .stamp { color:var(--muted); font-size:13px; }
-    .status-board { display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:12px; margin:0 0 14px; }
-    .status-main, .status-tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; }
-    .status-main { padding:18px; border-left:4px solid #1d9e75; }
-    .status-board.warn .status-main { border-left-color:#ba7517; }
+    .status-board { display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:14px; margin:0 0 16px; }
+    .status-main, .status-tile { background:var(--panel); border:1px solid var(--line); border-radius:6px; box-shadow:var(--shadow); }
+    .status-main { padding:20px 22px; border-left:5px solid var(--blue); }
+    .status-board.warn .status-main { border-left-color:var(--amber); }
     .status-board.risk .status-main { border-left-color:var(--risk); }
     .status-head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:12px; }
-    .status-head strong { font-size:14px; }
-    .status-pill { display:inline-flex; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:700; background:#eaf6f1; color:#1d9e75; }
-    .status-pill.warn { background:#f7efe3; color:#ba7517; }
+    .status-head strong { font-size:14px; font-weight:800; }
+    .status-pill { display:inline-flex; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:800; background:#e7f8fc; color:#0c7c9a; }
+    .status-pill.warn { background:#fff5d8; color:#9d6700; }
     .status-pill.risk { background:var(--soft); color:var(--risk); }
-    .status-main-value { font-size:34px; line-height:1; font-weight:800; color:var(--text); margin-bottom:14px; }
-    .status-flow { display:flex; height:12px; border-radius:999px; background:#e9eff5; overflow:hidden; }
-    .status-flow-fill.receipt { background:#1d9e75; }
+    .status-main-value { font-size:38px; line-height:1; font-weight:900; color:var(--text); margin-bottom:16px; }
+    .status-flow { display:flex; height:14px; border-radius:999px; background:var(--section); overflow:hidden; }
+    .status-flow-fill.receipt { background:var(--blue); }
     .status-flow-fill.shortage { background:var(--risk); }
     .status-flow-legend { display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:var(--muted); font-size:11px; }
     .status-tile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-    .status-tile { padding:14px 16px; min-height:86px; }
+    .status-tile { padding:14px 16px; min-height:86px; position:relative; overflow:hidden; }
+    .status-tile::before { content:""; position:absolute; top:0; left:0; right:0; height:5px; background:var(--blue); }
+    .status-tile::after {
+      content:""; position:absolute; right:14px; bottom:10px; width:76px; height:22px; opacity:.15; background:var(--blue);
+      clip-path:polygon(0 70%,18% 46%,34% 58%,50% 28%,68% 44%,84% 16%,100% 34%,100% 100%,0 100%);
+    }
+    .status-tile:nth-child(2)::before, .status-tile:nth-child(2)::after,
+    .status-tile:nth-child(5)::before, .status-tile:nth-child(5)::after { background:var(--amber); }
+    .status-tile:nth-child(3)::before, .status-tile:nth-child(3)::after,
+    .status-tile:nth-child(4)::before, .status-tile:nth-child(4)::after { background:var(--risk); }
     .metrics { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
-    .metric { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; min-height:86px; }
+    .metric { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px 16px; min-height:86px; box-shadow:var(--shadow); }
     .metric.warn { background:var(--soft); border-color:#f3b8a8; }
-    .metric-label { color:var(--muted); font-size:12px; margin-bottom:8px; }
-    .metric-value { color:var(--primary); font-size:25px; font-weight:800; }
+    .metric-label { color:var(--muted2); font-size:12px; margin-bottom:8px; font-weight:700; }
+    .metric-value { color:var(--blue); font-size:25px; font-weight:900; }
     .metric.warn .metric-value, .status-tile.warn .metric-value, .risk { color:var(--risk); }
-    section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-top:16px; }
+    section { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:18px; margin-top:16px; box-shadow:var(--shadow); }
     .family-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
-    .family-card { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
+    .family-card { border:1px solid var(--line); border-radius:6px; padding:14px 12px 12px; background:#fff; position:relative; overflow:hidden; box-shadow:0 6px 14px rgba(38,52,67,.05); }
+    .family-card::before { content:""; position:absolute; top:0; left:0; right:0; height:4px; background:var(--blue); }
     .family-head, .family-foot { display:flex; justify-content:space-between; gap:12px; align-items:center; }
     .family-head span, .family-foot { color:var(--muted); font-size:12px; }
     .family-foot b { color:var(--risk); }
     .bar-row { display:grid; grid-template-columns:40px 1fr 52px; gap:8px; align-items:center; margin-top:12px; font-size:12px; }
-    .bar { height:8px; background:#e9eff5; border-radius:999px; overflow:hidden; }
-    .bar i { display:block; height:100%; background:var(--primary); }
+    .bar { height:8px; background:var(--section); border-radius:999px; overflow:hidden; }
+    .bar i { display:block; height:100%; background:var(--blue); }
     .bar-row em { color:var(--muted); font-style:normal; text-align:right; }
     table { width:100%; border-collapse:collapse; font-size:12px; }
     th, td { border-bottom:1px solid #e5ebf1; padding:9px 8px; text-align:left; white-space:nowrap; }
-    th { color:var(--muted); font-weight:700; background:#f8fafc; position:sticky; top:0; }
+    th { color:var(--muted); font-weight:800; background:#f8fafc; position:sticky; top:0; }
     td.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; }
-    .empty { color:var(--muted); padding:20px; border:1px dashed var(--line); border-radius:8px; }
+    .table-wrap { overflow:auto; border:1px solid var(--line); border-radius:6px; }
+    .empty { color:var(--muted); padding:20px; border:1px dashed var(--line); border-radius:6px; }
     .sources { color:var(--muted); font-size:12px; }
     @media (max-width:900px) {
       main { padding:20px 14px 36px; }
@@ -72,7 +84,7 @@
     <header>
       <div>
         <h1>국내 생산·포장 현황 대시보드</h1>
-        <div class="stamp">정적 HTML 스냅샷 · 생성 2026-06-23 15:22</div>
+        <div class="stamp">정적 HTML 스냅샷 · 생성 2026-06-23 16:30</div>
       </div>
       <div class="stamp">기준: 요청물량, 수요정보, 용마입고, 일일 재고현황</div>
     </header>
