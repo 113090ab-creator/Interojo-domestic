@@ -107,7 +107,15 @@ def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], reques
         ("요청외 긴급", fmt_int(request_out_count), "warn" if request_out_count else ""),
         ("포장가능재고 PCS", fmt_int(waiting_pcs), "warn" if waiting_pcs else ""),
     ]
-    tile_html = "".join(metric_card(label, value, tile_tone).replace('class="metric', 'class="status-tile') for label, value, tile_tone in tiles)
+    tile_html = "".join(
+        f"""
+        <div class="status-tile {tile_tone}">
+          <div class="metric-label">{esc(label)}</div>
+          <div class="metric-value">{esc(value)}</div>
+        </div>
+        """
+        for label, value, tile_tone in tiles
+    )
     return f"""
     <div class="status-board {tone}">
       <div class="status-main">
@@ -165,12 +173,23 @@ def build_html() -> str:
     )
 
     kpi = dashboard.calc_kpi_from_code_summary(code_summary)
+    operation_kpi = dashboard.calc_operation_kpis(
+        product_summary,
+        code_summary,
+        dashboard.INVENTORY_STOCK_THRESHOLD_DEFAULT,
+    )
     main_products, _sample_products = dashboard.split_main_sample(product_summary)
     family_view = dashboard.build_family_progress_view(main_products)
     daily_view = dashboard.build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    exception_kpis, _exception_detail = dashboard.build_daily_exception_report_view(
+        daily_inventory_df,
+        code_summary,
+        sample_available_df,
+    )
     urgent = daily_view[daily_view["대응상태"].isin(["요청외 긴급", "요청내 긴급"])].copy()
     urgent = urgent.sort_values(["대응상태", "포장가능재고(PCS)", "생산부족 PCS"], ascending=[True, False, False], kind="stable")
-    request_out_count = int((daily_view["대응상태"] == "요청외 긴급").sum()) if not daily_view.empty else 0
+    request_out_count = int(exception_kpis.get("request_out_count", 0.0))
+    waiting_pcs = float(exception_kpis.get("waiting_pcs", 0.0))
     generated_at = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M")
 
     source_list = [
@@ -261,11 +280,13 @@ def build_html() -> str:
       <div class="stamp">기준: 요청물량, 수요정보, 용마입고, 일일 재고현황</div>
     </header>
 
+    {status_board_html(kpi, operation_kpi, request_out_count, waiting_pcs)}
+
     <div class="metrics">
       {metric_card("요청 PACK", fmt_int(kpi.get("request_pack", 0)))}
       {metric_card("용마입고 PACK", fmt_int(kpi.get("yongma_in_pack", 0)))}
-      {metric_card("미입고 PACK", fmt_int(kpi.get("packing_shortage_pack", 0)), "warn")}
-      {metric_card("생산부족 PCS", fmt_int(kpi.get("production_shortage_pcs", 0)), "warn")}
+      {metric_card("미입고 PACK", fmt_int(operation_kpi.get("packing_shortage_pack", 0)), "warn")}
+      {metric_card("생산부족 PCS", fmt_int(operation_kpi.get("production_shortage_pcs", 0)), "warn")}
       {metric_card("요청외 긴급 품목", fmt_int(request_out_count), "warn" if request_out_count else "")}
     </div>
 

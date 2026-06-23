@@ -2536,6 +2536,19 @@ def render_kpi_scope_panels(
             render_kpi_panel(title, kpi, unit_mode=unit_mode)
 
 
+def render_product_scope_kpi_panels(product_summary: pd.DataFrame, unit_mode: str = UNIT_PACK) -> None:
+    main_products, sample_products = split_main_sample(product_summary)
+    scopes = [
+        ("전체 KPI", product_summary),
+        ("본품 KPI", main_products),
+        ("샘플 KPI", sample_products),
+    ]
+    kpi_cols = st.columns(3, gap="small")
+    for col, (title, scope_df) in zip(kpi_cols, scopes):
+        with col:
+            render_kpi_panel(title, calc_kpi(scope_df), unit_mode=unit_mode)
+
+
 def metric_progress_tone(progress: float) -> str:
     if progress >= 80:
         return "good"
@@ -7519,7 +7532,7 @@ def render_product_summary_tab(
         sample_available_df,
         stock_threshold_pack,
     )
-    render_kpi_scope_panels(code_summary, unit_mode=product_unit_mode)
+    render_product_scope_kpi_panels(product_summary, unit_mode=product_unit_mode)
 
     family_view = build_family_progress_view(main_products)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)

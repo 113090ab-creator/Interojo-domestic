@@ -16,12 +16,29 @@
     h1 { margin:0; font-size:32px; line-height:1.2; letter-spacing:0; }
     h2 { margin:0 0 12px; font-size:18px; }
     .stamp { color:var(--muted); font-size:13px; }
+    .status-board { display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:12px; margin:0 0 14px; }
+    .status-main, .status-tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+    .status-main { padding:18px; border-left:4px solid #1d9e75; }
+    .status-board.warn .status-main { border-left-color:#ba7517; }
+    .status-board.risk .status-main { border-left-color:var(--risk); }
+    .status-head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:12px; }
+    .status-head strong { font-size:14px; }
+    .status-pill { display:inline-flex; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:700; background:#eaf6f1; color:#1d9e75; }
+    .status-pill.warn { background:#f7efe3; color:#ba7517; }
+    .status-pill.risk { background:var(--soft); color:var(--risk); }
+    .status-main-value { font-size:34px; line-height:1; font-weight:800; color:var(--text); margin-bottom:14px; }
+    .status-flow { display:flex; height:12px; border-radius:999px; background:#e9eff5; overflow:hidden; }
+    .status-flow-fill.receipt { background:#1d9e75; }
+    .status-flow-fill.shortage { background:var(--risk); }
+    .status-flow-legend { display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:var(--muted); font-size:11px; }
+    .status-tile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .status-tile { padding:14px 16px; min-height:86px; }
     .metrics { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:18px; }
     .metric { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; min-height:86px; }
     .metric.warn { background:var(--soft); border-color:#f3b8a8; }
     .metric-label { color:var(--muted); font-size:12px; margin-bottom:8px; }
     .metric-value { color:var(--primary); font-size:25px; font-weight:800; }
-    .metric.warn .metric-value, .risk { color:var(--risk); }
+    .metric.warn .metric-value, .status-tile.warn .metric-value, .risk { color:var(--risk); }
     section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-top:16px; }
     .family-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
     .family-card { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
@@ -42,6 +59,8 @@
     @media (max-width:900px) {
       main { padding:20px 14px 36px; }
       header { display:block; }
+      .status-board { grid-template-columns:1fr; }
+      .status-tile-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
       .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
       .family-grid { grid-template-columns:1fr; }
       h1 { font-size:24px; }
@@ -53,10 +72,59 @@
     <header>
       <div>
         <h1>국내 생산·포장 현황 대시보드</h1>
-        <div class="stamp">정적 HTML 스냅샷 · 생성 2026-06-23 14:32</div>
+        <div class="stamp">정적 HTML 스냅샷 · 생성 2026-06-23 14:51</div>
       </div>
       <div class="stamp">기준: 요청물량, 수요정보, 용마입고, 일일 재고현황</div>
     </header>
+
+    
+    <div class="status-board risk">
+      <div class="status-main">
+        <div class="status-head"><span class="status-pill risk">우선 대응</span><strong>요청 대비 용마 입고 현황</strong></div>
+        <div class="status-main-value">4.0%</div>
+        <div class="status-flow">
+          <div class="status-flow-fill receipt" style="width:4.0%"></div>
+          <div class="status-flow-fill shortage" style="width:96.0%"></div>
+        </div>
+        <div class="status-flow-legend">
+          <span>요청 190,609 PACK</span>
+          <span>입고 7,598 PACK</span>
+          <span>미입고 183,011 PACK</span>
+        </div>
+      </div>
+      <div class="status-tile-grid">
+        <div class="status-tile ">
+          <div class="metric-label">용마입고율</div>
+          <div class="metric-value">4.0%</div>
+        </div>
+        
+        <div class="status-tile ">
+          <div class="metric-label">생산진도율</div>
+          <div class="metric-value">79.4%</div>
+        </div>
+        
+        <div class="status-tile warn">
+          <div class="metric-label">미입고 PACK</div>
+          <div class="metric-value">183,011</div>
+        </div>
+        
+        <div class="status-tile warn">
+          <div class="metric-label">생산부족 PCS</div>
+          <div class="metric-value">454,139</div>
+        </div>
+        
+        <div class="status-tile warn">
+          <div class="metric-label">요청외 긴급</div>
+          <div class="metric-value">14</div>
+        </div>
+        
+        <div class="status-tile warn">
+          <div class="metric-label">포장가능재고 PCS</div>
+          <div class="metric-value">197,158</div>
+        </div>
+        </div>
+    </div>
+    
 
     <div class="metrics">
       
@@ -74,13 +142,13 @@
       
     <div class="metric warn">
       <div class="metric-label">미입고 PACK</div>
-      <div class="metric-value">0</div>
+      <div class="metric-value">183,011</div>
     </div>
     
       
     <div class="metric warn">
       <div class="metric-label">생산부족 PCS</div>
-      <div class="metric-value">858,601</div>
+      <div class="metric-value">454,139</div>
     </div>
     
       
