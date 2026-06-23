@@ -3514,11 +3514,14 @@ def build_daily_inventory_response_view(
         "용마입고대기 PACK",
         "포장대기(PCS)",
         "포장부족(재고 PCS)",
+        "포장대기/부족(PCS)",
         "생산진도율",
         "최소 납기",
         "요청제품명",
         "판매코드 수",
         "대상품목",
+        "포장대기(PCS)",
+        "포장부족(재고 PCS)",
     ]
     if daily_inventory_df.empty:
         return pd.DataFrame(columns=columns)
@@ -3601,6 +3604,11 @@ def build_daily_inventory_response_view(
         has_request,
         (stock_shortage_pcs - out["포장대기(PCS)"]).clip(lower=0.0),
         out["샘플신청가능수량"],
+    )
+    out["포장대기/부족(PCS)"] = np.where(
+        has_request,
+        out["포장대기(PCS)"],
+        out["포장부족(재고 PCS)"],
     )
     out["대응상태"] = out.apply(classify_daily_inventory_status, axis=1)
     out["_urgent_sort"] = out["긴급요청"].astype(int)
@@ -6441,6 +6449,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
         "포장부족(PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format),
         "포장부족(재고 PCS)": st.column_config.NumberColumn("포장부족(재고 PCS)", format=numeric_format),
+        "포장대기/부족(PCS)": st.column_config.NumberColumn("포장대기/부족(PCS)", format=numeric_format),
         "5P 필요팩": st.column_config.NumberColumn("5P 필요팩", format=numeric_format),
         "10P 필요팩": st.column_config.NumberColumn("10P 필요팩", format=numeric_format),
         "30P 필요팩": st.column_config.NumberColumn("30P 필요팩", format=numeric_format),
@@ -6636,8 +6645,7 @@ def render_daily_inventory_tab(
             "미입고 PACK",
             "포장 PACK",
             "용마입고대기 PACK",
-            "포장대기(PCS)",
-            "포장부족(재고 PCS)",
+            "포장대기/부족(PCS)",
             "생산부족 PCS",
             "생산진도율",
             "최소 납기",
