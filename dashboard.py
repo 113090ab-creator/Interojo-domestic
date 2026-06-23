@@ -6478,7 +6478,15 @@ def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: p
     if important_only:
         view = view[(view["긴급요청"]) | (view["재고수량"] < 0) | (view["재고부족수량"] > 0)].copy()
 
-    hidden_daily_inventory_cols = ["재고표 제품명", "전일재고", "재고증감", "재고부족수량"]
+    hidden_daily_inventory_cols = [
+        "재고표 제품명",
+        "전일재고",
+        "재고증감",
+        "재고부족수량",
+        "요청제품명",
+        "판매코드 수",
+        "대상품목",
+    ]
     display_view = view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
     full_export_view = response_view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
 
@@ -6516,9 +6524,6 @@ def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: p
             "생산부족 PCS",
             "생산진도율",
             "최소 납기",
-            "요청제품명",
-            "판매코드 수",
-            "대상품목",
         ],
     )
 
