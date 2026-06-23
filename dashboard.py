@@ -2055,11 +2055,8 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
         work["production_basis_qty"] = 0.0
     if "sample_available_pcs" not in work.columns:
         work["sample_available_pcs"] = 0.0
-    if "request_pcs" not in work.columns:
-        work["request_pcs"] = work.get("request_pack", 0.0)
     work["production_basis_qty"] = pd.to_numeric(work["production_basis_qty"], errors="coerce").fillna(0.0)
     work["sample_available_pcs"] = pd.to_numeric(work["sample_available_pcs"], errors="coerce").fillna(0.0)
-    work["request_pcs"] = pd.to_numeric(work["request_pcs"], errors="coerce").fillna(0.0)
 
     production_key = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
     sales_key = work.get("sales_code_key", pd.Series("", index=work.index)).map(clean_str)
@@ -2067,12 +2064,8 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     work["_production_alloc_key"] = production_key.where(production_key != "", sales_key)
     work["_production_alloc_key"] = work["_production_alloc_key"].where(work["_production_alloc_key"] != "", fallback_key)
 
-    key_request = work.groupby("_production_alloc_key", dropna=False)["request_pcs"].transform("sum")
-    key_shortage = work.groupby("_production_alloc_key", dropna=False)["production_basis_qty"].transform("max")
-    key_sample_available = work.groupby("_production_alloc_key", dropna=False)["sample_available_pcs"].transform("max")
-    allocation_ratio = np.where(key_request > 0, work["request_pcs"] / key_request, 0.0)
-    work["_allocated_production_shortage_qty"] = (key_shortage * allocation_ratio).clip(lower=0.0)
-    work["_allocated_sample_available_pcs"] = (key_sample_available * allocation_ratio).clip(lower=0.0)
+    work["_allocated_production_shortage_qty"] = work["production_basis_qty"].clip(lower=0.0).round(0).astype("int64")
+    work["_allocated_sample_available_pcs"] = work["sample_available_pcs"].clip(lower=0.0).round(0).astype("int64")
     return work
 
 
@@ -3340,6 +3333,7 @@ def build_product_pack_power_quick_view(
         0.0,
     )
     grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
+    grouped["생산부족 PCS"] = pd.to_numeric(grouped["생산부족 PCS"], errors="coerce").fillna(0.0).round(0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족 PCS"])
     grouped["최소 납기"] = grouped["request_due_date"].map(display_date_or_dash)
     grouped["생산완료예상일"] = grouped["production_due_date"].map(display_date_or_dash)
@@ -3792,6 +3786,7 @@ def build_daily_inventory_response_view(
         out["용마입고대기 PACK"] > 0,
         (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0),
     )
+    out["생산부족 PCS"] = pd.to_numeric(out["생산부족 PCS"], errors="coerce").fillna(0.0).round(0)
     available_stock_pcs = np.where(
         has_request,
         (out["요청 PCS"] - out["생산부족 PCS"] + out["샘플신청가능수량"]).clip(lower=0.0),
@@ -3810,6 +3805,7 @@ def build_daily_inventory_response_view(
         available_stock_pcs,
         out["포장부족(재고 PCS)"],
     )
+    out["포장가능재고(PCS)"] = pd.to_numeric(out["포장가능재고(PCS)"], errors="coerce").fillna(0.0).round(0)
     out["대응상태"] = out.apply(classify_daily_inventory_status, axis=1)
     out["_urgent_sort"] = out["긴급요청"].astype(int)
     out["_negative_sort"] = (out["재고수량"] < 0).astype(int)
@@ -6852,6 +6848,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "입고대기수량": st.column_config.NumberColumn("입고대기수량", format=numeric_format),
         "제품필요수량": st.column_config.NumberColumn("제품필요수량", format=numeric_format),
         "생산필요수량(PCS)": st.column_config.NumberColumn("생산필요수량(PCS)", format=numeric_format),
+        "생산부족 PCS": st.column_config.NumberColumn("생산부족 PCS", format=numeric_format),
         "생산부족수량(PCS)": st.column_config.NumberColumn("생산부족수량(PCS)", format=numeric_format),
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
         "포장부족(PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format),
