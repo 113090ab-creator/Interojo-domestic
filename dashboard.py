@@ -3498,6 +3498,154 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     return grouped[columns].copy()
 
 
+def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "제품코드",
+        "POWER",
+        "_production_request_pack",
+        "_production_request_pcs",
+        "_production_shortage_pcs",
+        "_production_sample_available_pcs",
+        "_production_available_stock_pcs",
+        "_production_progress_pct",
+    ]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = with_operational_columns(code_summary)
+    work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work["_production_key"] = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
+    fallback_key = work.get("sales_code_key", pd.Series("", index=work.index)).map(clean_str)
+    work["_production_key"] = work["_production_key"].where(work["_production_key"] != "", fallback_key)
+    work = work[
+        (work["_sales_prefix"].map(clean_str) != "")
+        & (work["POWER"].map(clean_str) != "")
+        & (work["_production_key"].map(clean_str) != "")
+    ].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    for col in ["request_pack", "request_pcs", "production_basis_qty", "sample_available_pcs"]:
+        if col not in work.columns:
+            work[col] = 0.0
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
+
+    by_production = (
+        work.groupby(["_sales_prefix", "POWER", "_production_key"], dropna=False)
+        .agg(
+            request_pack=("request_pack", "sum"),
+            request_pcs=("request_pcs", "sum"),
+            production_shortage_pcs=("production_basis_qty", "max"),
+            sample_available_pcs=("sample_available_pcs", "max"),
+        )
+        .reset_index()
+    )
+    grouped = (
+        by_production.groupby(["_sales_prefix", "POWER"], dropna=False)
+        .agg(
+            _production_request_pack=("request_pack", "sum"),
+            _production_request_pcs=("request_pcs", "sum"),
+            _production_shortage_pcs=("production_shortage_pcs", "sum"),
+            _production_sample_available_pcs=("sample_available_pcs", "sum"),
+        )
+        .reset_index()
+        .rename(columns={"_sales_prefix": "제품코드"})
+    )
+    grouped["_production_available_stock_pcs"] = (
+        grouped["_production_request_pcs"]
+        - grouped["_production_shortage_pcs"]
+        + grouped["_production_sample_available_pcs"]
+    ).clip(lower=0.0)
+    grouped["_production_progress_pct"] = calc_production_progress_pct(
+        grouped["_production_request_pcs"],
+        grouped["_production_shortage_pcs"],
+    )
+    for col in [
+        "_production_request_pack",
+        "_production_request_pcs",
+        "_production_shortage_pcs",
+        "_production_sample_available_pcs",
+        "_production_available_stock_pcs",
+    ]:
+        grouped[col] = pd.to_numeric(grouped[col], errors="coerce").fillna(0.0).round(0)
+    return grouped[columns].copy()
+
+
+def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "_daily_base_product_name",
+        "POWER",
+        "_base_production_request_pack",
+        "_base_production_request_pcs",
+        "_base_production_shortage_pcs",
+        "_base_production_sample_available_pcs",
+        "_base_production_available_stock_pcs",
+        "_base_production_progress_pct",
+    ]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = with_operational_columns(code_summary)
+    if "base_product_name" in work.columns:
+        work["_daily_base_product_name"] = work["base_product_name"].map(clean_str)
+    else:
+        work["_daily_base_product_name"] = work["product_name"].map(strip_pack_unit_suffix).map(clean_str)
+    work["_production_key"] = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
+    fallback_key = work.get("sales_code_key", pd.Series("", index=work.index)).map(clean_str)
+    work["_production_key"] = work["_production_key"].where(work["_production_key"] != "", fallback_key)
+    work = work[
+        (work["_daily_base_product_name"].map(clean_str) != "")
+        & (work["POWER"].map(clean_str) != "")
+        & (work["_production_key"].map(clean_str) != "")
+    ].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    for col in ["request_pack", "request_pcs", "production_basis_qty", "sample_available_pcs"]:
+        if col not in work.columns:
+            work[col] = 0.0
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
+
+    by_production = (
+        work.groupby(["_daily_base_product_name", "POWER", "_production_key"], dropna=False)
+        .agg(
+            request_pack=("request_pack", "sum"),
+            request_pcs=("request_pcs", "sum"),
+            production_shortage_pcs=("production_basis_qty", "max"),
+            sample_available_pcs=("sample_available_pcs", "max"),
+        )
+        .reset_index()
+    )
+    grouped = (
+        by_production.groupby(["_daily_base_product_name", "POWER"], dropna=False)
+        .agg(
+            _base_production_request_pack=("request_pack", "sum"),
+            _base_production_request_pcs=("request_pcs", "sum"),
+            _base_production_shortage_pcs=("production_shortage_pcs", "sum"),
+            _base_production_sample_available_pcs=("sample_available_pcs", "sum"),
+        )
+        .reset_index()
+    )
+    grouped["_base_production_available_stock_pcs"] = (
+        grouped["_base_production_request_pcs"]
+        - grouped["_base_production_shortage_pcs"]
+        + grouped["_base_production_sample_available_pcs"]
+    ).clip(lower=0.0)
+    grouped["_base_production_progress_pct"] = calc_production_progress_pct(
+        grouped["_base_production_request_pcs"],
+        grouped["_base_production_shortage_pcs"],
+    )
+    for col in [
+        "_base_production_request_pack",
+        "_base_production_request_pcs",
+        "_base_production_shortage_pcs",
+        "_base_production_sample_available_pcs",
+        "_base_production_available_stock_pcs",
+    ]:
+        grouped[col] = pd.to_numeric(grouped[col], errors="coerce").fillna(0.0).round(0)
+    return grouped[columns].copy()
+
+
 def pack_unit_from_label(value: Any) -> float:
     match = re.search(r"(\d+(?:\.\d+)?)", clean_str(value))
     if not match:
@@ -3649,17 +3797,17 @@ def enrich_daily_inventory_from_code_summary(daily_inventory_df: pd.DataFrame, c
     out["POWER"] = out["POWER"].map(clean_str)
     if not exact_catalog.empty:
         out = out.merge(exact_catalog, on=["제품코드", "POWER"], how="left")
-        exact_pack = out["_code_pack"].map(clean_str)
-        exact_product = out["_code_product_name"].map(clean_str)
-        out["PACK"] = out["PACK"].where(exact_pack == "", out["_code_pack"])
-        out["제품명"] = out["제품명"].where(exact_product == "", out["_code_product_name"])
+        current_pack = out["PACK"].map(clean_str)
+        current_product = out["제품명"].map(clean_str)
+        out["PACK"] = out["PACK"].where(current_pack != "", out["_code_pack"])
+        out["제품명"] = out["제품명"].where(current_product != "", out["_code_product_name"])
         out = out.drop(columns=["_code_pack", "_code_product_name"], errors="ignore")
     if not code_catalog.empty:
         out = out.merge(code_catalog, on="제품코드", how="left")
-        default_pack = out["_code_default_pack"].map(clean_str)
-        default_product = out["_code_default_product_name"].map(clean_str)
-        out["PACK"] = out["PACK"].where(default_pack == "", out["_code_default_pack"])
-        out["제품명"] = out["제품명"].where(default_product == "", out["_code_default_product_name"])
+        current_pack = out["PACK"].map(clean_str)
+        current_product = out["제품명"].map(clean_str)
+        out["PACK"] = out["PACK"].where(current_pack != "", out["_code_default_pack"])
+        out["제품명"] = out["제품명"].where(current_product != "", out["_code_default_product_name"])
         out = out.drop(columns=["_code_default_pack", "_code_default_product_name"], errors="ignore")
     return out[DAILY_INVENTORY_COLUMNS].copy()
 
@@ -3724,6 +3872,7 @@ def build_daily_inventory_response_view(
     daily["제품코드"] = daily["제품코드"].map(clean_str).str.upper()
     daily["PACK"] = daily["PACK"].map(clean_str)
     daily["POWER"] = daily["POWER"].map(clean_str)
+    daily["_daily_base_product_name"] = daily["제품명"].map(strip_pack_unit_suffix).map(clean_str)
     daily["재고수량"] = pd.to_numeric(daily["재고수량"], errors="coerce")
     daily["전일재고"] = pd.to_numeric(daily["전일재고"], errors="coerce")
     daily["재고증감"] = pd.to_numeric(daily["재고증감"], errors="coerce")
@@ -3735,6 +3884,10 @@ def build_daily_inventory_response_view(
         on=["제품코드", "PACK", "POWER"],
         how="left",
     )
+    production_catalog = build_daily_production_power_catalog(code_summary)
+    out = out.merge(production_catalog, on=["제품코드", "POWER"], how="left")
+    base_production_catalog = build_daily_base_power_production_catalog(code_summary)
+    out = out.merge(base_production_catalog, on=["_daily_base_product_name", "POWER"], how="left")
     product_catalog = build_daily_product_catalog(code_summary)
     out = out.merge(product_catalog, on=["제품코드", "PACK"], how="left")
     out["재고표 제품명"] = out["제품명"].map(clean_str)
@@ -3773,35 +3926,115 @@ def build_daily_inventory_response_view(
         "샘플신청가능수량",
         "생산진도율",
         "판매코드 수",
+        "_production_request_pack",
+        "_production_request_pcs",
+        "_production_shortage_pcs",
+        "_production_sample_available_pcs",
+        "_production_available_stock_pcs",
+        "_production_progress_pct",
+        "_base_production_request_pack",
+        "_base_production_request_pcs",
+        "_base_production_shortage_pcs",
+        "_base_production_sample_available_pcs",
+        "_base_production_available_stock_pcs",
+        "_base_production_progress_pct",
     ]
     for col in numeric_cols:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
-    for col in ["용마입고대기 PACK", "포장가능재고(PCS)", "샘플신청가능수량"]:
+    for col in [
+        "용마입고대기 PACK",
+        "포장가능재고(PCS)",
+        "샘플신청가능수량",
+        "_production_request_pcs",
+        "_production_shortage_pcs",
+        "_production_sample_available_pcs",
+        "_production_available_stock_pcs",
+        "_production_progress_pct",
+        "_base_production_request_pcs",
+        "_base_production_shortage_pcs",
+        "_base_production_sample_available_pcs",
+        "_base_production_available_stock_pcs",
+        "_base_production_progress_pct",
+    ]:
         if col not in out.columns:
             out[col] = 0.0
     has_request = out["요청 PACK"] > 0
-    out["샘플신청가능수량"] = out["샘플신청가능수량"].where(has_request, out["_추정샘플신청가능수량"])
+    has_code_production_context = (
+        (out["_production_request_pcs"] > 0)
+        | (out["_production_shortage_pcs"] > 0)
+    )
+    has_base_production_context = (
+        (out["_base_production_request_pcs"] > 0)
+        | (out["_base_production_shortage_pcs"] > 0)
+    )
+    use_base_production = ~has_code_production_context & has_base_production_context
+    matched_production_shortage_pcs = np.where(
+        use_base_production,
+        out["_base_production_shortage_pcs"],
+        out["_production_shortage_pcs"],
+    )
+    matched_production_sample_pcs = np.where(
+        use_base_production,
+        out["_base_production_sample_available_pcs"],
+        out["_production_sample_available_pcs"],
+    )
+    matched_production_available_pcs = np.where(
+        use_base_production,
+        out["_base_production_available_stock_pcs"],
+        out["_production_available_stock_pcs"],
+    )
+    matched_production_progress_pct = np.where(
+        use_base_production,
+        out["_base_production_progress_pct"],
+        out["_production_progress_pct"],
+    )
+    has_production_context = has_code_production_context | has_base_production_context
+    out["샘플신청가능수량"] = np.where(
+        has_production_context,
+        matched_production_sample_pcs,
+        out["샘플신청가능수량"],
+    )
+    out["샘플신청가능수량"] = out["샘플신청가능수량"].where(
+        has_request | has_production_context,
+        out["_추정샘플신청가능수량"],
+    )
     out["용마입고대기 PACK"] = out["용마입고대기 PACK"].where(
         out["용마입고대기 PACK"] > 0,
         (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0),
     )
+    out["생산부족 PCS"] = np.where(
+        has_production_context,
+        matched_production_shortage_pcs,
+        out["생산부족 PCS"],
+    )
+    out["생산진도율"] = np.where(
+        has_production_context,
+        matched_production_progress_pct,
+        out["생산진도율"],
+    )
     out["생산부족 PCS"] = pd.to_numeric(out["생산부족 PCS"], errors="coerce").fillna(0.0).round(0)
-    available_stock_pcs = np.where(
+    exact_available_stock_pcs = np.where(
         has_request,
         (out["요청 PCS"] - out["생산부족 PCS"] + out["샘플신청가능수량"]).clip(lower=0.0),
         0.0,
     )
+    available_stock_pcs = np.where(
+        has_production_context,
+        matched_production_available_pcs,
+        exact_available_stock_pcs,
+    )
     out["재고부족수량"] = (-out["재고수량"]).clip(lower=0.0).fillna(0.0)
     pack_units = out["PACK"].map(pack_unit_from_label)
     stock_shortage_pcs = (out["재고부족수량"] * pack_units).clip(lower=0.0)
+    has_supply_context = has_request | has_production_context
     out["포장부족(재고 PCS)"] = np.where(
-        has_request,
+        has_supply_context,
         (stock_shortage_pcs - available_stock_pcs).clip(lower=0.0),
         out["샘플신청가능수량"],
     )
     out["포장가능재고(PCS)"] = np.where(
-        has_request,
+        has_supply_context,
         available_stock_pcs,
         out["포장부족(재고 PCS)"],
     )
@@ -7014,6 +7247,7 @@ def render_daily_inventory_tab(
         "판매코드 수",
         "대상품목",
         "포장부족(재고 PCS)",
+        "포장 PACK",
     ]
     display_view = view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
     full_export_view = response_view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
@@ -7048,7 +7282,6 @@ def render_daily_inventory_tab(
             "요청 PACK",
             "용마입고 PACK",
             "미입고 PACK",
-            "포장 PACK",
             "용마입고대기 PACK",
             "포장가능재고(PCS)",
             "생산부족 PCS",
