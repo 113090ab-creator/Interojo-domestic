@@ -2167,8 +2167,11 @@ def render_ops_table(
         st.warning("조건에 맞는 데이터가 없습니다.")
         return
 
+    receipt_shortage_col = "미입고수량" if "미입고수량" in df.columns else "포장부족수량"
+    receipt_progress_col = "용마입고율" if "용마입고율" in df.columns else "포장진도율"
+
     ordered = df.sort_values(
-        ["포장부족수량", "생산부족수량", "요청 PACK"],
+        [receipt_shortage_col, "생산부족수량", "요청 PACK"],
         ascending=[False, False, False],
         kind="stable",
     ).head(max_rows).copy()
@@ -2178,18 +2181,18 @@ def render_ops_table(
         product = escape(str(row["제품명"]))
         family = escape(str(row.get("본품분류", ""))) if show_family else ""
         req = format_int(float(row["요청 PACK"]))
-        packing_shortage = float(row["포장부족수량"])
-        packing_shortage_txt = format_int(packing_shortage)
-        packing_progress = float(row["포장진도율"])
+        receipt_shortage = float(row.get(receipt_shortage_col, 0.0))
+        receipt_shortage_txt = format_int(receipt_shortage)
+        receipt_progress = float(row.get(receipt_progress_col, 0.0))
         production_shortage = float(row.get("생산부족수량", 0.0))
         production_shortage_txt = format_int(production_shortage)
         prod_progress = float(row.get("생산진도율", 0.0))
         status = escape(str(row["상태"]))
         badge = f"<span class='status-badge {status_class(str(row['상태']))}'>{status}</span>"
 
-        packing_shortage_class = "num shortage" if packing_shortage > 0 else "num"
+        receipt_shortage_class = "num shortage" if receipt_shortage > 0 else "num"
         production_shortage_class = "num shortage" if production_shortage > 0 else "num"
-        packing_progress_html = progress_cell_html(packing_progress, "포장")
+        receipt_progress_html = progress_cell_html(receipt_progress, "입고")
         production_progress_html = progress_cell_html(prod_progress, "생산")
 
         if compact:
@@ -2197,8 +2200,8 @@ def render_ops_table(
                 "<tr>"
                 f"<td class='left'>{product}</td>"
                 f"<td>{production_progress_html}</td>"
-                f"<td>{packing_progress_html}</td>"
-                f"<td class='{packing_shortage_class}'>{packing_shortage_txt}</td>"
+                f"<td>{receipt_progress_html}</td>"
+                f"<td class='{receipt_shortage_class}'>{receipt_shortage_txt}</td>"
                 f"<td>{badge}</td>"
                 "</tr>"
             )
@@ -2209,9 +2212,9 @@ def render_ops_table(
                 f"{f'<td>{family}</td>' if show_family else ''}"
                 f"<td class='num'>{req}</td>"
                 f"<td>{production_progress_html}</td>"
-                f"<td>{packing_progress_html}</td>"
+                f"<td>{receipt_progress_html}</td>"
                 f"<td class='{production_shortage_class}'>{production_shortage_txt}</td>"
-                f"<td class='{packing_shortage_class}'>{packing_shortage_txt}</td>"
+                f"<td class='{receipt_shortage_class}'>{receipt_shortage_txt}</td>"
                 f"<td>{badge}</td>"
                 "</tr>"
             )
@@ -2220,8 +2223,8 @@ def render_ops_table(
         "<tr>"
         "<th class='left'>제품명</th>"
         "<th>생산진도율</th>"
-        "<th>포장진도율</th>"
-        "<th class='num'>포장부족수량</th>"
+        "<th>용마입고율</th>"
+        "<th class='num'>미입고수량</th>"
         "<th>상태</th>"
         "</tr>"
         if compact
@@ -2230,9 +2233,9 @@ def render_ops_table(
         f"{'<th>본품분류</th>' if show_family else ''}"
         "<th class='num'>요청 PACK</th>"
         "<th>생산진도율</th>"
-        "<th>포장진도율</th>"
+        "<th>용마입고율</th>"
         "<th class='num'>생산부족수량</th>"
-        "<th class='num'>포장부족수량</th>"
+        "<th class='num'>미입고수량</th>"
         "<th>상태</th>"
         "</tr>"
     )
@@ -3049,7 +3052,7 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "용마입고수량(PACK)",
             "용마입고대기수량(PACK)",
             "포장부족(PACK)",
-            "포장진도율",
+            "용마입고율",
             "납기",
             "상태",
         ]
@@ -4767,7 +4770,7 @@ def build_sales_order_main_view(
                 "포장부족",
                 "포장부족(PCS)",
                 "생산진도율",
-                "포장진도율",
+                "용마입고율",
                 "납기",
                 "상태",
             ]
@@ -4833,12 +4836,12 @@ def build_sales_order_main_view(
     ).clip(lower=0.0)
     grouped["포장부족"] = (grouped["요청PACK"] - grouped["용마입고수량"]).clip(lower=0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청PCS"], grouped["생산부족"])
-    grouped["포장진도율"] = np.where(
+    grouped["용마입고율"] = np.where(
         grouped["요청PACK"] > 0,
         grouped["용마입고수량"] / grouped["요청PACK"] * 100.0,
         0.0,
     )
-    grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
+    grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
     grouped["납기"] = grouped["request_due_date"].map(display_date_or_dash)
     grouped["상태"] = grouped.apply(sales_status_label, axis=1)
     grouped = add_priority_columns(
@@ -4893,7 +4896,7 @@ def build_sales_order_main_view(
             "포장부족(PACK)",
             "포장부족(PCS)",
             "생산진도율",
-            "포장진도율",
+            "용마입고율",
             "납기",
             "상태",
             "power_value",
@@ -6056,9 +6059,13 @@ def build_product_progress_gap_chart(df: pd.DataFrame, top_n: int = 18) -> px.ba
     ).head(top_n)
     if source.empty:
         return None
-    chart_df = source[["제품명", "생산진도율", "포장진도율"]].melt(
+    receipt_progress_col = "용마입고율" if "용마입고율" in source.columns else "포장진도율"
+    chart_source = source[["제품명", "생산진도율", receipt_progress_col]].rename(
+        columns={receipt_progress_col: "용마입고율"}
+    )
+    chart_df = chart_source.melt(
         id_vars="제품명",
-        value_vars=["생산진도율", "포장진도율"],
+        value_vars=["생산진도율", "용마입고율"],
         var_name="지표",
         value_name="진도율",
     )
@@ -6070,10 +6077,10 @@ def build_product_progress_gap_chart(df: pd.DataFrame, top_n: int = 18) -> px.ba
         color="지표",
         barmode="group",
         orientation="h",
-        category_orders={"제품명": product_order, "지표": ["생산진도율", "포장진도율"]},
-        title="제품별 생산진도율 vs 포장진도율",
+        category_orders={"제품명": product_order, "지표": ["생산진도율", "용마입고율"]},
+        title="제품별 생산진도율 vs 용마입고율",
         text="진도율",
-        color_discrete_map={"생산진도율": COLOR_BLUE, "포장진도율": COLOR_TEAL},
+        color_discrete_map={"생산진도율": COLOR_BLUE, "용마입고율": COLOR_TEAL},
     )
     fig.update_traces(texttemplate="%{text:.1f}%")
     fig.update_layout(
@@ -6796,7 +6803,7 @@ def format_sales_code_view(view: pd.DataFrame) -> pd.DataFrame:
     for col in ["요청 PACK", "포장 PACK", "부족 PACK"]:
         out[col] = out[col].map(format_int)
     out["생산진도율"] = out["생산진도율"].map(lambda x: f"{float(x):.1f}%")
-    out["포장진도율"] = out["포장진도율"].map(lambda x: f"{x:.1f}%")
+    out["용마입고율"] = out["용마입고율"].map(lambda x: f"{float(x):.1f}%")
     return out[
         [
             "판매코드",
@@ -6804,7 +6811,7 @@ def format_sales_code_view(view: pd.DataFrame) -> pd.DataFrame:
             "포장 PACK",
             "부족 PACK",
             "생산진도율",
-            "포장진도율",
+            "용마입고율",
         ]
     ]
 
@@ -7024,7 +7031,7 @@ def build_sales_drilldown_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             "포장수량",
             "부족수량",
             "생산진도율",
-            "포장진도율",
+            "용마입고율",
             "생산코드",
             "상태",
         ]
