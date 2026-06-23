@@ -2557,6 +2557,91 @@ def render_metric_card_grid(items: list[tuple[str, str, str]]) -> None:
     st.markdown(f"<div class='mini-kpi-grid'>{cards}</div>", unsafe_allow_html=True)
 
 
+def render_status_board(
+    product_summary: pd.DataFrame,
+    code_summary: pd.DataFrame,
+    daily_inventory_df: pd.DataFrame | None,
+    sample_available_df: pd.DataFrame | None,
+    stock_threshold_pack: float,
+) -> None:
+    kpi = calc_operation_kpis(product_summary, code_summary, stock_threshold_pack)
+    exception_kpis, _exception_detail = build_daily_exception_report_view(
+        daily_inventory_df,
+        code_summary,
+        sample_available_df,
+    )
+    request_pack = (
+        float(pd.to_numeric(product_summary.get("요청 PACK", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if product_summary is not None and not product_summary.empty
+        else 0.0
+    )
+    yongma_in_pack = (
+        float(pd.to_numeric(product_summary.get("용마입고 PACK", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if product_summary is not None and not product_summary.empty
+        else 0.0
+    )
+    missing_pack = float(kpi.get("packing_shortage_pack", 0.0))
+    production_shortage = float(kpi.get("production_shortage_pcs", 0.0))
+    receipt_progress = float(kpi.get("packing_progress_pct", 0.0))
+    production_progress = float(kpi.get("production_progress_pct", 0.0))
+    priority_products = int(kpi.get("priority_products", 0.0))
+    request_out_count = int(exception_kpis.get("request_out_count", 0.0))
+    waiting_pcs = float(exception_kpis.get("waiting_pcs", 0.0))
+
+    receipt_width = max(0.0, min(100.0, receipt_progress))
+    missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
+    if request_out_count > 0 or priority_products > 0:
+        board_tone = "risk"
+        status_label = "우선 대응"
+    elif missing_pack > 0 or production_shortage > 0:
+        board_tone = "warn"
+        status_label = "진행 관리"
+    else:
+        board_tone = "good"
+        status_label = "정상"
+
+    cards = [
+        ("용마입고율", f"{receipt_progress:.1f}%", metric_progress_tone(receipt_progress)),
+        ("생산진도율", f"{production_progress:.1f}%", metric_progress_tone(production_progress)),
+        ("미입고 PACK", format_int(missing_pack), "warn" if missing_pack > 0 else "normal"),
+        ("생산부족 PCS", format_int(production_shortage), "warn" if production_shortage > 0 else "normal"),
+        ("요청외 긴급", f"{request_out_count:,}", "warn" if request_out_count > 0 else "normal"),
+        ("포장가능재고 PCS", format_int(waiting_pcs), "warn" if waiting_pcs > 0 else "normal"),
+    ]
+    card_html = "".join(
+        "<div class='status-tile'>"
+        f"<div class='metric-label'>{escape(label)}</div>"
+        f"<div class='metric-value {tone}'>{escape(value)}</div>"
+        "</div>"
+        for label, value, tone in cards
+    )
+
+    board_html = f"""
+    <div class='status-board {board_tone}'>
+      <div class='status-main'>
+        <div class='status-head'>
+          <span class='status-pill {board_tone}'>{escape(status_label)}</span>
+          <strong>요청 대비 용마 입고 현황</strong>
+        </div>
+        <div class='status-main-value'>{receipt_progress:.1f}%</div>
+        <div class='status-flow'>
+          <div class='status-flow-fill receipt' style='width:{receipt_width:.1f}%'></div>
+          <div class='status-flow-fill shortage' style='width:{missing_width:.1f}%'></div>
+        </div>
+        <div class='status-flow-legend'>
+          <span>요청 {format_int(request_pack)} PACK</span>
+          <span>입고 {format_int(yongma_in_pack)} PACK</span>
+          <span>미입고 {format_int(missing_pack)} PACK</span>
+        </div>
+      </div>
+      <div class='status-tile-grid'>
+        {card_html}
+      </div>
+    </div>
+    """
+    st.markdown(board_html, unsafe_allow_html=True)
+
+
 def build_scope_kpis(code_summary: pd.DataFrame) -> list[tuple[str, dict[str, float]]]:
     sample_mask = (
         code_summary["product_name"].astype(str).map(is_sample_name)
@@ -6410,6 +6495,123 @@ def render_style() -> None:
             border-color: {COLOR_ALERT_BD};
             background: {COLOR_ALERT_BG};
         }}
+        .status-board {{
+            display: grid;
+            grid-template-columns: minmax(320px, 1.1fr) minmax(420px, 1.9fr);
+            gap: 12px;
+            margin: 4px 0 12px;
+            align-items: stretch;
+        }}
+        .status-main,
+        .status-tile {{
+            background: {BG_CARD};
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            box-shadow: none;
+        }}
+        .status-main {{
+            padding: 18px 20px;
+            border-left: 4px solid {COLOR_TEAL};
+        }}
+        .status-board.warn .status-main {{
+            border-left-color: {COLOR_AMBER};
+        }}
+        .status-board.risk .status-main {{
+            border-left-color: {COLOR_ORANGE};
+        }}
+        .status-head {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }}
+        .status-head strong {{
+            color: {TEXT_PRIMARY};
+            font-size: 14px;
+            font-weight: 500;
+        }}
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: 500;
+            color: {COLOR_TEAL};
+            background: #EAF6F1;
+        }}
+        .status-pill.warn {{
+            color: {COLOR_AMBER};
+            background: #F7EFE3;
+        }}
+        .status-pill.risk {{
+            color: {COLOR_ORANGE};
+            background: {COLOR_ALERT_BG};
+        }}
+        .status-main-value {{
+            color: {TEXT_PRIMARY};
+            font-size: 34px;
+            line-height: 1;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            margin-bottom: 14px;
+        }}
+        .status-flow {{
+            display: flex;
+            width: 100%;
+            height: 12px;
+            border-radius: 999px;
+            background: {BG_SECTION};
+            overflow: hidden;
+        }}
+        .status-flow-fill.receipt {{
+            background: {COLOR_TEAL};
+        }}
+        .status-flow-fill.shortage {{
+            background: {COLOR_ORANGE};
+        }}
+        .status-flow-legend {{
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 10px;
+            color: {TEXT_SECONDARY};
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+        }}
+        .status-tile-grid {{
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }}
+        .status-tile {{
+            min-height: 86px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }}
+        .status-tile .metric-value {{
+            font-size: 21px;
+        }}
+        @media (max-width: 1100px) {{
+            .status-board {{
+                grid-template-columns: 1fr;
+            }}
+            .status-tile-grid {{
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }}
+        }}
+        @media (max-width: 640px) {{
+            .status-tile-grid {{
+                grid-template-columns: 1fr;
+            }}
+            .status-flow-legend {{
+                flex-direction: column;
+                gap: 4px;
+            }}
+        }}
         .panel-box {{
             background: {BG_CARD};
             border: 0.5px solid {BORDER_DEFAULT};
@@ -7307,10 +7509,17 @@ def render_product_summary_tab(
     pack_labels = available_pack_options(code_summary)[1:]
 
     product_unit_mode = render_unit_selector("product_progress_unit_mode")
-    render_kpi_scope_panels(code_summary, unit_mode=product_unit_mode)
     stock_threshold_pack = float(
         st.session_state.get("inventory_stock_threshold_pack", INVENTORY_STOCK_THRESHOLD_DEFAULT)
     )
+    render_status_board(
+        product_summary,
+        code_summary,
+        daily_inventory_df,
+        sample_available_df,
+        stock_threshold_pack,
+    )
+    render_kpi_scope_panels(code_summary, unit_mode=product_unit_mode)
 
     family_view = build_family_progress_view(main_products)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)

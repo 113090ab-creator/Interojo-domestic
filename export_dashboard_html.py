@@ -80,6 +80,54 @@ def metric_card(label: str, value: str, tone: str = "") -> str:
     """
 
 
+def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], request_out_count: int, waiting_pcs: float) -> str:
+    request_pack = float(pd.to_numeric(kpi.get("request_pack", 0), errors="coerce") or 0)
+    yongma_in_pack = float(pd.to_numeric(kpi.get("yongma_in_pack", 0), errors="coerce") or 0)
+    missing_pack = float(pd.to_numeric(kpi.get("shortage_pack", operation_kpi.get("packing_shortage_pack", 0)), errors="coerce") or 0)
+    receipt_progress = float(pd.to_numeric(kpi.get("progress_pct", operation_kpi.get("packing_progress_pct", 0)), errors="coerce") or 0)
+    production_progress = float(pd.to_numeric(operation_kpi.get("production_progress_pct", 0), errors="coerce") or 0)
+    production_shortage = float(pd.to_numeric(operation_kpi.get("production_shortage_pcs", 0), errors="coerce") or 0)
+    priority_products = int(pd.to_numeric(operation_kpi.get("priority_products", 0), errors="coerce") or 0)
+    receipt_width = max(0.0, min(100.0, receipt_progress))
+    missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
+    if request_out_count > 0 or priority_products > 0:
+        tone = "risk"
+        status = "우선 대응"
+    elif missing_pack > 0 or production_shortage > 0:
+        tone = "warn"
+        status = "진행 관리"
+    else:
+        tone = "good"
+        status = "정상"
+    tiles = [
+        ("용마입고율", fmt_pct(receipt_progress), ""),
+        ("생산진도율", fmt_pct(production_progress), ""),
+        ("미입고 PACK", fmt_int(missing_pack), "warn" if missing_pack > 0 else ""),
+        ("생산부족 PCS", fmt_int(production_shortage), "warn" if production_shortage > 0 else ""),
+        ("요청외 긴급", fmt_int(request_out_count), "warn" if request_out_count else ""),
+        ("포장가능재고 PCS", fmt_int(waiting_pcs), "warn" if waiting_pcs else ""),
+    ]
+    tile_html = "".join(metric_card(label, value, tile_tone).replace('class="metric', 'class="status-tile') for label, value, tile_tone in tiles)
+    return f"""
+    <div class="status-board {tone}">
+      <div class="status-main">
+        <div class="status-head"><span class="status-pill {tone}">{esc(status)}</span><strong>요청 대비 용마 입고 현황</strong></div>
+        <div class="status-main-value">{receipt_progress:.1f}%</div>
+        <div class="status-flow">
+          <div class="status-flow-fill receipt" style="width:{receipt_width:.1f}%"></div>
+          <div class="status-flow-fill shortage" style="width:{missing_width:.1f}%"></div>
+        </div>
+        <div class="status-flow-legend">
+          <span>요청 {fmt_int(request_pack)} PACK</span>
+          <span>입고 {fmt_int(yongma_in_pack)} PACK</span>
+          <span>미입고 {fmt_int(missing_pack)} PACK</span>
+        </div>
+      </div>
+      <div class="status-tile-grid">{tile_html}</div>
+    </div>
+    """
+
+
 def family_cards_html(family_view: pd.DataFrame) -> str:
     if family_view.empty:
         return "<div class='empty'>분류 데이터가 없습니다.</div>"
@@ -152,12 +200,29 @@ def build_html() -> str:
     h1 {{ margin:0; font-size:32px; line-height:1.2; letter-spacing:0; }}
     h2 {{ margin:0 0 12px; font-size:18px; }}
     .stamp {{ color:var(--muted); font-size:13px; }}
+    .status-board {{ display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:12px; margin:0 0 14px; }}
+    .status-main, .status-tile {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; }}
+    .status-main {{ padding:18px; border-left:4px solid #1d9e75; }}
+    .status-board.warn .status-main {{ border-left-color:#ba7517; }}
+    .status-board.risk .status-main {{ border-left-color:var(--risk); }}
+    .status-head {{ display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:12px; }}
+    .status-head strong {{ font-size:14px; }}
+    .status-pill {{ display:inline-flex; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:700; background:#eaf6f1; color:#1d9e75; }}
+    .status-pill.warn {{ background:#f7efe3; color:#ba7517; }}
+    .status-pill.risk {{ background:var(--soft); color:var(--risk); }}
+    .status-main-value {{ font-size:34px; line-height:1; font-weight:800; color:var(--text); margin-bottom:14px; }}
+    .status-flow {{ display:flex; height:12px; border-radius:999px; background:#e9eff5; overflow:hidden; }}
+    .status-flow-fill.receipt {{ background:#1d9e75; }}
+    .status-flow-fill.shortage {{ background:var(--risk); }}
+    .status-flow-legend {{ display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:var(--muted); font-size:11px; }}
+    .status-tile-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }}
+    .status-tile {{ padding:14px 16px; min-height:86px; }}
     .metrics {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:18px; }}
     .metric {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; min-height:86px; }}
     .metric.warn {{ background:var(--soft); border-color:#f3b8a8; }}
     .metric-label {{ color:var(--muted); font-size:12px; margin-bottom:8px; }}
     .metric-value {{ color:var(--primary); font-size:25px; font-weight:800; }}
-    .metric.warn .metric-value, .risk {{ color:var(--risk); }}
+    .metric.warn .metric-value, .status-tile.warn .metric-value, .risk {{ color:var(--risk); }}
     section {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-top:16px; }}
     .family-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }}
     .family-card {{ border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }}
@@ -178,6 +243,8 @@ def build_html() -> str:
     @media (max-width:900px) {{
       main {{ padding:20px 14px 36px; }}
       header {{ display:block; }}
+      .status-board {{ grid-template-columns:1fr; }}
+      .status-tile-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }}
       .metrics {{ grid-template-columns:repeat(2,minmax(0,1fr)); }}
       .family-grid {{ grid-template-columns:1fr; }}
       h1 {{ font-size:24px; }}
