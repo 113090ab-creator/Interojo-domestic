@@ -4956,6 +4956,20 @@ def excel_text_length(value: Any) -> int:
     return len(str(value))
 
 
+def make_unique_excel_columns(columns: pd.Index) -> list[str]:
+    used_counts: dict[str, int] = {}
+    unique_columns: list[str] = []
+    for idx, column in enumerate(columns, start=1):
+        base_name = clean_str(column) or f"컬럼{idx}"
+        current_count = used_counts.get(base_name, 0)
+        used_counts[base_name] = current_count + 1
+        if current_count:
+            unique_columns.append(f"{base_name}_{current_count + 1}")
+        else:
+            unique_columns.append(base_name)
+    return unique_columns
+
+
 def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
     output = BytesIO()
     used_names: set[str] = set()
@@ -4972,11 +4986,14 @@ def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
             excel_df = dataframe_for_excel(df)
             if excel_df.empty:
                 excel_df = pd.DataFrame({"내용": ["조건에 맞는 데이터가 없습니다."]})
+            excel_df = excel_df.copy()
+            excel_df.columns = make_unique_excel_columns(excel_df.columns)
             excel_df.to_excel(writer, sheet_name=sheet_name, index=False)
 
             worksheet = writer.sheets[sheet_name]
             for col_idx, col_name in enumerate(excel_df.columns, start=1):
-                value_lengths = [excel_text_length(value) for value in excel_df[col_name].head(300).tolist()]
+                column_values = excel_df.iloc[:, col_idx - 1].head(300).tolist()
+                value_lengths = [excel_text_length(value) for value in column_values]
                 max_len = max([len(str(col_name)), *(value_lengths if value_lengths else [0])])
                 worksheet.column_dimensions[worksheet.cell(row=1, column=col_idx).column_letter].width = min(
                     max(max_len + 2, 10),
