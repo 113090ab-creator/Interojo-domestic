@@ -2873,6 +2873,46 @@ def contains_any_query_term(series: pd.Series, terms: list[str]) -> pd.Series:
     return mask
 
 
+def parse_quick_lookup_direct_query(
+    query: str,
+    pack_options: list[str],
+    power_options: list[str],
+) -> tuple[str, str, list[str]]:
+    text = clean_str(query)
+    if not text:
+        return "", "전체", []
+
+    if "," in text or "，" in text:
+        tokens = [clean_str(token) for token in re.split(r"[,，]+", text)]
+    else:
+        tokens = [clean_str(token) for token in text.split()]
+    tokens = [token for token in tokens if token]
+
+    available_packs = set(pack_options)
+    available_powers = set(power_options)
+    product_terms: list[str] = []
+    pack_label = "전체"
+    power_labels: list[str] = []
+
+    for token in tokens:
+        normalized = token.replace("−", "-").replace("–", "-").replace("—", "-")
+        pack_match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(?:P|팩|개입)", normalized, flags=re.IGNORECASE)
+        if pack_match:
+            candidate_pack = base_pack_label(float(pack_match.group(1)))
+            pack_label = candidate_pack if candidate_pack in available_packs else candidate_pack
+            continue
+
+        power_match = re.fullmatch(r"[+-]?\d+(?:\.\d+)?", normalized)
+        if power_match and (normalized.startswith(("+", "-")) or "." in normalized):
+            candidate_power = format_power(float(normalized))
+            power_labels.append(candidate_power if candidate_power in available_powers else candidate_power)
+            continue
+
+        product_terms.append(token)
+
+    return " ".join(product_terms).strip(), pack_label, list(dict.fromkeys(power_labels))
+
+
 def build_product_pack_power_quick_view(
     code_summary: pd.DataFrame,
     product_query: str,
@@ -2973,6 +3013,14 @@ def render_product_pack_power_quick_lookup(code_summary: pd.DataFrame) -> None:
         "제품·PACK·POWER 간편 조회",
         "제품명 일부, PACK, POWER 조합으로 포장·용마입고·생산 상태를 확인합니다.",
     )
+    pack_options = available_pack_options(code_summary)
+    power_options = available_power_options(code_summary)
+    direct_query = st.text_input(
+        "직접 검색",
+        value="",
+        placeholder="예: 소울브라운, 40P, -06.50",
+        key="quick_lookup_direct_query",
+    )
     q1, q2, q3 = st.columns([2.3, 1.1, 2.0], gap="small")
     with q1:
         product_query = st.text_input(
@@ -2984,16 +3032,22 @@ def render_product_pack_power_quick_lookup(code_summary: pd.DataFrame) -> None:
     with q2:
         pack_label = st.selectbox(
             "PACK 선택",
-            options=available_pack_options(code_summary),
+            options=pack_options,
             index=0,
             key="quick_lookup_pack",
         )
     with q3:
         power_labels = st.multiselect(
             "POWER 선택",
-            options=available_power_options(code_summary)[1:],
+            options=power_options[1:],
             default=[],
             key="quick_lookup_power",
+        )
+    if direct_query.strip():
+        product_query, pack_label, power_labels = parse_quick_lookup_direct_query(
+            direct_query,
+            pack_options=pack_options,
+            power_options=power_options[1:],
         )
 
     if not product_query.strip() and pack_label == "전체" and not power_labels:
