@@ -7532,7 +7532,6 @@ def render_product_summary_tab(
         sample_available_df,
         stock_threshold_pack,
     )
-    render_product_scope_kpi_panels(product_summary, unit_mode=product_unit_mode)
 
     family_view = build_family_progress_view(main_products)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
