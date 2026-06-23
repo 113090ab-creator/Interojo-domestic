@@ -3380,6 +3380,40 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     return grouped[columns].copy()
 
 
+def build_item_code_from_prefix_power(product_code: Any, power_label: Any) -> str:
+    prefix = clean_str(product_code).upper()
+    power = clean_str(power_label)
+    if not prefix or not power:
+        return ""
+    return f"{prefix}{power}"
+
+
+def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = ["제품코드", "PACK", "마스터제품명"]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = with_operational_columns(code_summary)
+    work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work = work[(work["_sales_prefix"] != "") & (work["_pack_label"].map(clean_str) != "")].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    grouped = (
+        work.groupby(["_sales_prefix", "_pack_label"], dropna=False)
+        .agg(product_name=("product_name", join_unique))
+        .reset_index()
+        .rename(
+            columns={
+                "_sales_prefix": "제품코드",
+                "_pack_label": "PACK",
+                "product_name": "마스터제품명",
+            }
+        )
+    )
+    return grouped[columns].copy()
+
+
 def classify_daily_inventory_status(row: pd.Series) -> str:
     urgent = bool(row.get("긴급요청", False))
     stock = pd.to_numeric(row.get("재고수량", np.nan), errors="coerce")
@@ -3402,7 +3436,9 @@ def classify_daily_inventory_status(row: pd.Series) -> str:
 def build_daily_inventory_response_view(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "대응상태",
+        "품목코드",
         "제품명",
+        "재고표 제품명",
         "제품코드",
         "PACK",
         "POWER",
@@ -3441,7 +3477,16 @@ def build_daily_inventory_response_view(daily_inventory_df: pd.DataFrame, code_s
         on=["제품코드", "PACK", "POWER"],
         how="left",
     )
-    for col in ["최소 납기", "요청제품명", "대상품목"]:
+    product_catalog = build_daily_product_catalog(code_summary)
+    out = out.merge(product_catalog, on=["제품코드", "PACK"], how="left")
+    out["재고표 제품명"] = out["제품명"].map(clean_str)
+    out["품목코드"] = [
+        build_item_code_from_prefix_power(product_code, power)
+        for product_code, power in zip(out["제품코드"], out["POWER"])
+    ]
+    out["제품명"] = out["요청제품명"].where(out["요청제품명"].map(clean_str) != "", out["마스터제품명"])
+    out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["재고표 제품명"])
+    for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "재고표 제품명", "품목코드"]:
         if col in out.columns:
             out[col] = out[col].fillna("")
     numeric_cols = ["요청 PACK", "포장 PACK", "용마입고 PACK", "미입고 PACK", "요청 PCS", "생산부족 PCS", "생산진도율", "판매코드 수"]
@@ -3486,19 +3531,30 @@ def is_power_query_token(token: str) -> bool:
     return bool(re.fullmatch(r"[+-]?\d+(?:\.\d+)?", normalized) and (normalized.startswith(("+", "-")) or "." in normalized))
 
 
+def is_item_code_query_token(token: str) -> bool:
+    normalized = clean_str(token).replace("−", "-").replace("–", "-").replace("—", "-").upper()
+    return bool(re.fullmatch(r"[A-Z]\d+[+-]\d+(?:\.\d+)?", normalized))
+
+
 def daily_inventory_query_mask(view: pd.DataFrame, query: str) -> pd.Series:
     tokens = split_lookup_query_terms(query)
     if not tokens:
         return pd.Series(True, index=view.index)
 
-    text_cols = [col for col in ["제품명", "제품코드", "요청제품명", "대상품목"] if col in view.columns]
+    text_cols = [
+        col
+        for col in ["품목코드", "제품명", "재고표 제품명", "제품코드", "요청제품명", "대상품목"]
+        if col in view.columns
+    ]
     mask = pd.Series(True, index=view.index)
     for token in tokens:
         normalized = clean_str(token).replace("−", "-").replace("–", "-").replace("—", "-")
         token_mask = pd.Series(False, index=view.index)
         power_label = daily_power_label(normalized) if is_power_query_token(normalized) else ""
         pack_label = extract_daily_pack_label(normalized)
-        if power_label and "POWER" in view.columns:
+        if is_item_code_query_token(normalized) and "품목코드" in view.columns:
+            token_mask = contains_any_query_term(view["품목코드"].fillna(""), [normalized.upper()])
+        elif power_label and "POWER" in view.columns:
             token_mask = contains_any_query_term(view["POWER"].fillna(""), [power_label])
         elif pack_label and "PACK" in view.columns:
             token_mask = contains_any_query_term(view["PACK"].fillna(""), [pack_label])
@@ -6442,7 +6498,9 @@ def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: p
         height=650,
         column_order=[
             "대응상태",
+            "품목코드",
             "제품명",
+            "재고표 제품명",
             "제품코드",
             "PACK",
             "POWER",
