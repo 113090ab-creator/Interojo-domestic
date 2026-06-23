@@ -6478,14 +6478,18 @@ def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: p
     if important_only:
         view = view[(view["긴급요청"]) | (view["재고수량"] < 0) | (view["재고부족수량"] > 0)].copy()
 
+    hidden_daily_inventory_cols = ["재고표 제품명", "전일재고", "재고증감", "재고부족수량"]
+    display_view = view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
+    full_export_view = response_view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
+
     dl_col, _ = st.columns([1.2, 4.8], gap="small")
     with dl_col:
         render_excel_download(
             "엑셀 다운로드",
             "일일_재고_대응",
             {
-                "일일 재고 대응": view,
-                "일일 재고 전체": response_view,
+                "일일 재고 대응": display_view,
+                "일일 재고 전체": full_export_view,
             },
             key="download_daily_inventory_excel",
         )
@@ -6493,21 +6497,17 @@ def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: p
     render_selectable_table(
         "일일 재고 대응 테이블",
         f"긴급요청 및 재고현황표 기준 | 표시 건수: {len(view):,}",
-        view,
+        display_view,
         key="daily_inventory_table",
         height=650,
         column_order=[
             "대응상태",
             "품목코드",
             "제품명",
-            "재고표 제품명",
             "제품코드",
             "PACK",
             "POWER",
             "재고수량",
-            "전일재고",
-            "재고증감",
-            "재고부족수량",
             "긴급요청",
             "요청 PACK",
             "용마입고 PACK",
