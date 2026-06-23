@@ -7519,41 +7519,24 @@ def render_product_summary_tab(
     sample_available_df: pd.DataFrame | None = None,
 ) -> None:
     main_products, _ = split_main_sample(product_summary)
-    pack_labels = available_pack_options(code_summary)[1:]
-
-    product_unit_mode = render_unit_selector("product_progress_unit_mode")
-    stock_threshold_pack = float(
-        st.session_state.get("inventory_stock_threshold_pack", INVENTORY_STOCK_THRESHOLD_DEFAULT)
-    )
-    render_status_board(
-        product_summary,
-        code_summary,
-        daily_inventory_df,
-        sample_available_df,
-        stock_threshold_pack,
-    )
+    stock_threshold_pack = float(INVENTORY_STOCK_THRESHOLD_DEFAULT)
 
     family_view = build_family_progress_view(main_products)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
     gap_top_view = build_gap_top_view(product_summary, top_n=10)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
-        "본품 분류별 진도현황",
-        "제품보다 상위 제품군 기준으로 생산/입고 진도와 부족수량을 먼저 확인합니다.",
+    exception_kpis, exception_detail = build_daily_exception_report_view(
+        daily_inventory_df,
+        code_summary,
+        sample_available_df,
     )
-    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
-    render_family_progress_cards(family_view)
-    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    detail_col, report_col = st.columns([4.8, 1.2], gap="small", vertical_alignment="center")
-    with detail_col:
+    title_col, download_col = st.columns([4.8, 1.2], gap="small", vertical_alignment="center")
+    with title_col:
         render_panel_title(
             "제품 진도 현황",
-            "제품명 기준 PACK pivot, 생산 필요수량, 용마입고율을 한 번에 확인합니다.",
+            "월간 요청 대비 용마입고율과 생산/재고 리스크를 한 화면에서 확인합니다.",
         )
-    with report_col:
+    with download_col:
         ppt_bytes = build_ppt_report(
             product_view=product_summary,
             code_summary=code_summary,
@@ -7570,117 +7553,35 @@ def render_product_summary_tab(
             width="stretch",
             key="download_ppt_report",
         )
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
-    with threshold_col:
-        stock_threshold_pack = st.number_input(
-            "재고 기준(PACK)",
-            min_value=0,
-            value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
-            step=10,
-            key="inventory_stock_threshold_pack",
-        )
-    render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack), unit_mode=product_unit_mode)
-    render_product_pack_power_quick_lookup(code_summary)
-
-    pf1, pf2, pf3 = st.columns([1.4, 2.4, 1.5], gap="small")
-    with pf1:
-        product_scope = st.selectbox(
-            "제품 범위",
-            options=product_scope_options(product_summary),
-            index=0,
-            key="tab_summary_product_scope",
-        )
-    with pf2:
-        product_query = st.text_input(
-            "제품명/SKU 검색",
-            value="",
-            placeholder="제품명 또는 SKU 일부 입력",
-            key="tab_summary_product_query",
-        )
-    with pf3:
-        product_statuses = st.multiselect(
-            "상태 필터",
-            STATUS_ORDER,
-            default=STATUS_ORDER,
-            key="tab_summary_product_status",
-        )
-
-    product_filter_base = apply_product_scope_filter(product_summary, product_scope)
-    product_filter_base = apply_filters(product_filter_base, query=product_query, statuses=product_statuses)
-    product_view_all = build_product_progress_main_view(
-        product_summary,
-        code_summary,
-        pack_labels,
-        stock_threshold_pack=float(stock_threshold_pack),
-    )
-    visible_products = set(product_filter_base["제품명"].astype(str))
-    product_view = product_view_all[product_view_all["제품명"].astype(str).isin(visible_products)].copy()
-    product_view = product_view.sort_values(
-        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "미입고수량", "제품필요수량"],
-        ascending=[True, True, False, False, False],
-        na_position="last",
-        kind="stable",
-    )
-    dl_col, _ = st.columns([1.2, 4.8], gap="small")
-    with dl_col:
         render_excel_download(
             "엑셀 다운로드",
             "제품_진도_현황",
             {
-                "제품 진도 현황": product_view,
+                "제품 요약": product_summary,
                 "본품 분류별 진도": family_view,
                 "미입고 TOP10": top_shortage_view,
                 "생산입고 GAP TOP10": gap_top_view,
+                "요청외 긴급": exception_detail,
             },
             key="download_product_progress_excel",
         )
-    selected_product_row = render_selectable_table(
-        "제품 진도 현황",
-        f"제품 기준 요청/생산/용마입고 현황 | 표시 건수: {len(product_view):,}",
-        product_view,
-        key="product_progress_main_table",
-        height=430,
-        column_order=product_progress_column_order(product_view, pack_labels, product_unit_mode),
+
+    render_status_board(
+        product_summary,
+        code_summary,
+        daily_inventory_df,
+        sample_available_df,
+        stock_threshold_pack,
     )
 
-    if selected_product_row is not None:
-        selected_product = str(selected_product_row["제품명"])
-        st.markdown(f"<div class='breadcrumb'>제품 <span>{escape(selected_product)}</span></div>", unsafe_allow_html=True)
-        sku_view = build_product_sku_detail_view(code_summary, selected_product)
-        selected_sku_row = render_selectable_table(
-            "SKU 상세",
-            f"{selected_product} 기준 SKU/생산코드 현황 | 표시 건수: {len(sku_view):,}",
-            sku_view,
-            key="product_sku_detail_table",
-            height=260,
-        )
-        if selected_sku_row is not None:
-            selected_sku = str(selected_sku_row["SKU"])
-            selected_production = str(selected_sku_row["생산코드"])
-            work = with_operational_columns(code_summary)
-            sales_scope = work[
-                (work["base_product_name"] == selected_product)
-                & (work["product_name"] == selected_sku)
-                & (work["production_code_display"] == selected_production)
-            ].copy()
-            sales_detail = build_sales_pack_detail_view(sales_scope)
-            st.markdown(
-                "<div class='breadcrumb'>"
-                f"제품 <span>{escape(selected_product)}</span>"
-                f"<b>›</b> SKU <span>{escape(selected_sku)}</span>"
-                f"<b>›</b> 생산코드 <span>{escape(selected_production)}</span>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            render_selectable_table(
-                "판매코드 상세",
-                f"{selected_sku} / {selected_production} 기준 판매코드 상세 | 표시 건수: {len(sales_detail):,}",
-                sales_detail,
-                key="product_sales_detail_table",
-                height=240,
-            )
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "본품 분류별 진도현황",
+        "제품보다 상위 제품군 기준으로 생산/입고 진도와 부족수량을 먼저 확인합니다.",
+    )
+    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
+    render_family_progress_cards(family_view)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
@@ -7698,6 +7599,24 @@ def render_product_summary_tab(
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_gap_top_list(gap_top_view)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "요청외 긴급 요약",
+        f"일일 재고표 기준 요청물량 외 대응 품목 {int(exception_kpis.get('request_out_count', 0)):,}건을 확인합니다.",
+    )
+    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
+    if exception_detail.empty:
+        st.warning("요청외 긴급 품목이 없습니다.")
+    else:
+        st.dataframe(
+            dataframe_for_streamlit(exception_detail),
+            hide_index=True,
+            height=220,
+            width="stretch",
+            column_config=drilldown_column_config(),
+        )
     st.markdown("</div>", unsafe_allow_html=True)
 
 
