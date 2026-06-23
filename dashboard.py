@@ -2945,7 +2945,7 @@ def render_unit_selector(key: str) -> str:
         key=key,
     )
     if unit_mode == UNIT_PCS:
-        st.caption("포장대기·생산부족 기준 조회")
+        st.caption("포장가능재고·생산부족 기준 조회")
     else:
         st.caption("용마입고·포장부족 기준 조회")
     return unit_mode
@@ -3036,7 +3036,7 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "생산요청물량(PCS)",
             "용마입고수량(PCS)",
             "용마입고대기수량(PCS)",
-            "포장대기(PCS)",
+            "포장가능재고(PCS)",
             "포장부족(PCS)",
             "생산부족(PCS)",
             "생산진도율",
@@ -3447,7 +3447,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         "요청 PCS",
         "생산부족 PCS",
         "용마입고대기 PACK",
-        "포장대기(PCS)",
+        "포장가능재고(PCS)",
         "샘플신청가능수량",
         "생산진도율",
         "최소 납기",
@@ -3496,7 +3496,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     )
     grouped["미입고 PACK"] = (grouped["요청 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
     grouped["용마입고대기 PACK"] = (grouped["포장 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
-    grouped["포장대기(PCS)"] = (
+    grouped["포장가능재고(PCS)"] = (
         grouped["요청 PCS"] - grouped["생산부족 PCS"] + grouped["샘플신청가능수량"]
     ).clip(lower=0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족 PCS"])
@@ -3714,9 +3714,8 @@ def build_daily_inventory_response_view(
         "요청 PCS",
         "생산부족 PCS",
         "용마입고대기 PACK",
-        "포장대기(PCS)",
         "포장부족(재고 PCS)",
-        "포장대기/부족(PCS)",
+        "포장가능재고(PCS)",
         "생산진도율",
         "최소 납기",
         "요청제품명",
@@ -3776,7 +3775,7 @@ def build_daily_inventory_response_view(
         "요청 PCS",
         "생산부족 PCS",
         "용마입고대기 PACK",
-        "포장대기(PCS)",
+        "포장가능재고(PCS)",
         "샘플신청가능수량",
         "생산진도율",
         "판매코드 수",
@@ -3784,7 +3783,7 @@ def build_daily_inventory_response_view(
     for col in numeric_cols:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
-    for col in ["용마입고대기 PACK", "포장대기(PCS)", "샘플신청가능수량"]:
+    for col in ["용마입고대기 PACK", "포장가능재고(PCS)", "샘플신청가능수량"]:
         if col not in out.columns:
             out[col] = 0.0
     has_request = out["요청 PACK"] > 0
@@ -3793,7 +3792,7 @@ def build_daily_inventory_response_view(
         out["용마입고대기 PACK"] > 0,
         (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0),
     )
-    out["포장대기(PCS)"] = np.where(
+    available_stock_pcs = np.where(
         has_request,
         (out["요청 PCS"] - out["생산부족 PCS"] + out["샘플신청가능수량"]).clip(lower=0.0),
         0.0,
@@ -3803,12 +3802,12 @@ def build_daily_inventory_response_view(
     stock_shortage_pcs = (out["재고부족수량"] * pack_units).clip(lower=0.0)
     out["포장부족(재고 PCS)"] = np.where(
         has_request,
-        (stock_shortage_pcs - out["포장대기(PCS)"]).clip(lower=0.0),
+        (stock_shortage_pcs - available_stock_pcs).clip(lower=0.0),
         out["샘플신청가능수량"],
     )
-    out["포장대기/부족(PCS)"] = np.where(
+    out["포장가능재고(PCS)"] = np.where(
         has_request,
-        out["포장대기(PCS)"],
+        available_stock_pcs,
         out["포장부족(재고 PCS)"],
     )
     out["대응상태"] = out.apply(classify_daily_inventory_status, axis=1)
@@ -4530,7 +4529,7 @@ def build_sales_order_main_view(
                 "용마입고대기수량",
                 "용마입고대기수량(PACK)",
                 "용마입고대기수량(PCS)",
-                "포장대기(PCS)",
+                "포장가능재고(PCS)",
                 "용마창고재고 (PACK)",
                 "재고기준(PACK)",
                 "재고부족(PACK)",
@@ -4600,7 +4599,7 @@ def build_sales_order_main_view(
     grouped["용마입고대기수량"] = (grouped["packing_pack"] - grouped["용마입고수량"]).clip(lower=0.0)
     grouped["용마입고수량(PACK)"] = grouped["용마입고수량"]
     grouped["용마입고대기수량(PACK)"] = grouped["용마입고대기수량"]
-    grouped["포장대기(PCS)"] = (
+    grouped["포장가능재고(PCS)"] = (
         grouped["요청PCS"] - grouped["생산부족"] + grouped["샘플신청가능수량"]
     ).clip(lower=0.0)
     grouped["포장부족"] = (grouped["요청PACK"] - grouped["용마입고수량"]).clip(lower=0.0)
@@ -4652,7 +4651,7 @@ def build_sales_order_main_view(
             "용마입고대기수량",
             "용마입고대기수량(PACK)",
             "용마입고대기수량(PCS)",
-            "포장대기(PCS)",
+            "포장가능재고(PCS)",
             "샘플신청가능수량",
             "용마창고재고 (PACK)",
             "재고기준(PACK)",
@@ -5247,7 +5246,7 @@ def build_daily_exception_report_view(
     sample_available_df: pd.DataFrame | None = None,
     max_rows: int = 5,
 ) -> tuple[dict[str, float], pd.DataFrame]:
-    columns = ["품목코드", "제품명", "재고수량", "포장대기/부족(PCS)", "대상품목"]
+    columns = ["품목코드", "제품명", "재고수량", "포장가능재고(PCS)", "대상품목"]
     empty_kpis = {"request_out_count": 0.0, "negative_count": 0.0, "waiting_pcs": 0.0}
     if daily_inventory_df is None or daily_inventory_df.empty:
         return empty_kpis, pd.DataFrame(columns=columns)
@@ -5261,16 +5260,16 @@ def build_daily_exception_report_view(
         return empty_kpis, pd.DataFrame(columns=columns)
 
     out["재고수량"] = pd.to_numeric(out["재고수량"], errors="coerce")
-    out["포장대기/부족(PCS)"] = pd.to_numeric(out["포장대기/부족(PCS)"], errors="coerce").fillna(0.0)
+    out["포장가능재고(PCS)"] = pd.to_numeric(out["포장가능재고(PCS)"], errors="coerce").fillna(0.0)
     out["_stock_missing_sort"] = out["재고수량"].isna().astype(int)
     out["_stock_sort"] = out["재고수량"].fillna(0.0)
     kpis = {
         "request_out_count": float(len(out)),
         "negative_count": float((out["재고수량"] < 0).sum()),
-        "waiting_pcs": float(out["포장대기/부족(PCS)"].sum()),
+        "waiting_pcs": float(out["포장가능재고(PCS)"].sum()),
     }
     detail = out.sort_values(
-        ["_stock_missing_sort", "_stock_sort", "포장대기/부족(PCS)", "품목코드"],
+        ["_stock_missing_sort", "_stock_sort", "포장가능재고(PCS)", "품목코드"],
         ascending=[True, True, False, True],
         kind="stable",
     ).head(max_rows)
@@ -5487,7 +5486,7 @@ def add_daily_exception_report_panel(
     metric_specs = [
         ("요청외", format_report_value(exception_kpis.get("request_out_count", 0.0)), COLOR_ORANGE),
         ("재고음수", format_report_value(exception_kpis.get("negative_count", 0.0)), COLOR_AMBER),
-        ("대기/부족 PCS", format_report_value(exception_kpis.get("waiting_pcs", 0.0)), COLOR_ORANGE),
+        ("포장가능재고 PCS", format_report_value(exception_kpis.get("waiting_pcs", 0.0)), COLOR_ORANGE),
     ]
     metric_top = top + 0.6
     metric_width = (width - 0.34) / 3
@@ -5497,7 +5496,7 @@ def add_daily_exception_report_panel(
         add_textbox(slide, label, box_left, metric_top + 0.07, metric_width - 0.06, 0.14, 6.2, False, TEXT_TERTIARY, PP_ALIGN.CENTER)
         add_textbox(slide, value, box_left, metric_top + 0.22, metric_width - 0.06, 0.2, 9, True, color, PP_ALIGN.CENTER)
 
-    headers = ["품목", "제품명", "재고", "대상"]
+    headers = ["품목", "제품명", "재고", "포장가능\n재고PCS"]
     col_widths = [0.75, 1.75, 0.58, 0.95]
     col_lefts = [left + 0.15]
     for col_width in col_widths[:-1]:
@@ -5538,18 +5537,21 @@ def add_daily_exception_report_panel(
     for row_idx, (_, row) in enumerate(exception_view.iterrows(), start=1):
         row_top = top + 1.5 + (row_idx - 1) * row_height
         stock = pd.to_numeric(row.get("재고수량", np.nan), errors="coerce")
+        waiting_pcs = pd.to_numeric(row.get("포장가능재고(PCS)", np.nan), errors="coerce")
         stock_text = "-" if pd.isna(stock) else format_report_value(stock)
+        waiting_text = "-" if pd.isna(waiting_pcs) else format_report_value(waiting_pcs)
         stock_color = COLOR_ORANGE if pd.notna(stock) and float(stock) < 0 else TEXT_DARK
+        waiting_color = COLOR_ORANGE if pd.notna(waiting_pcs) and float(waiting_pcs) > 0 else TEXT_DARK
         if row_idx % 2 == 0:
             add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.03, row_top, width - 0.06, row_height, "#FAFAF8")
         values = [
             truncate_report_text(row.get("품목코드", ""), 12),
             truncate_report_text(row.get("제품명", ""), 22),
             stock_text,
-            truncate_report_text(row.get("대상품목", ""), 14),
+            waiting_text,
         ]
-        colors = [TEXT_DARK, TEXT_DARK, stock_color, TEXT_SECONDARY]
-        aligns = [PP_ALIGN.LEFT, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.LEFT]
+        colors = [TEXT_DARK, TEXT_DARK, stock_color, waiting_color]
+        aligns = [PP_ALIGN.LEFT, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER]
         for col_idx, value in enumerate(values):
             add_textbox(
                 slide,
@@ -5559,7 +5561,7 @@ def add_daily_exception_report_panel(
                 col_widths[col_idx],
                 row_height - 0.06,
                 6.8,
-                col_idx in {0, 2} and stock_color == COLOR_ORANGE,
+                (col_idx == 2 and stock_color == COLOR_ORANGE) or (col_idx == 3 and waiting_color == COLOR_ORANGE),
                 colors[col_idx],
                 aligns[col_idx],
                 MSO_ANCHOR.MIDDLE,
@@ -6843,7 +6845,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "용마입고대기수량": st.column_config.NumberColumn("용마입고대기수량", format=numeric_format),
         "용마입고대기수량(PACK)": st.column_config.NumberColumn("용마입고대기수량(PACK)", format=numeric_format),
         "용마입고대기수량(PCS)": st.column_config.NumberColumn("용마입고대기수량(PCS)", format=numeric_format),
-        "포장대기(PCS)": st.column_config.NumberColumn("포장대기(PCS)", format=numeric_format),
+        "포장가능재고(PCS)": st.column_config.NumberColumn("포장가능재고(PCS)", format=numeric_format),
         "샘플신청가능수량": st.column_config.NumberColumn("샘플신청가능수량", format=numeric_format),
         "미입고(PACK)": st.column_config.NumberColumn("미입고(PACK)", format=numeric_format),
         "미입고수량": st.column_config.NumberColumn("미입고수량", format=numeric_format),
@@ -6854,7 +6856,6 @@ def drilldown_column_config() -> dict[str, Any]:
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
         "포장부족(PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format),
         "포장부족(재고 PCS)": st.column_config.NumberColumn("포장부족(재고 PCS)", format=numeric_format),
-        "포장대기/부족(PCS)": st.column_config.NumberColumn("포장대기/부족(PCS)", format=numeric_format),
         "5P 필요팩": st.column_config.NumberColumn("5P 필요팩", format=numeric_format),
         "10P 필요팩": st.column_config.NumberColumn("10P 필요팩", format=numeric_format),
         "30P 필요팩": st.column_config.NumberColumn("30P 필요팩", format=numeric_format),
@@ -7015,6 +7016,7 @@ def render_daily_inventory_tab(
         "요청제품명",
         "판매코드 수",
         "대상품목",
+        "포장부족(재고 PCS)",
     ]
     display_view = view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
     full_export_view = response_view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
@@ -7051,7 +7053,7 @@ def render_daily_inventory_tab(
             "미입고 PACK",
             "포장 PACK",
             "용마입고대기 PACK",
-            "포장대기/부족(PCS)",
+            "포장가능재고(PCS)",
             "생산부족 PCS",
             "생산진도율",
             "최소 납기",
