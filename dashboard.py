@@ -2846,6 +2846,12 @@ def visible_columns(df: pd.DataFrame, columns: list[str]) -> list[str]:
     return [col for col in columns if col in df.columns]
 
 
+def dataframe_for_streamlit(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    return df.loc[:, ~pd.Index(df.columns).duplicated()].copy()
+
+
 def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit_mode: str) -> list[str]:
     if unit_mode == UNIT_PCS:
         columns = [
@@ -3520,8 +3526,6 @@ def build_daily_inventory_response_view(
         "요청제품명",
         "판매코드 수",
         "대상품목",
-        "포장대기(PCS)",
-        "포장부족(재고 PCS)",
     ]
     if daily_inventory_df.empty:
         return pd.DataFrame(columns=columns)
@@ -6538,17 +6542,18 @@ def render_selectable_table(
         st.warning("조건에 맞는 데이터가 없습니다.")
         st.markdown("</div>", unsafe_allow_html=True)
         return None
+    display_df = dataframe_for_streamlit(df)
     column_config = drilldown_column_config()
-    for col in df.columns:
+    for col in display_df.columns:
         if re.match(r"^\d+(?:\.\d+)?P(?:\(PCS\))?$", str(col)):
             column_config[col] = st.column_config.NumberColumn(str(col), format="%,.0f")
     event = st.dataframe(
-        df,
+        display_df,
         hide_index=True,
         height=height,
         width="stretch",
         column_config=column_config,
-        column_order=visible_columns(df, column_order) if column_order is not None else None,
+        column_order=visible_columns(display_df, column_order) if column_order is not None else None,
         on_select="rerun",
         selection_mode="single-row",
         key=key,
