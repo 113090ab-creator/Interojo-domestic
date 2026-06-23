@@ -1003,9 +1003,12 @@ def normalize_daily_inventory_file(path: Path | None) -> pd.DataFrame:
     ]
 
     merged = support_work.merge(
-        emergency_work[["_daily_key", "제품코드", "긴급요청", "대상품목"]].rename(
+        emergency_work[["_daily_key", "제품명", "제품코드", "PACK", "POWER", "긴급요청", "대상품목"]].rename(
             columns={
+                "제품명": "_emergency_product_name",
                 "제품코드": "_emergency_product_code",
+                "PACK": "_emergency_pack",
+                "POWER": "_emergency_power",
                 "긴급요청": "_emergency_flag",
                 "대상품목": "_emergency_target",
             }
@@ -1018,6 +1021,17 @@ def normalize_daily_inventory_file(path: Path | None) -> pd.DataFrame:
         if col not in merged.columns:
             merged[col] = np.nan if col in {"재고수량", "전일재고", "재고증감"} else ""
 
+    for base_col, emergency_col in [
+        ("제품명", "_emergency_product_name"),
+        ("제품코드", "_emergency_product_code"),
+        ("PACK", "_emergency_pack"),
+        ("POWER", "_emergency_power"),
+    ]:
+        if emergency_col in merged.columns:
+            merged[base_col] = merged[base_col].where(
+                merged[base_col].map(clean_str) != "",
+                merged[emergency_col],
+            )
     if "_emergency_product_code" in merged.columns:
         merged["제품코드"] = merged["제품코드"].where(merged["제품코드"].map(clean_str) != "", merged["_emergency_product_code"])
     if "_emergency_flag" in merged.columns:
@@ -1034,6 +1048,101 @@ def normalize_daily_inventory_file(path: Path | None) -> pd.DataFrame:
         - pd.to_numeric(merged.loc[missing_delta, "전일재고"], errors="coerce")
     )
     return merged[DAILY_INVENTORY_COLUMNS].copy()
+
+
+def clean_inventory_product_name(value: Any) -> str:
+    text = clean_str(value)
+    if not text:
+        return ""
+    text = re.sub(r"[/\\]+$", "", text).strip()
+    text = re.sub(r"[/_ -]*[+-]?\d{1,2}\.\d{2}$", "", text).strip("_-/ ")
+    return text or clean_str(value)
+
+
+def inventory_power_label_from_sales_code(value: Any) -> str:
+    power_value = parse_power_from_sales_code(value)
+    if pd.isna(power_value):
+        return ""
+    return format_power(power_value)
+
+
+def pack_label_from_inventory_name(product_name: Any, product_spec: Any = "") -> str:
+    product_text = clean_str(product_name)
+    product_text = re.sub(r"[/\\]+$", "", product_text).strip()
+    product_text = re.sub(r"[/_ -]*[+-]?\d{1,2}\.\d{2}$", "", product_text).strip("_-/ ")
+    unit = extract_pack_unit(product_text)
+    if pd.isna(unit):
+        unit = extract_pack_unit(product_spec)
+    return base_pack_label(unit) if pd.notna(unit) and float(unit) > 0 else ""
+
+
+def build_daily_wms_catalog(inventory_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    exact_columns = ["제품코드", "POWER", "_wms_product_name", "_wms_pack", "_wms_stock"]
+    prefix_columns = ["제품코드", "_wms_product_name", "_wms_pack"]
+    if inventory_df is None or inventory_df.empty:
+        return pd.DataFrame(columns=exact_columns), pd.DataFrame(columns=prefix_columns)
+
+    work = inventory_df.copy()
+    work["제품코드"] = work["sales_code"].map(extract_sales_prefix)
+    work["POWER"] = work["sales_code"].map(inventory_power_label_from_sales_code)
+    work["_wms_product_name"] = work["inventory_product_name"].map(clean_inventory_product_name)
+    work["_wms_pack"] = [
+        pack_label_from_inventory_name(product_name, product_spec)
+        for product_name, product_spec in zip(
+            work.get("inventory_product_name", pd.Series("", index=work.index)),
+            work.get("inventory_product_spec", pd.Series("", index=work.index)),
+        )
+    ]
+    work["_wms_stock"] = pd.to_numeric(work.get("available_stock_pack", 0.0), errors="coerce")
+    work = work[work["제품코드"].map(clean_str) != ""].copy()
+    if work.empty:
+        return pd.DataFrame(columns=exact_columns), pd.DataFrame(columns=prefix_columns)
+
+    exact = (
+        work[work["POWER"].map(clean_str) != ""]
+        .groupby(["제품코드", "POWER"], dropna=False)
+        .agg(
+            _wms_product_name=("_wms_product_name", first_nonempty),
+            _wms_pack=("_wms_pack", first_nonempty),
+            _wms_stock=("_wms_stock", "sum"),
+        )
+        .reset_index()
+    )
+    prefix = (
+        work.groupby("제품코드", dropna=False)
+        .agg(
+            _wms_product_name=("_wms_product_name", first_nonempty),
+            _wms_pack=("_wms_pack", first_nonempty),
+        )
+        .reset_index()
+    )
+    return exact[exact_columns].copy(), prefix[prefix_columns].copy()
+
+
+def enrich_daily_inventory_from_wms(daily_inventory_df: pd.DataFrame, inventory_df: pd.DataFrame) -> pd.DataFrame:
+    if daily_inventory_df is None or daily_inventory_df.empty or inventory_df is None or inventory_df.empty:
+        return daily_inventory_df
+
+    out = daily_inventory_df.copy()
+    out["제품코드"] = out["제품코드"].map(clean_str).str.upper()
+    out["POWER"] = out["POWER"].map(clean_str)
+    exact_catalog, prefix_catalog = build_daily_wms_catalog(inventory_df)
+
+    if not exact_catalog.empty:
+        out = out.merge(exact_catalog, on=["제품코드", "POWER"], how="left")
+        out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["_wms_product_name"])
+        out["PACK"] = out["PACK"].where(out["PACK"].map(clean_str) != "", out["_wms_pack"])
+        out["재고수량"] = pd.to_numeric(out["재고수량"], errors="coerce")
+        out["재고수량"] = out["재고수량"].where(out["재고수량"].notna(), out["_wms_stock"])
+        out = out.drop(columns=["_wms_product_name", "_wms_pack", "_wms_stock"], errors="ignore")
+
+    if not prefix_catalog.empty:
+        out = out.merge(prefix_catalog, on="제품코드", how="left")
+        out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["_wms_product_name"])
+        out["PACK"] = out["PACK"].where(out["PACK"].map(clean_str) != "", out["_wms_pack"])
+        out = out.drop(columns=["_wms_product_name", "_wms_pack"], errors="ignore")
+
+    return out[DAILY_INVENTORY_COLUMNS].copy()
 
 
 def empty_progress_df() -> pd.DataFrame:
@@ -3474,6 +3583,53 @@ def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
     return grouped[columns].copy()
 
 
+def build_daily_code_power_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = ["제품코드", "POWER", "_code_pack", "_code_product_name"]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = with_operational_columns(code_summary)
+    work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work = work[(work["_sales_prefix"] != "") & (work["POWER"].map(clean_str) != "")].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    grouped = (
+        work.groupby(["_sales_prefix", "POWER"], dropna=False)
+        .agg(
+            pack=("_pack_label", first_nonempty),
+            product_name=("product_name", first_nonempty),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "_sales_prefix": "제품코드",
+                "pack": "_code_pack",
+                "product_name": "_code_product_name",
+            }
+        )
+    )
+    return grouped[columns].copy()
+
+
+def enrich_daily_inventory_from_code_summary(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
+    if daily_inventory_df is None or daily_inventory_df.empty or code_summary.empty:
+        return daily_inventory_df
+
+    catalog = build_daily_code_power_catalog(code_summary)
+    if catalog.empty:
+        return daily_inventory_df
+
+    out = daily_inventory_df.copy()
+    out["제품코드"] = out["제품코드"].map(clean_str).str.upper()
+    out["POWER"] = out["POWER"].map(clean_str)
+    out = out.merge(catalog, on=["제품코드", "POWER"], how="left")
+    out["PACK"] = out["PACK"].where(out["PACK"].map(clean_str) != "", out["_code_pack"])
+    out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["_code_product_name"])
+    out = out.drop(columns=["_code_pack", "_code_product_name"], errors="ignore")
+    return out[DAILY_INVENTORY_COLUMNS].copy()
+
+
 def classify_daily_inventory_status(row: pd.Series) -> str:
     urgent = bool(row.get("긴급요청", False))
     stock = pd.to_numeric(row.get("재고수량", np.nan), errors="coerce")
@@ -3531,6 +3687,7 @@ def build_daily_inventory_response_view(
         return pd.DataFrame(columns=columns)
 
     daily = daily_inventory_df.copy()
+    daily = enrich_daily_inventory_from_code_summary(daily, code_summary)
     daily["제품코드"] = daily["제품코드"].map(clean_str).str.upper()
     daily["PACK"] = daily["PACK"].map(clean_str)
     daily["POWER"] = daily["POWER"].map(clean_str)
@@ -7371,6 +7528,7 @@ def load_dashboard_data(
     packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
     inventory_df = normalize_inventory(inventory_file)
     daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
+    daily_inventory_df = enrich_daily_inventory_from_wms(daily_inventory_df, inventory_df)
     product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
     code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
     progress_df, _progress_info = normalize_progress(progress_file, request_df)
