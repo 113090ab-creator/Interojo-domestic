@@ -5713,12 +5713,11 @@ def add_daily_exception_report_panel(
     )
 
     metric_specs = [
-        ("요청외", format_report_value(exception_kpis.get("request_out_count", 0.0)), COLOR_ORANGE),
-        ("재고음수", format_report_value(exception_kpis.get("negative_count", 0.0)), COLOR_AMBER),
+        ("요청외 긴급 품목", format_report_value(exception_kpis.get("request_out_count", 0.0)), COLOR_ORANGE),
         ("포장가능재고 PCS", format_report_value(exception_kpis.get("waiting_pcs", 0.0)), COLOR_ORANGE),
     ]
     metric_top = top + 0.6
-    metric_width = (width - 0.34) / 3
+    metric_width = (width - 0.34) / len(metric_specs)
     for idx, (label, value, color) in enumerate(metric_specs):
         box_left = left + 0.12 + idx * metric_width
         add_report_shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, box_left, metric_top, metric_width - 0.06, 0.48, BG_PAGE, "#E8E6E0", 0.4)
