@@ -105,20 +105,20 @@ PACK_SUFFIX_RE = re.compile(
 )
 PACK_PREFIX_SUFFIX_RE = re.compile(r"^\d+(?:\.\d+)?\s*(?:P|팩)_", re.IGNORECASE)
 
-COLOR_BLUE = "#24A6CF"
-COLOR_TEAL = "#1FA6C8"
-COLOR_ORANGE = "#F5575C"
-COLOR_AMBER = "#FFBF4A"
-COLOR_ALERT_BG = "#FFF0F0"
-COLOR_ALERT_BD = "#F7A0A3"
-BG_PAGE = "#E7E9EC"
+COLOR_BLUE = "#185FA5"
+COLOR_TEAL = "#1D9E75"
+COLOR_ORANGE = "#D85A30"
+COLOR_AMBER = "#BA7517"
+COLOR_ALERT_BG = "#FAECE7"
+COLOR_ALERT_BD = "#F0997B"
+BG_PAGE = "#F4F4F2"
 BG_CARD = "#FFFFFF"
-BG_SECTION = "#F2F4F6"
-TEXT_PRIMARY = "#202832"
-TEXT_SECONDARY = "#6F7782"
-TEXT_TERTIARY = "#A5ADB6"
-BORDER_DEFAULT = "rgba(62,74,88,0.16)"
-BORDER_LIGHT = "rgba(62,74,88,0.08)"
+BG_SECTION = "#EFEFEC"
+TEXT_PRIMARY = "#1A1A1A"
+TEXT_SECONDARY = "#6B6B68"
+TEXT_TERTIARY = "#9E9D99"
+BORDER_DEFAULT = "rgba(0,0,0,0.10)"
+BORDER_LIGHT = "rgba(0,0,0,0.06)"
 
 NAVY = COLOR_BLUE
 SOFT_NAVY = COLOR_TEAL
@@ -6222,19 +6222,19 @@ def render_style() -> None:
             --border-light: {BORDER_LIGHT};
         }}
         .block-container {{
-            padding: 22px 28px 32px !important;
+            padding: 24px 32px 32px !important;
             max-width: 100% !important;
         }}
         h1 {{
-            font-size: 24px !important;
-            font-weight: 700 !important;
+            font-size: 22px !important;
+            font-weight: 500 !important;
             color: {TEXT_PRIMARY} !important;
-            margin-bottom: 8px !important;
+            margin-bottom: 4px !important;
             letter-spacing: 0 !important;
         }}
         h2 {{
-            font-size: 16px !important;
-            font-weight: 700 !important;
+            font-size: 15px !important;
+            font-weight: 500 !important;
             color: {TEXT_PRIMARY} !important;
             margin-bottom: 2px !important;
             letter-spacing: 0 !important;
@@ -6247,23 +6247,23 @@ def render_style() -> None:
         }}
         [data-baseweb="tab-list"] {{
             gap: 0 !important;
-            border-bottom: 1px solid {BORDER_DEFAULT} !important;
+            border-bottom: 1.5px solid {BORDER_DEFAULT} !important;
             background: transparent !important;
-            margin-bottom: 18px !important;
+            margin-bottom: 20px !important;
         }}
         [data-baseweb="tab"] {{
             font-size: 13px !important;
-            padding: 9px 18px !important;
+            padding: 10px 20px !important;
             color: {TEXT_SECONDARY} !important;
             background: transparent !important;
             letter-spacing: 0 !important;
         }}
         [aria-selected="true"][data-baseweb="tab"] {{
-            color: {COLOR_BLUE} !important;
-            font-weight: 700 !important;
+            color: {COLOR_ORANGE} !important;
+            font-weight: 500 !important;
         }}
         [data-baseweb="tab-highlight"] {{
-            background-color: {COLOR_BLUE} !important;
+            background-color: {COLOR_ORANGE} !important;
             height: 2px !important;
         }}
         [data-baseweb="tab-border"] {{
@@ -6283,14 +6283,14 @@ def render_style() -> None:
             box-shadow: none !important;
         }}
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
-            color: {COLOR_BLUE} !important;
-            font-weight: 700 !important;
-            border-bottom: 2px solid {COLOR_BLUE} !important;
+            color: {COLOR_ORANGE} !important;
+            font-weight: 500 !important;
+            border-bottom: 2px solid {COLOR_ORANGE} !important;
         }}
         .dashboard-nav-divider {{
-            height: 1px;
+            height: 1.5px;
             background: {BORDER_DEFAULT};
-            margin: -15px 0 18px 0;
+            margin: -15px 0 20px 0;
         }}
         [data-testid="stRadio"] label,
         [data-testid="stCheckbox"] label {{
@@ -6304,10 +6304,10 @@ def render_style() -> None:
         }}
         [data-testid="metric-container"] {{
             background: {BG_CARD};
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             padding: 14px 18px;
-            box-shadow: 0 8px 18px rgba(38, 52, 67, 0.08);
+            box-shadow: none;
         }}
         [data-testid="stMetricLabel"] {{
             font-size: 11px !important;
@@ -6324,11 +6324,10 @@ def render_style() -> None:
             display: none !important;
         }}
         [data-testid="stDataFrame"] {{
-            border: 1px solid {BORDER_DEFAULT} !important;
-            border-radius: 6px !important;
+            border: 0.5px solid {BORDER_DEFAULT} !important;
+            border-radius: 12px !important;
             overflow: hidden;
             background: {BG_CARD};
-            box-shadow: 0 8px 18px rgba(38, 52, 67, 0.06);
         }}
         [data-testid="stDataFrame"] th {{
             background: {BG_PAGE} !important;
@@ -6346,7 +6345,7 @@ def render_style() -> None:
             border-bottom: 0.5px solid {BORDER_LIGHT} !important;
         }}
         [data-testid="stDataFrame"] tr:hover td {{
-            background: #F8FAFC !important;
+            background: {BG_PAGE} !important;
         }}
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input,
@@ -6376,19 +6375,19 @@ def render_style() -> None:
         }}
         [data-testid="stButton"] button,
         [data-testid="stDownloadButton"] button {{
-            border-radius: 6px !important;
+            border-radius: 8px !important;
             font-size: 13px !important;
-            font-weight: 700 !important;
-            border: 1px solid {BORDER_DEFAULT} !important;
+            font-weight: 500 !important;
+            border: 0.5px solid rgba(0,0,0,0.15) !important;
             background: {BG_CARD} !important;
             color: {TEXT_PRIMARY} !important;
-            box-shadow: 0 6px 16px rgba(38, 52, 67, 0.07) !important;
+            box-shadow: none !important;
         }}
         [data-testid="stButton"] button:hover,
         [data-testid="stDownloadButton"] button:hover {{
-            background: #F8FAFC !important;
-            border-color: {COLOR_BLUE} !important;
-            color: {COLOR_BLUE} !important;
+            background: {BG_PAGE} !important;
+            border-color: rgba(0,0,0,0.25) !important;
+            color: {TEXT_PRIMARY} !important;
         }}
         hr {{
             border-color: rgba(0,0,0,0.08) !important;
@@ -6407,10 +6406,10 @@ def render_style() -> None:
         }}
         .kpi-panel {{
             background: {BG_CARD};
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
-            padding: 16px 18px;
-            box-shadow: 0 8px 18px rgba(38, 52, 67, 0.07);
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 14px 18px;
+            box-shadow: none;
             margin-bottom: 0;
             height: 100%;
         }}
@@ -6433,8 +6432,8 @@ def render_style() -> None:
             gap: 8px;
         }}
         .kpi-card {{
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             padding: 14px 18px;
             background: {BG_CARD};
             min-height: 72px;
@@ -6444,14 +6443,14 @@ def render_style() -> None:
         }}
         .metric-label {{
             font-size: 11px;
-            font-weight: 600;
+            font-weight: 400;
             color: {TEXT_TERTIARY};
             margin-bottom: 6px;
         }}
         .metric-value {{
-            font-size: 22px;
+            font-size: 20px;
             line-height: 1.1;
-            font-weight: 800;
+            font-weight: 500;
             color: {TEXT_PRIMARY};
             white-space: nowrap;
             overflow-wrap: normal;
@@ -6491,25 +6490,14 @@ def render_style() -> None:
         }}
         .mini-kpi-card {{
             background: {BG_CARD};
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             padding: 14px 18px;
             min-height: 76px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            box-shadow: 0 8px 18px rgba(38, 52, 67, 0.07);
-            position: relative;
-            overflow: hidden;
-        }}
-        .mini-kpi-card::before {{
-            content: "";
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 4px;
-            background: {COLOR_BLUE};
+            box-shadow: none;
         }}
         @media (max-width: 1100px) {{
             .mini-kpi-grid {{
@@ -6523,22 +6511,21 @@ def render_style() -> None:
         .status-board {{
             display: grid;
             grid-template-columns: minmax(320px, 1.1fr) minmax(420px, 1.9fr);
-            gap: 14px;
-            margin: 8px 0 14px;
+            gap: 12px;
+            margin: 4px 0 12px;
             align-items: stretch;
         }}
         .status-main,
         .status-tile {{
             background: {BG_CARD};
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
-            box-shadow: 0 10px 22px rgba(38, 52, 67, 0.08);
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            box-shadow: none;
         }}
         .status-main {{
             padding: 20px 22px;
-            border-left: 5px solid {COLOR_BLUE};
-            position: relative;
-            overflow: hidden;
+            border-left: 5px solid {COLOR_TEAL};
+            box-shadow: 0 10px 22px rgba(38, 52, 67, 0.08);
         }}
         .status-board.warn .status-main {{
             border-left-color: {COLOR_AMBER};
@@ -6564,13 +6551,13 @@ def render_style() -> None:
             border-radius: 999px;
             padding: 5px 10px;
             font-size: 11px;
-            font-weight: 800;
-            color: #0C7C9A;
-            background: #E7F8FC;
+            font-weight: 700;
+            color: {COLOR_TEAL};
+            background: #EAF6F1;
         }}
         .status-pill.warn {{
-            color: #9D6700;
-            background: #FFF5D8;
+            color: {COLOR_AMBER};
+            background: #F7EFE3;
         }}
         .status-pill.risk {{
             color: {COLOR_ORANGE};
@@ -6582,7 +6569,7 @@ def render_style() -> None:
             line-height: 1;
             font-weight: 900;
             font-variant-numeric: tabular-nums;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
         }}
         .status-flow {{
             display: flex;
@@ -6593,7 +6580,7 @@ def render_style() -> None:
             overflow: hidden;
         }}
         .status-flow-fill.receipt {{
-            background: {COLOR_BLUE};
+            background: {COLOR_TEAL};
         }}
         .status-flow-fill.shortage {{
             background: {COLOR_ORANGE};
@@ -6610,7 +6597,7 @@ def render_style() -> None:
         .status-tile-grid {{
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 12px;
+            gap: 10px;
         }}
         .status-tile {{
             min-height: 86px;
@@ -6618,44 +6605,9 @@ def render_style() -> None:
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            position: relative;
-            overflow: hidden;
-        }}
-        .status-tile::before {{
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 5px;
-            background: {COLOR_BLUE};
-        }}
-        .status-tile::after {{
-            content: "";
-            position: absolute;
-            right: 14px;
-            bottom: 10px;
-            width: 76px;
-            height: 22px;
-            opacity: 0.15;
-            background: {COLOR_BLUE};
-            clip-path: polygon(0 70%, 18% 46%, 34% 58%, 50% 28%, 68% 44%, 84% 16%, 100% 34%, 100% 100%, 0 100%);
-            pointer-events: none;
-        }}
-        .status-tile:nth-child(2)::before,
-        .status-tile:nth-child(2)::after,
-        .status-tile:nth-child(5)::before,
-        .status-tile:nth-child(5)::after {{
-            background: {COLOR_AMBER};
-        }}
-        .status-tile:nth-child(3)::before,
-        .status-tile:nth-child(3)::after,
-        .status-tile:nth-child(4)::before,
-        .status-tile:nth-child(4)::after {{
-            background: {COLOR_ORANGE};
         }}
         .status-tile .metric-value {{
-            font-size: 22px;
+            font-size: 21px;
         }}
         @media (max-width: 1100px) {{
             .status-board {{
@@ -6676,10 +6628,10 @@ def render_style() -> None:
         }}
         .panel-box {{
             background: {BG_CARD};
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
-            padding: 16px 18px;
-            box-shadow: 0 10px 22px rgba(38, 52, 67, 0.07);
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 16px 20px;
+            box-shadow: none;
         }}
         .family-section {{
             display: flex;
@@ -6692,14 +6644,13 @@ def render_style() -> None:
         .family-section-title {{
             display: inline-block;
             width: fit-content;
-            color: {TEXT_PRIMARY};
+            color: #444441;
             background: {BG_SECTION};
             font-size: 13px;
-            font-weight: 800;
+            font-weight: 500;
             line-height: 1.2;
             padding: 5px 12px;
-            border-radius: 6px;
-            border-left: 4px solid {COLOR_BLUE};
+            border-radius: 8px;
         }}
         .family-grid {{
             display: grid;
@@ -6707,26 +6658,14 @@ def render_style() -> None:
             gap: 10px;
         }}
         .family-card {{
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             background: {BG_CARD};
             padding: 14px 16px;
             min-height: 128px;
             display: flex;
             flex-direction: column;
             gap: 10px;
-            box-shadow: 0 8px 18px rgba(38, 52, 67, 0.06);
-            position: relative;
-            overflow: hidden;
-        }}
-        .family-card::before {{
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: {COLOR_BLUE};
         }}
         .family-card:has(.progress-fill.production.risk),
         .family-card:has(.progress-fill.production.warn) {{
@@ -6741,7 +6680,7 @@ def render_style() -> None:
         .family-head span {{
             color: {TEXT_PRIMARY};
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 500;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -6763,7 +6702,6 @@ def render_style() -> None:
         .family-shortages b {{
             color: {COLOR_ORANGE};
             font-variant-numeric: tabular-nums;
-            font-weight: 800;
         }}
         .top-list {{
             display: flex;
@@ -6775,29 +6713,26 @@ def render_style() -> None:
             grid-template-columns: 32px minmax(220px, 1fr) 120px minmax(240px, 0.9fr);
             gap: 12px;
             align-items: center;
-            border: 1px solid {BORDER_LIGHT};
-            border-left: 5px solid {COLOR_ORANGE};
-            border-radius: 6px;
-            padding: 11px 16px;
+            border-bottom: 0.5px solid {BORDER_LIGHT};
+            padding: 10px 16px;
             background: {BG_CARD};
-            box-shadow: 0 6px 14px rgba(38, 52, 67, 0.05);
         }}
         .top-rank {{
             font-size: 12px;
-            font-weight: 800;
-            color: {COLOR_BLUE};
+            font-weight: 500;
+            color: {TEXT_TERTIARY};
             text-align: center;
         }}
         .top-name {{
             color: {TEXT_PRIMARY};
             font-size: 13px;
-            font-weight: 700;
+            font-weight: 400;
             overflow-wrap: anywhere;
         }}
         .top-shortage {{
             color: {COLOR_ORANGE};
             font-size: 13px;
-            font-weight: 800;
+            font-weight: 500;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }}
@@ -6814,12 +6749,9 @@ def render_style() -> None:
             grid-template-columns: 32px minmax(220px, 1fr) minmax(220px, 0.78fr) minmax(220px, 0.78fr) 82px;
             gap: 12px;
             align-items: center;
-            border: 1px solid {BORDER_LIGHT};
-            border-left: 5px solid {COLOR_AMBER};
-            border-radius: 6px;
-            padding: 11px 16px;
+            border-bottom: 0.5px solid {BORDER_LIGHT};
+            padding: 10px 16px;
             background: {BG_CARD};
-            box-shadow: 0 6px 14px rgba(38, 52, 67, 0.05);
         }}
         .gap-progress {{
             min-width: 0;
@@ -6827,7 +6759,7 @@ def render_style() -> None:
         .gap-value {{
             color: {COLOR_ORANGE};
             font-size: 13px;
-            font-weight: 800;
+            font-weight: 500;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }}
@@ -6860,10 +6792,9 @@ def render_style() -> None:
         .table-wrap {{
             max-height: 640px;
             overflow: auto;
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             background: {BG_CARD};
-            box-shadow: 0 8px 18px rgba(38, 52, 67, 0.06);
         }}
         .ops-table {{
             width: 100%;
@@ -6873,10 +6804,10 @@ def render_style() -> None:
         .ops-table th {{
             position: sticky;
             top: 0;
-            background: #F8FAFC;
+            background: {BG_PAGE};
             color: {TEXT_SECONDARY};
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 500;
             border-bottom: 1px solid {BORDER_DEFAULT};
             padding: 8px 12px;
             z-index: 1;
@@ -6890,7 +6821,7 @@ def render_style() -> None:
             background: {BG_CARD};
         }}
         .ops-table tbody tr:hover td {{
-            background: #F8FAFC;
+            background: {BG_PAGE};
         }}
         .ops-table td.left, .ops-table th.left {{
             text-align: left;
@@ -6926,20 +6857,20 @@ def render_style() -> None:
         .progress-track {{
             flex: 1;
             min-width: 80px;
-            height: 7px;
-            border-radius: 999px;
+            height: 5px;
+            border-radius: 3px;
             background: {BG_SECTION};
             overflow: hidden;
         }}
         .progress-fill {{
             height: 100%;
-            border-radius: 999px;
+            border-radius: 3px;
         }}
         .progress-fill.done {{
-            background: {COLOR_BLUE};
+            background: {COLOR_TEAL};
         }}
         .progress-fill.active {{
-            background: {COLOR_BLUE};
+            background: {COLOR_TEAL};
         }}
         .progress-fill.warn {{
             background: {COLOR_AMBER};
@@ -6951,7 +6882,7 @@ def render_style() -> None:
             background: {COLOR_BLUE};
         }}
         .progress-fill.receipt {{
-            background: {COLOR_BLUE};
+            background: {COLOR_TEAL};
         }}
         .progress-fill.risk.receipt {{
             background: {TEXT_TERTIARY};
@@ -7026,23 +6957,22 @@ def render_style() -> None:
             gap: 14px;
             align-items: stretch;
             background: {BG_CARD};
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             padding: 16px 20px;
             margin-bottom: 12px;
-            box-shadow: 0 8px 18px rgba(38, 52, 67, 0.06);
         }}
         .progress-summary-panel .progress-cell {{
             margin: 10px 0;
         }}
         .dday-box {{
-            border: 1px solid {BORDER_DEFAULT};
-            border-radius: 6px;
+            border: 0.5px solid {BORDER_DEFAULT};
+            border-radius: 12px;
             padding: 12px;
             display: flex;
             flex-direction: column;
             justify-content: center;
-            background: {BG_SECTION};
+            background: {BG_PAGE};
         }}
         .dday-value {{
             color: {COLOR_ORANGE};
