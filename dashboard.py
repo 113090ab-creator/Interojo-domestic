@@ -78,6 +78,19 @@ FAMILY_CARD_1DAY_NAMES = {
 }
 FAMILY_CARD_MISC_NAMES = {"PIA 1Day", "PIA Monthly"}
 STANDARD_PACK_BUCKETS = ["5P", "10P", "30P", "80P", "90P"]
+PRODUCT_QUERY_ALIASES = {
+    "딥블랙": ["Deep Black"],
+    "레이크그레이": ["Lake Gray"],
+    "뮤트브라운": ["Mute Brown"],
+    "페일초코": ["Pale Choco"],
+    "소울브라운": ["SoulBrown", "Soul Brown"],
+    "수지그레이": ["Suzy Gray"],
+    "수지브라운": ["Suzy Brown"],
+    "알리샤브라운": ["Alicia Brown"],
+    "페즈브라운": ["Fez Brown"],
+    "블루문": ["Blue Moon", "Bluemoon"],
+    "미셀리아": ["Micelia"],
+}
 POWER_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*$")
 CODE_KEY_RE = re.compile(r"[^0-9A-Za-z가-힣]+")
 BASE_P_CODE_RE = re.compile(r"^(P\d+)")
@@ -2830,6 +2843,190 @@ def build_product_sku_detail_view(code_summary: pd.DataFrame, product_name: str)
     grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
     return grouped[["SKU", "생산코드", "판매코드 수", "요청 PACK", "용마입고 PACK", "미입고 PACK", "용마입고율"]].sort_values(
         ["미입고 PACK", "요청 PACK"], ascending=[False, False], kind="stable"
+    )
+
+
+def compact_query_text(value: Any) -> str:
+    return re.sub(r"\s+", "", clean_str(value)).lower()
+
+
+def expand_product_query_terms(query: str) -> list[str]:
+    text = clean_str(query)
+    if not text:
+        return []
+    terms = [text]
+    compact = compact_query_text(text)
+    for alias, values in PRODUCT_QUERY_ALIASES.items():
+        alias_compact = compact_query_text(alias)
+        if alias_compact and (alias_compact in compact or compact in alias_compact):
+            terms.extend(values)
+    return list(dict.fromkeys([term for term in terms if clean_str(term)]))
+
+
+def contains_any_query_term(series: pd.Series, terms: list[str]) -> pd.Series:
+    if not terms:
+        return pd.Series(False, index=series.index)
+    text = series.astype(str)
+    mask = pd.Series(False, index=series.index)
+    for term in terms:
+        mask = mask | text.str.contains(term, case=False, na=False, regex=False)
+    return mask
+
+
+def build_product_pack_power_quick_view(
+    code_summary: pd.DataFrame,
+    product_query: str,
+    pack_label: str,
+    power_labels: list[str],
+) -> pd.DataFrame:
+    columns = [
+        "제품명",
+        "SKU",
+        "PACK",
+        "POWER",
+        "판매코드 수",
+        "요청 PACK",
+        "포장 PACK",
+        "용마입고 PACK",
+        "입고대기 PACK",
+        "미입고 PACK",
+        "요청 PCS",
+        "생산부족 PCS",
+        "용마입고율",
+        "생산진도율",
+        "최소 납기",
+        "생산완료예상일",
+    ]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = add_allocated_production_basis(with_operational_columns(code_summary))
+    query = product_query.strip()
+    if query:
+        terms = expand_product_query_terms(query)
+        mask = (
+            contains_any_query_term(work["base_product_name"], terms)
+            | contains_any_query_term(work["product_name"], terms)
+            | contains_any_query_term(work["sales_code"], terms)
+            | contains_any_query_term(work["production_code_display"], terms)
+        )
+        work = work[mask].copy()
+    if pack_label != "전체":
+        work = work[work["_pack_label"] == pack_label].copy()
+    if power_labels:
+        work = work[work["POWER"].isin(power_labels)].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+    if "yongma_in_pack" not in work.columns:
+        work["yongma_in_pack"] = 0.0
+
+    grouped = (
+        work.groupby(["base_product_name", "product_name", "_pack_label", "POWER", "power_value"], dropna=False)
+        .agg(
+            sales_code_count=("sales_code", "nunique"),
+            request_pack=("request_pack", "sum"),
+            packing_pack=("packing_pack", "sum"),
+            yongma_in_pack=("yongma_in_pack", "sum"),
+            request_pcs=("request_pcs", "sum"),
+            production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
+            request_due_date=("request_due_date", min_datetime),
+            production_due_date=("production_due_date", min_datetime),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "base_product_name": "제품명",
+                "product_name": "SKU",
+                "_pack_label": "PACK",
+                "sales_code_count": "판매코드 수",
+                "request_pack": "요청 PACK",
+                "packing_pack": "포장 PACK",
+                "yongma_in_pack": "용마입고 PACK",
+                "request_pcs": "요청 PCS",
+                "production_shortage_pcs": "생산부족 PCS",
+            }
+        )
+    )
+    grouped["입고대기 PACK"] = (grouped["포장 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
+    grouped["미입고 PACK"] = (grouped["요청 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
+    grouped["용마입고율"] = np.where(
+        grouped["요청 PACK"] > 0,
+        grouped["용마입고 PACK"] / grouped["요청 PACK"] * 100.0,
+        0.0,
+    )
+    grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
+    grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족 PCS"])
+    grouped["최소 납기"] = grouped["request_due_date"].map(display_date_or_dash)
+    grouped["생산완료예상일"] = grouped["production_due_date"].map(display_date_or_dash)
+    grouped["_pack_sort"] = grouped["PACK"].map(pack_sort_key)
+    return grouped.sort_values(
+        ["power_value", "_pack_sort", "미입고 PACK", "요청 PACK"],
+        ascending=[True, True, False, False],
+        na_position="last",
+        kind="stable",
+    )[columns].copy()
+
+
+def render_product_pack_power_quick_lookup(code_summary: pd.DataFrame) -> None:
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "제품·PACK·POWER 간편 조회",
+        "제품명 일부, PACK, POWER 조합으로 포장·용마입고·생산 상태를 확인합니다.",
+    )
+    q1, q2, q3 = st.columns([2.3, 1.1, 2.0], gap="small")
+    with q1:
+        product_query = st.text_input(
+            "제품명/SKU/코드 검색",
+            value="",
+            placeholder="예: 소울브라운",
+            key="quick_lookup_product_query",
+        )
+    with q2:
+        pack_label = st.selectbox(
+            "PACK 선택",
+            options=available_pack_options(code_summary),
+            index=0,
+            key="quick_lookup_pack",
+        )
+    with q3:
+        power_labels = st.multiselect(
+            "POWER 선택",
+            options=available_power_options(code_summary)[1:],
+            default=[],
+            key="quick_lookup_power",
+        )
+
+    if not product_query.strip() and pack_label == "전체" and not power_labels:
+        return
+
+    quick_view = build_product_pack_power_quick_view(code_summary, product_query, pack_label, power_labels)
+    total_request = float(quick_view["요청 PACK"].sum()) if not quick_view.empty else 0.0
+    total_yongma = float(quick_view["용마입고 PACK"].sum()) if not quick_view.empty else 0.0
+    total_shortage = float(quick_view["미입고 PACK"].sum()) if not quick_view.empty else 0.0
+    total_request_pcs = float(quick_view["요청 PCS"].sum()) if not quick_view.empty else 0.0
+    total_production_shortage = float(quick_view["생산부족 PCS"].sum()) if not quick_view.empty else 0.0
+    receipt_progress = (total_yongma / total_request * 100.0) if total_request > 0 else 0.0
+    production_progress = (
+        (total_request_pcs - total_production_shortage) / total_request_pcs * 100.0
+        if total_request_pcs > 0
+        else 0.0
+    )
+    render_metric_card_grid(
+        [
+            ("요청 PACK", format_int(total_request), "normal"),
+            ("용마입고 PACK", format_int(total_yongma), "normal"),
+            ("미입고 PACK", format_int(total_shortage), "warn" if total_shortage > 0 else "normal"),
+            ("생산부족 PCS", format_int(total_production_shortage), "warn" if total_production_shortage > 0 else "normal"),
+            ("용마입고율", f"{min(100.0, max(0.0, receipt_progress)):.1f}%", metric_progress_tone(receipt_progress)),
+            ("생산진도율", f"{min(100.0, max(0.0, production_progress)):.1f}%", metric_progress_tone(production_progress)),
+        ]
+    )
+    st.dataframe(
+        quick_view,
+        hide_index=True,
+        height=min(360, 88 + 35 * max(len(quick_view), 1)),
+        width="stretch",
+        column_config=drilldown_column_config(),
     )
 
 
@@ -5745,6 +5942,7 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
             key="inventory_stock_threshold_pack",
         )
     render_operation_kpis(product_summary, code_summary, float(stock_threshold_pack), unit_mode=product_unit_mode)
+    render_product_pack_power_quick_lookup(code_summary)
 
     pf1, pf2, pf3 = st.columns([1.4, 2.4, 1.5], gap="small")
     with pf1:
