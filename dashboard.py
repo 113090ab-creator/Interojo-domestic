@@ -3898,10 +3898,10 @@ def enrich_daily_inventory_from_code_summary(daily_inventory_df: pd.DataFrame, c
     out["POWER"] = out["POWER"].map(clean_str)
     if not exact_catalog.empty:
         out = out.merge(exact_catalog, on=["제품코드", "POWER"], how="left")
-        current_pack = out["PACK"].map(clean_str)
-        current_product = out["제품명"].map(clean_str)
-        out["PACK"] = out["PACK"].where(current_pack != "", out["_code_pack"])
-        out["제품명"] = out["제품명"].where(current_product != "", out["_code_product_name"])
+        catalog_pack = out["_code_pack"].map(clean_str)
+        catalog_product = out["_code_product_name"].map(clean_str)
+        out["PACK"] = out["_code_pack"].where(catalog_pack != "", out["PACK"])
+        out["제품명"] = out["_code_product_name"].where(catalog_product != "", out["제품명"])
         out = out.drop(columns=["_code_pack", "_code_product_name"], errors="ignore")
     if not code_catalog.empty:
         out = out.merge(code_catalog, on="제품코드", how="left")
