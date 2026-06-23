@@ -5576,7 +5576,7 @@ def build_daily_exception_report_view(
     sample_available_df: pd.DataFrame | None = None,
     max_rows: int = 5,
 ) -> tuple[dict[str, float], pd.DataFrame]:
-    columns = ["품목코드", "제품명", "재고수량", "포장가능재고(PCS)", "대상품목"]
+    columns = ["품목코드", "제품명", "재고수량", "포장가능재고(PCS)"]
     empty_kpis = {"request_out_count": 0.0, "negative_count": 0.0, "waiting_pcs": 0.0}
     if daily_inventory_df is None or daily_inventory_df.empty:
         return empty_kpis, pd.DataFrame(columns=columns)
