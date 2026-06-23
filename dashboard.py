@@ -3612,21 +3612,61 @@ def build_daily_code_power_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
     return grouped[columns].copy()
 
 
+def build_daily_code_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = ["제품코드", "_code_default_pack", "_code_default_product_name"]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = with_operational_columns(code_summary)
+    work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work = work[work["_sales_prefix"] != ""].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    grouped = (
+        work.groupby("_sales_prefix", dropna=False)
+        .agg(
+            pack=("_pack_label", first_nonempty),
+            product_name=("product_name", first_nonempty),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "_sales_prefix": "제품코드",
+                "pack": "_code_default_pack",
+                "product_name": "_code_default_product_name",
+            }
+        )
+    )
+    return grouped[columns].copy()
+
+
 def enrich_daily_inventory_from_code_summary(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
     if daily_inventory_df is None or daily_inventory_df.empty or code_summary.empty:
         return daily_inventory_df
 
-    catalog = build_daily_code_power_catalog(code_summary)
-    if catalog.empty:
+    exact_catalog = build_daily_code_power_catalog(code_summary)
+    code_catalog = build_daily_code_catalog(code_summary)
+    if exact_catalog.empty and code_catalog.empty:
         return daily_inventory_df
 
     out = daily_inventory_df.copy()
     out["제품코드"] = out["제품코드"].map(clean_str).str.upper()
     out["POWER"] = out["POWER"].map(clean_str)
-    out = out.merge(catalog, on=["제품코드", "POWER"], how="left")
-    out["PACK"] = out["PACK"].where(out["PACK"].map(clean_str) != "", out["_code_pack"])
-    out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["_code_product_name"])
-    out = out.drop(columns=["_code_pack", "_code_product_name"], errors="ignore")
+    if not exact_catalog.empty:
+        out = out.merge(exact_catalog, on=["제품코드", "POWER"], how="left")
+        exact_pack = out["_code_pack"].map(clean_str)
+        exact_product = out["_code_product_name"].map(clean_str)
+        out["PACK"] = out["PACK"].where(exact_pack == "", out["_code_pack"])
+        out["제품명"] = out["제품명"].where(exact_product == "", out["_code_product_name"])
+        out = out.drop(columns=["_code_pack", "_code_product_name"], errors="ignore")
+    if not code_catalog.empty:
+        out = out.merge(code_catalog, on="제품코드", how="left")
+        default_pack = out["_code_default_pack"].map(clean_str)
+        default_product = out["_code_default_product_name"].map(clean_str)
+        out["PACK"] = out["PACK"].where(default_pack == "", out["_code_default_pack"])
+        out["제품명"] = out["제품명"].where(default_product == "", out["_code_default_product_name"])
+        out = out.drop(columns=["_code_default_pack", "_code_default_product_name"], errors="ignore")
     return out[DAILY_INVENTORY_COLUMNS].copy()
 
 
@@ -5181,7 +5221,7 @@ def render_excel_download(
     )
 
 
-def build_priority_report_view(product_view: pd.DataFrame, max_rows: int = 8) -> pd.DataFrame:
+def build_priority_report_view(product_view: pd.DataFrame, max_rows: int = 6) -> pd.DataFrame:
     columns = ["제품명", "요청 PACK", "생산진도율", "용마입고율", "생산부족수량", "미입고수량", "상태"]
     if product_view.empty:
         return pd.DataFrame(columns=columns)
@@ -5199,6 +5239,45 @@ def build_priority_report_view(product_view: pd.DataFrame, max_rows: int = 8) ->
         ascending=[False, False, False],
         kind="stable",
     ).head(max_rows)[columns].copy()
+
+
+def build_daily_exception_report_view(
+    daily_inventory_df: pd.DataFrame | None,
+    code_summary: pd.DataFrame,
+    sample_available_df: pd.DataFrame | None = None,
+    max_rows: int = 5,
+) -> tuple[dict[str, float], pd.DataFrame]:
+    columns = ["품목코드", "제품명", "재고수량", "포장대기/부족(PCS)", "대상품목"]
+    empty_kpis = {"request_out_count": 0.0, "negative_count": 0.0, "waiting_pcs": 0.0}
+    if daily_inventory_df is None or daily_inventory_df.empty:
+        return empty_kpis, pd.DataFrame(columns=columns)
+
+    view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    if view.empty or "대응상태" not in view.columns:
+        return empty_kpis, pd.DataFrame(columns=columns)
+
+    out = view[view["대응상태"] == "요청외 긴급"].copy()
+    if out.empty:
+        return empty_kpis, pd.DataFrame(columns=columns)
+
+    out["재고수량"] = pd.to_numeric(out["재고수량"], errors="coerce")
+    out["포장대기/부족(PCS)"] = pd.to_numeric(out["포장대기/부족(PCS)"], errors="coerce").fillna(0.0)
+    out["_stock_missing_sort"] = out["재고수량"].isna().astype(int)
+    out["_stock_sort"] = out["재고수량"].fillna(0.0)
+    kpis = {
+        "request_out_count": float(len(out)),
+        "negative_count": float((out["재고수량"] < 0).sum()),
+        "waiting_pcs": float(out["포장대기/부족(PCS)"].sum()),
+    }
+    detail = out.sort_values(
+        ["_stock_missing_sort", "_stock_sort", "포장대기/부족(PCS)", "품목코드"],
+        ascending=[True, True, False, True],
+        kind="stable",
+    ).head(max_rows)
+    for col in columns:
+        if col not in detail.columns:
+            detail[col] = ""
+    return kpis, detail[columns].copy()
 
 
 def to_report_float(value: Any) -> float:
@@ -5249,23 +5328,30 @@ def add_report_status_badge(slide: Any, status: str, left: float, top: float, wi
     )
 
 
-def add_priority_report_table(slide: Any, priority_view: pd.DataFrame) -> None:
+def add_priority_report_table(
+    slide: Any,
+    priority_view: pd.DataFrame,
+    left: float = 0.25,
+    top: float = 2.8,
+    width: float = 8.15,
+    height: float = 4.35,
+) -> None:
     add_report_shape(
         slide,
         MSO_SHAPE.ROUNDED_RECTANGLE,
-        0.25,
-        2.8,
-        12.8,
-        4.35,
+        left,
+        top,
+        width,
+        height,
         WHITE,
         "#E0DED8",
         0.5,
     )
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.25, 2.8, 12.8, 0.38, BG_PAGE, "#E0DED8", 0.5)
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.38, BG_PAGE, "#E0DED8", 0.5)
 
-    headers = ["#", "제품명", "요청\nPACK", "생산\n진도율", "용마\n입고율", "생산\n부족", "미입고\nPACK", "상태"]
-    col_widths = [0.35, 4.95, 1.05, 1.1, 1.1, 1.35, 1.35, 0.9]
-    col_lefts = [0.35]
+    headers = ["#", "제품명", "요청\nPACK", "용마\n입고율", "미입고\nPACK", "생산\n진도율"]
+    col_widths = [0.35, 3.28, 0.9, 1.0, 0.95, 1.0]
+    col_lefts = [left + 0.1]
     for width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + width)
 
@@ -5274,7 +5360,7 @@ def add_priority_report_table(slide: Any, priority_view: pd.DataFrame) -> None:
             slide,
             header,
             col_lefts[idx],
-            2.82,
+            top + 0.02,
             col_widths[idx],
             0.34,
             7.5,
@@ -5288,9 +5374,9 @@ def add_priority_report_table(slide: Any, priority_view: pd.DataFrame) -> None:
         add_textbox(
             slide,
             "조건에 맞는 제품 데이터가 없습니다.",
-            0.45,
-            3.35,
-            12.2,
+            left + 0.2,
+            top + 0.55,
+            width - 0.4,
             0.35,
             8,
             False,
@@ -5302,40 +5388,37 @@ def add_priority_report_table(slide: Any, priority_view: pd.DataFrame) -> None:
 
     row_height = 0.46
     for row_idx, (_, row) in enumerate(priority_view.iterrows(), start=1):
-        row_top = 3.18 + (row_idx - 1) * row_height
+        row_top = top + 0.38 + (row_idx - 1) * row_height
         production_progress = to_report_float(row["생산진도율"])
         receipt_progress = to_report_float(row["용마입고율"])
-        production_shortage = to_report_float(row["생산부족수량"])
         receipt_shortage = to_report_float(row["미입고수량"])
-        alert_row = production_progress < 80.0 and production_shortage > 0
+        alert_row = receipt_shortage > 0 or production_progress < 80.0
 
         if row_idx % 2 == 0:
-            add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.26, row_top, 12.78, row_height, "#FAFAF8")
+            add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.01, row_top, width - 0.02, row_height, "#FAFAF8")
         if alert_row:
-            add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.26, row_top, 0.04, row_height, COLOR_ORANGE, COLOR_ORANGE)
+            add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.01, row_top, 0.04, row_height, COLOR_ORANGE, COLOR_ORANGE)
 
         cell_top = row_top + 0.01
         cell_height = row_height - 0.02
         values = [
             str(row_idx),
-            truncate_report_text(row["제품명"], max_chars=44),
+            truncate_report_text(row["제품명"], max_chars=32),
             format_report_value(row["요청 PACK"]),
-            format_report_value(production_progress, True),
             format_report_value(receipt_progress, True),
-            format_report_value(production_shortage),
             format_report_value(receipt_shortage),
+            format_report_value(production_progress, True),
         ]
         colors = [
             "#AAAAAA",
             TEXT_DARK,
             TEXT_DARK,
-            report_progress_color(production_progress),
             report_progress_color(receipt_progress),
-            "#AAAAAA" if production_shortage <= 0 else COLOR_AMBER,
             "#AAAAAA" if receipt_shortage <= 0 else COLOR_ORANGE,
+            report_progress_color(production_progress),
         ]
-        bolds = [False, alert_row, False, True, True, production_shortage > 0, receipt_shortage > 0]
-        aligns = [PP_ALIGN.CENTER, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER]
+        bolds = [False, alert_row, False, True, receipt_shortage > 0, True]
+        aligns = [PP_ALIGN.CENTER, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER]
 
         for col_idx, value in enumerate(values):
             add_textbox(
@@ -5352,15 +5435,136 @@ def add_priority_report_table(slide: Any, priority_view: pd.DataFrame) -> None:
                 MSO_ANCHOR.MIDDLE,
             )
 
-        add_report_status_badge(
+        add_report_rule(slide, left + 0.01, row_top + row_height, width - 0.02, BG_SECTION)
+
+
+def add_daily_exception_report_panel(
+    slide: Any,
+    exception_kpis: dict[str, float],
+    exception_view: pd.DataFrame,
+    left: float = 8.65,
+    top: float = 2.8,
+    width: float = 4.4,
+    height: float = 4.35,
+) -> None:
+    add_report_shape(
+        slide,
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        left,
+        top,
+        width,
+        height,
+        WHITE,
+        "#E0DED8",
+        0.5,
+    )
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.44, COLOR_ALERT_BG, COLOR_ALERT_BD, 0.5)
+    add_textbox(
+        slide,
+        "요청물량 외 긴급 대응",
+        left + 0.14,
+        top + 0.06,
+        width - 0.28,
+        0.18,
+        8.5,
+        True,
+        COLOR_ORANGE,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
+    add_textbox(
+        slide,
+        "제품 진도율에는 미포함, 일일 재고표 기준 별도 리스크",
+        left + 0.14,
+        top + 0.24,
+        width - 0.28,
+        0.16,
+        6.5,
+        False,
+        "#9B5B3B",
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
+
+    metric_specs = [
+        ("요청외", format_report_value(exception_kpis.get("request_out_count", 0.0)), COLOR_ORANGE),
+        ("재고음수", format_report_value(exception_kpis.get("negative_count", 0.0)), COLOR_AMBER),
+        ("대기/부족 PCS", format_report_value(exception_kpis.get("waiting_pcs", 0.0)), COLOR_ORANGE),
+    ]
+    metric_top = top + 0.6
+    metric_width = (width - 0.34) / 3
+    for idx, (label, value, color) in enumerate(metric_specs):
+        box_left = left + 0.12 + idx * metric_width
+        add_report_shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, box_left, metric_top, metric_width - 0.06, 0.48, BG_PAGE, "#E8E6E0", 0.4)
+        add_textbox(slide, label, box_left, metric_top + 0.07, metric_width - 0.06, 0.14, 6.2, False, TEXT_TERTIARY, PP_ALIGN.CENTER)
+        add_textbox(slide, value, box_left, metric_top + 0.22, metric_width - 0.06, 0.2, 9, True, color, PP_ALIGN.CENTER)
+
+    headers = ["품목", "제품명", "재고", "대상"]
+    col_widths = [0.75, 1.75, 0.58, 0.95]
+    col_lefts = [left + 0.15]
+    for col_width in col_widths[:-1]:
+        col_lefts.append(col_lefts[-1] + col_width)
+    header_top = top + 1.25
+    add_report_rule(slide, left + 0.12, header_top - 0.06, width - 0.24, "#E8E6E0")
+    for idx, header in enumerate(headers):
+        add_textbox(
             slide,
-            str(row["상태"]),
-            col_lefts[7] + 0.07,
-            row_top + 0.1,
-            0.66,
-            0.25,
+            header,
+            col_lefts[idx],
+            header_top,
+            col_widths[idx],
+            0.22,
+            6.7,
+            True,
+            TEXT_SECONDARY,
+            PP_ALIGN.LEFT if idx in {0, 1, 3} else PP_ALIGN.CENTER,
+            MSO_ANCHOR.MIDDLE,
         )
-        add_report_rule(slide, 0.26, row_top + row_height, 12.78, BG_SECTION)
+
+    if exception_view.empty:
+        add_textbox(
+            slide,
+            "요청물량 외 긴급 대응 품목이 없습니다.",
+            left + 0.18,
+            top + 1.72,
+            width - 0.36,
+            0.28,
+            8,
+            False,
+            TEXT_MUTED,
+            vertical_anchor=MSO_ANCHOR.MIDDLE,
+        )
+        return
+
+    row_height = 0.5
+    for row_idx, (_, row) in enumerate(exception_view.iterrows(), start=1):
+        row_top = top + 1.5 + (row_idx - 1) * row_height
+        stock = pd.to_numeric(row.get("재고수량", np.nan), errors="coerce")
+        stock_text = "-" if pd.isna(stock) else format_report_value(stock)
+        stock_color = COLOR_ORANGE if pd.notna(stock) and float(stock) < 0 else TEXT_DARK
+        if row_idx % 2 == 0:
+            add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.03, row_top, width - 0.06, row_height, "#FAFAF8")
+        values = [
+            truncate_report_text(row.get("품목코드", ""), 12),
+            truncate_report_text(row.get("제품명", ""), 22),
+            stock_text,
+            truncate_report_text(row.get("대상품목", ""), 14),
+        ]
+        colors = [TEXT_DARK, TEXT_DARK, stock_color, TEXT_SECONDARY]
+        aligns = [PP_ALIGN.LEFT, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.LEFT]
+        for col_idx, value in enumerate(values):
+            add_textbox(
+                slide,
+                value,
+                col_lefts[col_idx],
+                row_top + 0.03,
+                col_widths[col_idx],
+                row_height - 0.06,
+                6.8,
+                col_idx in {0, 2} and stock_color == COLOR_ORANGE,
+                colors[col_idx],
+                aligns[col_idx],
+                MSO_ANCHOR.MIDDLE,
+            )
+        add_report_rule(slide, left + 0.03, row_top + row_height, width - 0.06, BG_SECTION)
 
 
 def add_report_legend(slide: Any) -> None:
@@ -5392,11 +5596,18 @@ def build_ppt_report(
     code_summary: pd.DataFrame,
     product_names: pd.Series,
     scope_label: str,
+    daily_inventory_df: pd.DataFrame | None = None,
+    sample_available_df: pd.DataFrame | None = None,
 ) -> bytes:
     work = add_allocated_production_basis(code_summary)
     work = code_summary_for_products(work, product_names)
     scope_kpis = build_scope_kpis(work)
     priority_view = build_priority_report_view(product_view)
+    exception_kpis, exception_view = build_daily_exception_report_view(
+        daily_inventory_df,
+        code_summary,
+        sample_available_df,
+    )
 
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -5437,13 +5648,15 @@ def build_ppt_report(
     total_kpi = kpi_map.get("전체", {})
     total_progress = to_report_float(total_kpi.get("progress_pct", 0.0))
     total_shortage = to_report_float(total_kpi.get("shortage_pack", 0.0))
-    if total_shortage > 0:
+    exception_count = to_report_float(exception_kpis.get("request_out_count", 0.0))
+    if total_shortage > 0 or exception_count > 0:
         banner_fill = COLOR_ALERT_BG
         banner_line = COLOR_ALERT_BD
         banner_color = COLOR_ORANGE
         banner_text = (
             f"주의 | 전체 용마입고율 {total_progress:.1f}% - "
-            f"미입고 {format_report_value(total_shortage)} PACK. 용마입고 및 포장 우선순위 확인 필요."
+            f"미입고 {format_report_value(total_shortage)} PACK"
+            f" / 요청외 긴급 {format_report_value(exception_count)}건. 우선순위 확인 필요."
         )
     else:
         banner_fill = "#E8F5F0"
@@ -5470,22 +5683,36 @@ def build_ppt_report(
     add_kpi_card(slide, "본품 KPI", kpi_map.get("본품", {}), COLOR_TEAL, 4.52, 1.52, 4.0, 0.92)
     add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_ORANGE, 8.65, 1.52, 4.4, 0.92)
 
-    add_textbox(slide, "우선 대응 제품 TOP 8", 0.25, 2.56, 5.0, 0.22, 8, True, TEXT_SECONDARY)
+    add_textbox(slide, "요청물량 기준 우선 대응 TOP 6", 0.25, 2.56, 5.0, 0.22, 8, True, TEXT_SECONDARY)
     add_textbox(
         slide,
         "미입고 PACK -> 생산부족 PCS -> 요청 PACK 순 정렬",
-        5.5,
+        3.9,
         2.56,
-        5.0,
+        4.4,
         0.22,
         7.5,
         False,
         "#AAAAAA",
+        PP_ALIGN.RIGHT,
         vertical_anchor=MSO_ANCHOR.MIDDLE,
     )
+    add_textbox(slide, "일일 재고표 기준 예외 대응", 8.65, 2.56, 4.4, 0.22, 8, True, TEXT_SECONDARY)
 
     add_priority_report_table(slide, priority_view)
-    add_report_legend(slide)
+    add_daily_exception_report_panel(slide, exception_kpis, exception_view)
+    add_textbox(
+        slide,
+        "진도율은 생산요청등록 물량 기준입니다. 요청물량 외 긴급건은 일일 재고표 기준의 별도 대응 리스크로 분리 관리합니다.",
+        0.3,
+        7.22,
+        12.5,
+        0.22,
+        7.5,
+        False,
+        TEXT_SECONDARY,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
 
     output = BytesIO()
     prs.save(output)
@@ -6832,7 +7059,12 @@ def render_daily_inventory_tab(
     )
 
 
-def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.DataFrame) -> None:
+def render_product_summary_tab(
+    product_summary: pd.DataFrame,
+    code_summary: pd.DataFrame,
+    daily_inventory_df: pd.DataFrame | None = None,
+    sample_available_df: pd.DataFrame | None = None,
+) -> None:
     main_products, _ = split_main_sample(product_summary)
     pack_labels = available_pack_options(code_summary)[1:]
 
@@ -6868,6 +7100,8 @@ def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.D
             code_summary=code_summary,
             product_names=product_summary["제품명"],
             scope_label="전체",
+            daily_inventory_df=daily_inventory_df,
+            sample_available_df=sample_available_df,
         )
         st.download_button(
             "PPT 보고서 다운로드",
@@ -7577,7 +7811,7 @@ def main() -> None:
 
     active_tab = render_dashboard_nav()
     if active_tab == "제품 진도 현황":
-        render_product_summary_tab(product_summary, code_summary)
+        render_product_summary_tab(product_summary, code_summary, daily_inventory_df, sample_available_df)
     elif active_tab == "일일 재고 대응":
         render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df)
     elif active_tab == "생산코드 상세":
