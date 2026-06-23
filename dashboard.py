@@ -39,13 +39,14 @@ class SourceFiles:
     packing_file: Path
     progress_file: Path | None = None
     inventory_file: Path | None = None
+    daily_inventory_file: Path | None = None
 
 
 STATUS_ORDER = ["미착수", "진행중", "완료"]
 UNIT_PACK = "PACK 기준"
 UNIT_PCS = "PCS 기준"
 UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
-DASHBOARD_TABS = ["제품 진도 현황", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
+DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 MAIN_PRODUCT_FAMILY_ORDER = [
@@ -441,7 +442,8 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
     request_file = pick_latest_by_name(files, ["생산요청등록", "국내", "요청"])
     packing_file = pick_latest_by_name(files, ["포장설비투입현황", "포장설비투입", "포장실적", "포장"])
     progress_file = pick_latest_by_name(files, ["수요정보", "전공정"])
-    inventory_file = pick_latest_by_name(files, ["용마WMS재고현황", "WMS재고현황", "WMS", "재고현황"])
+    inventory_file = pick_latest_by_name(files, ["용마WMS재고현황", "WMS재고현황", "WMS"])
+    daily_inventory_file = pick_latest_by_name(files, ["클라렌사업본부 재고현황", "재고현황_"])
 
     if request_file is None or packing_file is None:
         for file in files:
@@ -477,6 +479,7 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
         packing_file=packing_file,
         progress_file=progress_file,
         inventory_file=inventory_file,
+        daily_inventory_file=daily_inventory_file,
     )
 
 
@@ -812,6 +815,225 @@ def normalize_inventory(path: Path | None) -> pd.DataFrame:
         parse_datetime_series(raw[cols["updated_at"]]) if "updated_at" in cols else pd.NaT
     )
     return out[out["sales_code_key"] != ""].copy()
+
+
+DAILY_INVENTORY_COLUMNS = [
+    "제품명",
+    "제품코드",
+    "PACK",
+    "POWER",
+    "재고수량",
+    "전일재고",
+    "재고증감",
+    "긴급요청",
+    "대상품목",
+]
+
+
+def empty_daily_inventory_df() -> pd.DataFrame:
+    return pd.DataFrame(columns=DAILY_INVENTORY_COLUMNS)
+
+
+def numeric_scalar(value: Any, default: float = 0.0) -> float:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number):
+        return default
+    return float(number)
+
+
+def daily_power_label(value: Any) -> str:
+    text = clean_str(value).replace("−", "-").replace("–", "-").replace("—", "-")
+    if not text:
+        return ""
+    if text.upper() == "PL":
+        return format_power(0.0)
+    number = pd.to_numeric(text, errors="coerce")
+    if pd.isna(number):
+        return ""
+    return format_power(float(number))
+
+
+def parse_daily_power_tokens(value: Any) -> list[str]:
+    text = clean_str(value).replace("−", "-").replace("–", "-").replace("—", "-")
+    if not text:
+        return []
+    tokens = re.findall(r"PL|[+-]?\d+(?:\.\d+)?", text, flags=re.IGNORECASE)
+    powers = [daily_power_label(token) for token in tokens]
+    return list(dict.fromkeys([power for power in powers if power]))
+
+
+def extract_daily_pack_label(value: Any) -> str:
+    text = clean_str(value)
+    unit = extract_pack_unit(text)
+    if pd.notna(unit) and float(unit) > 0:
+        return base_pack_label(unit)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:P|p|팩|개입)", text)
+    if not match:
+        return ""
+    return base_pack_label(float(match.group(1)))
+
+
+def daily_inventory_key(product_name: Any, pack_label: Any, power_label: Any) -> str:
+    product = compact_query_text(product_name)
+    return f"{product}|{clean_str(pack_label).upper()}|{clean_str(power_label)}"
+
+
+def normalize_daily_emergency_requests(xl: pd.ExcelFile) -> pd.DataFrame:
+    sheet_name = "긴급요청"
+    if sheet_name not in xl.sheet_names:
+        return empty_daily_inventory_df()
+
+    raw = xl.parse(sheet_name=sheet_name, header=None)
+    header_idx = None
+    for idx, row in raw.iterrows():
+        values = [clean_str(value) for value in row.tolist()]
+        if "제품명" in values and "제품코드" in values:
+            header_idx = idx
+            break
+    if header_idx is None:
+        return empty_daily_inventory_df()
+
+    header_values = [clean_str(value) for value in raw.iloc[header_idx].tolist()]
+    product_col = header_values.index("제품명")
+    code_col = header_values.index("제품코드")
+    target_start_col = code_col + 1
+
+    rows: list[dict[str, Any]] = []
+    for row_idx in range(header_idx + 1, len(raw)):
+        row = raw.iloc[row_idx]
+        product_name = clean_str(row.iloc[product_col] if product_col < len(row) else "")
+        product_code = clean_str(row.iloc[code_col] if code_col < len(row) else "")
+        if not product_name and not product_code:
+            continue
+        target_text = " ".join(clean_str(value) for value in row.iloc[target_start_col:].tolist() if clean_str(value))
+        powers = parse_daily_power_tokens(target_text)
+        pack_label = extract_daily_pack_label(product_name)
+        for power in powers:
+            rows.append(
+                {
+                    "제품명": product_name,
+                    "제품코드": product_code,
+                    "PACK": pack_label,
+                    "POWER": power,
+                    "재고수량": np.nan,
+                    "전일재고": np.nan,
+                    "재고증감": np.nan,
+                    "긴급요청": True,
+                    "대상품목": target_text,
+                }
+            )
+    if not rows:
+        return empty_daily_inventory_df()
+    return pd.DataFrame(rows, columns=DAILY_INVENTORY_COLUMNS)
+
+
+def normalize_daily_support_inventory(xl: pd.ExcelFile) -> pd.DataFrame:
+    sheet_name = "지원파트 재고표"
+    if sheet_name not in xl.sheet_names:
+        return empty_daily_inventory_df()
+
+    raw = xl.parse(sheet_name=sheet_name, header=None)
+    rows: list[dict[str, Any]] = []
+    current_product = ""
+    current_pack = ""
+
+    for _, row in raw.iterrows():
+        product_candidate = clean_str(row.iloc[1] if len(row) > 1 else "")
+        pack_candidate = extract_daily_pack_label(product_candidate)
+        if product_candidate and pack_candidate:
+            current_product = product_candidate
+            current_pack = pack_candidate
+        if not current_product or not current_pack:
+            continue
+
+        for offset in range(18):
+            power_col = 2 + offset
+            current_col = 21 + offset
+            previous_col = 39 + offset
+            if power_col >= len(row):
+                continue
+            power = daily_power_label(row.iloc[power_col])
+            if not power:
+                continue
+            current_stock = numeric_scalar(row.iloc[current_col] if current_col < len(row) else np.nan, np.nan)
+            previous_stock = numeric_scalar(row.iloc[previous_col] if previous_col < len(row) else np.nan, np.nan)
+            if pd.isna(current_stock) and pd.isna(previous_stock):
+                continue
+            rows.append(
+                {
+                    "제품명": current_product,
+                    "제품코드": "",
+                    "PACK": current_pack,
+                    "POWER": power,
+                    "재고수량": current_stock,
+                    "전일재고": previous_stock,
+                    "재고증감": current_stock - previous_stock if pd.notna(current_stock) and pd.notna(previous_stock) else np.nan,
+                    "긴급요청": False,
+                    "대상품목": "",
+                }
+            )
+
+    if not rows:
+        return empty_daily_inventory_df()
+    return pd.DataFrame(rows, columns=DAILY_INVENTORY_COLUMNS)
+
+
+def normalize_daily_inventory_file(path: Path | None) -> pd.DataFrame:
+    if path is None:
+        return empty_daily_inventory_df()
+    try:
+        xl = pd.ExcelFile(path)
+    except Exception:
+        return empty_daily_inventory_df()
+
+    support = normalize_daily_support_inventory(xl)
+    emergency = normalize_daily_emergency_requests(xl)
+    if support.empty and emergency.empty:
+        return empty_daily_inventory_df()
+
+    support_work = support.copy()
+    emergency_work = emergency.copy()
+    support_work["_daily_key"] = [
+        daily_inventory_key(product, pack, power)
+        for product, pack, power in zip(support_work["제품명"], support_work["PACK"], support_work["POWER"])
+    ]
+    emergency_work["_daily_key"] = [
+        daily_inventory_key(product, pack, power)
+        for product, pack, power in zip(emergency_work["제품명"], emergency_work["PACK"], emergency_work["POWER"])
+    ]
+
+    merged = support_work.merge(
+        emergency_work[["_daily_key", "제품코드", "긴급요청", "대상품목"]].rename(
+            columns={
+                "제품코드": "_emergency_product_code",
+                "긴급요청": "_emergency_flag",
+                "대상품목": "_emergency_target",
+            }
+        ),
+        on="_daily_key",
+        how="outer",
+    )
+
+    for col in DAILY_INVENTORY_COLUMNS:
+        if col not in merged.columns:
+            merged[col] = np.nan if col in {"재고수량", "전일재고", "재고증감"} else ""
+
+    if "_emergency_product_code" in merged.columns:
+        merged["제품코드"] = merged["제품코드"].where(merged["제품코드"].map(clean_str) != "", merged["_emergency_product_code"])
+    if "_emergency_flag" in merged.columns:
+        base_flag = merged["긴급요청"].apply(lambda value: bool(value) if not pd.isna(value) else False)
+        emergency_flag = merged["_emergency_flag"].apply(lambda value: bool(value) if not pd.isna(value) else False)
+        merged["긴급요청"] = base_flag | emergency_flag
+    if "_emergency_target" in merged.columns:
+        merged["대상품목"] = merged["대상품목"].where(merged["대상품목"].map(clean_str) != "", merged["_emergency_target"])
+
+    merged["재고증감"] = pd.to_numeric(merged["재고증감"], errors="coerce")
+    missing_delta = merged["재고증감"].isna()
+    merged.loc[missing_delta, "재고증감"] = (
+        pd.to_numeric(merged.loc[missing_delta, "재고수량"], errors="coerce")
+        - pd.to_numeric(merged.loc[missing_delta, "전일재고"], errors="coerce")
+    )
+    return merged[DAILY_INVENTORY_COLUMNS].copy()
 
 
 def empty_progress_df() -> pd.DataFrame:
@@ -2873,6 +3095,14 @@ def contains_any_query_term(series: pd.Series, terms: list[str]) -> pd.Series:
     return mask
 
 
+def split_lookup_query_terms(query: str) -> list[str]:
+    text = clean_str(query)
+    if not text:
+        return []
+    tokens = [clean_str(token) for token in re.split(r"[,，]+|\s+", text)]
+    return [token for token in tokens if token]
+
+
 def parse_quick_lookup_direct_query(
     query: str,
     pack_options: list[str],
@@ -3082,6 +3312,202 @@ def render_product_pack_power_quick_lookup(code_summary: pd.DataFrame) -> None:
         width="stretch",
         column_config=drilldown_column_config(),
     )
+
+
+def extract_sales_prefix(value: Any) -> str:
+    text = clean_str(value).upper()
+    match = re.match(r"^([A-Z]\d+)", text)
+    return match.group(1) if match else ""
+
+
+def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "제품코드",
+        "PACK",
+        "POWER",
+        "요청 PACK",
+        "포장 PACK",
+        "용마입고 PACK",
+        "미입고 PACK",
+        "요청 PCS",
+        "생산부족 PCS",
+        "생산진도율",
+        "최소 납기",
+        "요청제품명",
+        "판매코드 수",
+    ]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = add_allocated_production_basis(with_operational_columns(code_summary))
+    work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work = work[work["_sales_prefix"] != ""].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+    if "yongma_in_pack" not in work.columns:
+        work["yongma_in_pack"] = 0.0
+
+    grouped = (
+        work.groupby(["_sales_prefix", "_pack_label", "POWER"], dropna=False)
+        .agg(
+            request_pack=("request_pack", "sum"),
+            packing_pack=("packing_pack", "sum"),
+            yongma_in_pack=("yongma_in_pack", "sum"),
+            request_pcs=("request_pcs", "sum"),
+            production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
+            request_due_date=("request_due_date", min_datetime),
+            product_name=("product_name", join_unique),
+            sales_code_count=("sales_code", "nunique"),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "_sales_prefix": "제품코드",
+                "_pack_label": "PACK",
+                "request_pack": "요청 PACK",
+                "packing_pack": "포장 PACK",
+                "yongma_in_pack": "용마입고 PACK",
+                "request_pcs": "요청 PCS",
+                "production_shortage_pcs": "생산부족 PCS",
+                "product_name": "요청제품명",
+                "sales_code_count": "판매코드 수",
+            }
+        )
+    )
+    grouped["미입고 PACK"] = (grouped["요청 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
+    grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족 PCS"])
+    grouped["최소 납기"] = grouped["request_due_date"].map(display_date_or_dash)
+    return grouped[columns].copy()
+
+
+def classify_daily_inventory_status(row: pd.Series) -> str:
+    urgent = bool(row.get("긴급요청", False))
+    stock = pd.to_numeric(row.get("재고수량", np.nan), errors="coerce")
+    request_pack = pd.to_numeric(row.get("요청 PACK", 0.0), errors="coerce")
+    has_request = pd.notna(request_pack) and float(request_pack) > 0
+    stock_negative = pd.notna(stock) and float(stock) < 0
+    if urgent and has_request:
+        return "요청내 긴급"
+    if urgent:
+        return "요청외 긴급"
+    if stock_negative and has_request:
+        return "요청내 재고부족"
+    if stock_negative:
+        return "재고 음수"
+    if has_request:
+        return "요청내 재고확인"
+    return "재고 모니터링"
+
+
+def build_daily_inventory_response_view(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "대응상태",
+        "제품명",
+        "제품코드",
+        "PACK",
+        "POWER",
+        "재고수량",
+        "전일재고",
+        "재고증감",
+        "재고부족수량",
+        "긴급요청",
+        "요청 PACK",
+        "용마입고 PACK",
+        "미입고 PACK",
+        "포장 PACK",
+        "요청 PCS",
+        "생산부족 PCS",
+        "생산진도율",
+        "최소 납기",
+        "요청제품명",
+        "판매코드 수",
+        "대상품목",
+    ]
+    if daily_inventory_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    daily = daily_inventory_df.copy()
+    daily["제품코드"] = daily["제품코드"].map(clean_str).str.upper()
+    daily["PACK"] = daily["PACK"].map(clean_str)
+    daily["POWER"] = daily["POWER"].map(clean_str)
+    daily["재고수량"] = pd.to_numeric(daily["재고수량"], errors="coerce")
+    daily["전일재고"] = pd.to_numeric(daily["전일재고"], errors="coerce")
+    daily["재고증감"] = pd.to_numeric(daily["재고증감"], errors="coerce")
+    daily["긴급요청"] = daily["긴급요청"].apply(lambda value: bool(value) if not pd.isna(value) else False)
+
+    request_match = build_daily_request_match_view(code_summary)
+    out = daily.merge(
+        request_match,
+        on=["제품코드", "PACK", "POWER"],
+        how="left",
+    )
+    for col in ["최소 납기", "요청제품명", "대상품목"]:
+        if col in out.columns:
+            out[col] = out[col].fillna("")
+    numeric_cols = ["요청 PACK", "포장 PACK", "용마입고 PACK", "미입고 PACK", "요청 PCS", "생산부족 PCS", "생산진도율", "판매코드 수"]
+    for col in numeric_cols:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+    out["재고부족수량"] = (-out["재고수량"]).clip(lower=0.0).fillna(0.0)
+    out["대응상태"] = out.apply(classify_daily_inventory_status, axis=1)
+    out["_urgent_sort"] = out["긴급요청"].astype(int)
+    out["_negative_sort"] = (out["재고수량"] < 0).astype(int)
+    out["_request_sort"] = (out["요청 PACK"] > 0).astype(int)
+    out["_pack_sort"] = out["PACK"].map(pack_sort_key)
+    out["_power_sort"] = pd.to_numeric(out["POWER"].str.replace("-00.00", "0", regex=False), errors="coerce").fillna(0.0)
+    out = out.sort_values(
+        ["_urgent_sort", "_negative_sort", "_request_sort", "재고부족수량", "제품명", "_pack_sort", "_power_sort"],
+        ascending=[False, False, False, False, True, True, True],
+        kind="stable",
+    )
+    return out[columns].copy()
+
+
+def daily_inventory_search_variants(token: str) -> list[str]:
+    normalized = clean_str(token).replace("−", "-").replace("–", "-").replace("—", "-")
+    variants = [normalized]
+    variants.extend(expand_product_query_terms(normalized))
+
+    pack_label = extract_daily_pack_label(normalized)
+    if pack_label:
+        variants.append(pack_label)
+
+    power_label = daily_power_label(normalized)
+    if power_label:
+        variants.append(power_label)
+
+    return list(dict.fromkeys([variant for variant in variants if clean_str(variant)]))
+
+
+def is_power_query_token(token: str) -> bool:
+    normalized = clean_str(token).replace("−", "-").replace("–", "-").replace("—", "-")
+    if normalized.upper() == "PL":
+        return True
+    return bool(re.fullmatch(r"[+-]?\d+(?:\.\d+)?", normalized) and (normalized.startswith(("+", "-")) or "." in normalized))
+
+
+def daily_inventory_query_mask(view: pd.DataFrame, query: str) -> pd.Series:
+    tokens = split_lookup_query_terms(query)
+    if not tokens:
+        return pd.Series(True, index=view.index)
+
+    text_cols = [col for col in ["제품명", "제품코드", "요청제품명", "대상품목"] if col in view.columns]
+    mask = pd.Series(True, index=view.index)
+    for token in tokens:
+        normalized = clean_str(token).replace("−", "-").replace("–", "-").replace("—", "-")
+        token_mask = pd.Series(False, index=view.index)
+        power_label = daily_power_label(normalized) if is_power_query_token(normalized) else ""
+        pack_label = extract_daily_pack_label(normalized)
+        if power_label and "POWER" in view.columns:
+            token_mask = contains_any_query_term(view["POWER"].fillna(""), [power_label])
+        elif pack_label and "PACK" in view.columns:
+            token_mask = contains_any_query_term(view["PACK"].fillna(""), [pack_label])
+        else:
+            variants = daily_inventory_search_variants(normalized)
+            for col in text_cols:
+                token_mask = token_mask | contains_any_query_term(view[col].fillna(""), variants)
+        mask = mask & token_mask
+    return mask
 
 
 def build_sales_pack_detail_view(code_summary: pd.DataFrame) -> pd.DataFrame:
@@ -5939,6 +6365,106 @@ def render_selectable_table(
     return get_selected_row(event, df)
 
 
+def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> None:
+    render_panel_title(
+        "일일 재고 대응",
+        "매일 공유되는 재고현황표 기준으로 요청물량 외 긴급 품목과 재고부족을 확인합니다.",
+    )
+    if daily_inventory_df.empty:
+        st.warning("일일 재고현황표를 찾지 못했거나 처리할 데이터가 없습니다.")
+        return
+
+    response_view = build_daily_inventory_response_view(daily_inventory_df, code_summary)
+    if response_view.empty:
+        st.warning("표시할 일일 재고 대응 데이터가 없습니다.")
+        return
+
+    urgent_count = int(response_view["긴급요청"].sum())
+    negative_count = int((response_view["재고수량"] < 0).sum())
+    request_out_count = int((response_view["대응상태"] == "요청외 긴급").sum())
+    request_in_count = int(response_view["대응상태"].isin(["요청내 긴급", "요청내 재고부족"]).sum())
+    shortage_qty = float(response_view["재고부족수량"].sum())
+    matched_count = int((response_view["요청 PACK"] > 0).sum())
+    render_metric_card_grid(
+        [
+            ("긴급요청 품목", f"{urgent_count:,}", "warn" if urgent_count else "normal"),
+            ("재고 음수 품목", f"{negative_count:,}", "warn" if negative_count else "normal"),
+            ("요청외 긴급", f"{request_out_count:,}", "warn" if request_out_count else "normal"),
+            ("요청내 부족/긴급", f"{request_in_count:,}", "warn" if request_in_count else "normal"),
+            ("재고부족수량", format_int(shortage_qty), "warn" if shortage_qty > 0 else "normal"),
+            ("요청 매칭 품목", f"{matched_count:,}", "normal"),
+        ]
+    )
+
+    f1, f2, f3 = st.columns([2.4, 1.7, 1.2], gap="small")
+    with f1:
+        query = st.text_input(
+            "제품명/제품코드/POWER 검색",
+            value="",
+            placeholder="예: 소울브라운, 40P, -06.50",
+            key="daily_inventory_query",
+        )
+    with f2:
+        statuses = st.multiselect(
+            "대응상태",
+            sorted(response_view["대응상태"].dropna().astype(str).unique().tolist()),
+            default=sorted(response_view["대응상태"].dropna().astype(str).unique().tolist()),
+            key="daily_inventory_status",
+        )
+    with f3:
+        important_only = st.checkbox("긴급/부족만 보기", value=True, key="daily_inventory_important_only")
+
+    view = response_view.copy()
+    if query.strip():
+        view = view[daily_inventory_query_mask(view, query)].copy()
+    if statuses:
+        view = view[view["대응상태"].isin(statuses)].copy()
+    if important_only:
+        view = view[(view["긴급요청"]) | (view["재고수량"] < 0) | (view["재고부족수량"] > 0)].copy()
+
+    dl_col, _ = st.columns([1.2, 4.8], gap="small")
+    with dl_col:
+        render_excel_download(
+            "엑셀 다운로드",
+            "일일_재고_대응",
+            {
+                "일일 재고 대응": view,
+                "일일 재고 전체": response_view,
+            },
+            key="download_daily_inventory_excel",
+        )
+
+    render_selectable_table(
+        "일일 재고 대응 테이블",
+        f"긴급요청 및 재고현황표 기준 | 표시 건수: {len(view):,}",
+        view,
+        key="daily_inventory_table",
+        height=650,
+        column_order=[
+            "대응상태",
+            "제품명",
+            "제품코드",
+            "PACK",
+            "POWER",
+            "재고수량",
+            "전일재고",
+            "재고증감",
+            "재고부족수량",
+            "긴급요청",
+            "요청 PACK",
+            "용마입고 PACK",
+            "미입고 PACK",
+            "포장 PACK",
+            "생산부족 PCS",
+            "생산진도율",
+            "최소 납기",
+            "요청제품명",
+            "판매코드 수",
+            "대상품목",
+        ],
+    )
+
+
 def render_product_summary_tab(product_summary: pd.DataFrame, code_summary: pd.DataFrame) -> None:
     main_products, _ = split_main_sample(product_summary)
     pack_labels = available_pack_options(code_summary)[1:]
@@ -6623,15 +7149,18 @@ def load_dashboard_data(
     packing_fingerprint: tuple[str, int, int],
     progress_fingerprint: tuple[str, int, int] | None,
     inventory_fingerprint: tuple[str, int, int] | None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    daily_inventory_fingerprint: tuple[str, int, int] | None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
     inventory_file = Path(inventory_fingerprint[0]) if inventory_fingerprint is not None else None
+    daily_inventory_file = Path(daily_inventory_fingerprint[0]) if daily_inventory_fingerprint is not None else None
 
     request_df = normalize_request(request_file)
     packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
     inventory_df = normalize_inventory(inventory_file)
+    daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
     product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
     code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
     progress_df, _progress_info = normalize_progress(progress_file, request_df)
@@ -6640,7 +7169,7 @@ def load_dashboard_data(
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
-    return product_summary, code_summary, lot_status_df
+    return product_summary, code_summary, lot_status_df, daily_inventory_df
 
 
 def render_dashboard_nav() -> str:
@@ -6662,11 +7191,12 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        product_summary, code_summary, lot_status_df = load_dashboard_data(
+        product_summary, code_summary, lot_status_df, daily_inventory_df = load_dashboard_data(
             file_fingerprint(files.request_file),
             file_fingerprint(files.packing_file),
             file_fingerprint(files.progress_file),
             file_fingerprint(files.inventory_file),
+            file_fingerprint(files.daily_inventory_file),
         )
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
@@ -6680,6 +7210,8 @@ def main() -> None:
     active_tab = render_dashboard_nav()
     if active_tab == "제품 진도 현황":
         render_product_summary_tab(product_summary, code_summary)
+    elif active_tab == "일일 재고 대응":
+        render_daily_inventory_tab(daily_inventory_df, code_summary)
     elif active_tab == "생산코드 상세":
         render_production_code_tab(code_summary)
     elif active_tab == "판매코드 상세":
