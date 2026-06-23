@@ -3331,6 +3331,9 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         "미입고 PACK",
         "요청 PCS",
         "생산부족 PCS",
+        "용마입고대기 PACK",
+        "포장대기(PCS)",
+        "샘플신청가능수량",
         "생산진도율",
         "최소 납기",
         "요청제품명",
@@ -3355,6 +3358,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             yongma_in_pack=("yongma_in_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
+            sample_available_pcs=("_allocated_sample_available_pcs", "sum"),
             request_due_date=("request_due_date", min_datetime),
             product_name=("product_name", join_unique),
             sales_code_count=("sales_code", "nunique"),
@@ -3369,15 +3373,31 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
                 "yongma_in_pack": "용마입고 PACK",
                 "request_pcs": "요청 PCS",
                 "production_shortage_pcs": "생산부족 PCS",
+                "sample_available_pcs": "샘플신청가능수량",
                 "product_name": "요청제품명",
                 "sales_code_count": "판매코드 수",
             }
         )
     )
     grouped["미입고 PACK"] = (grouped["요청 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
+    grouped["용마입고대기 PACK"] = (grouped["포장 PACK"] - grouped["용마입고 PACK"]).clip(lower=0.0)
+    grouped["포장대기(PCS)"] = (
+        grouped["요청 PCS"] - grouped["생산부족 PCS"] + grouped["샘플신청가능수량"]
+    ).clip(lower=0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족 PCS"])
     grouped["최소 납기"] = grouped["request_due_date"].map(display_date_or_dash)
     return grouped[columns].copy()
+
+
+def pack_unit_from_label(value: Any) -> float:
+    match = re.search(r"(\d+(?:\.\d+)?)", clean_str(value))
+    if not match:
+        return 1.0
+    try:
+        number = float(match.group(1))
+    except ValueError:
+        return 1.0
+    return number if number > 0 else 1.0
 
 
 def build_item_code_from_prefix_power(product_code: Any, power_label: Any) -> str:
@@ -3388,8 +3408,36 @@ def build_item_code_from_prefix_power(product_code: Any, power_label: Any) -> st
     return f"{prefix}{power}"
 
 
+def replace_power_in_production_code(template: Any, source_power: Any, target_power: Any) -> str:
+    text = clean_str(template)
+    target = clean_str(target_power)
+    source = clean_str(source_power)
+    if not text or not target:
+        return ""
+    if source and source in text:
+        return text.replace(source, target, 1)
+    match = re.search(r"[+-]\d{1,2}\.\d{2}", text)
+    if not match:
+        return ""
+    return f"{text[:match.start()]}{target}{text[match.end():]}"
+
+
+def build_sample_available_lookup(sample_available_df: pd.DataFrame | None) -> dict[str, float]:
+    if sample_available_df is None or sample_available_df.empty:
+        return {}
+    if "production_code_key" not in sample_available_df.columns or "sample_available_pcs" not in sample_available_df.columns:
+        return {}
+    grouped = (
+        sample_available_df.copy()
+        .assign(sample_available_pcs=lambda df: pd.to_numeric(df["sample_available_pcs"], errors="coerce").fillna(0.0))
+        .groupby("production_code_key", dropna=False)["sample_available_pcs"]
+        .sum()
+    )
+    return {clean_str(key): float(value) for key, value in grouped.items() if clean_str(key)}
+
+
 def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
-    columns = ["제품코드", "PACK", "마스터제품명"]
+    columns = ["제품코드", "PACK", "마스터제품명", "생산코드템플릿", "생산코드POWER"]
     if code_summary.empty:
         return pd.DataFrame(columns=columns)
 
@@ -3401,13 +3449,19 @@ def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
 
     grouped = (
         work.groupby(["_sales_prefix", "_pack_label"], dropna=False)
-        .agg(product_name=("product_name", join_unique))
+        .agg(
+            product_name=("product_name", join_unique),
+            production_code=("production_code", first_nonempty),
+            power=("POWER", first_nonempty),
+        )
         .reset_index()
         .rename(
             columns={
                 "_sales_prefix": "제품코드",
                 "_pack_label": "PACK",
                 "product_name": "마스터제품명",
+                "production_code": "생산코드템플릿",
+                "power": "생산코드POWER",
             }
         )
     )
@@ -3433,7 +3487,11 @@ def classify_daily_inventory_status(row: pd.Series) -> str:
     return "재고 모니터링"
 
 
-def build_daily_inventory_response_view(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
+def build_daily_inventory_response_view(
+    daily_inventory_df: pd.DataFrame,
+    code_summary: pd.DataFrame,
+    sample_available_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     columns = [
         "대응상태",
         "품목코드",
@@ -3453,6 +3511,9 @@ def build_daily_inventory_response_view(daily_inventory_df: pd.DataFrame, code_s
         "포장 PACK",
         "요청 PCS",
         "생산부족 PCS",
+        "용마입고대기 PACK",
+        "포장대기(PCS)",
+        "포장부족(재고 PCS)",
         "생산진도율",
         "최소 납기",
         "요청제품명",
@@ -3489,11 +3550,58 @@ def build_daily_inventory_response_view(daily_inventory_df: pd.DataFrame, code_s
     for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "재고표 제품명", "품목코드"]:
         if col in out.columns:
             out[col] = out[col].fillna("")
-    numeric_cols = ["요청 PACK", "포장 PACK", "용마입고 PACK", "미입고 PACK", "요청 PCS", "생산부족 PCS", "생산진도율", "판매코드 수"]
+    sample_lookup = build_sample_available_lookup(sample_available_df)
+    inferred_production_code = [
+        replace_power_in_production_code(template, source_power, power)
+        for template, source_power, power in zip(
+            out.get("생산코드템플릿", pd.Series("", index=out.index)),
+            out.get("생산코드POWER", pd.Series("", index=out.index)),
+            out["POWER"],
+        )
+    ]
+    inferred_sample_available = [
+        sample_lookup.get(normalize_match_key(code), 0.0)
+        for code in inferred_production_code
+    ]
+    out["_추정샘플신청가능수량"] = inferred_sample_available
+    numeric_cols = [
+        "요청 PACK",
+        "포장 PACK",
+        "용마입고 PACK",
+        "미입고 PACK",
+        "요청 PCS",
+        "생산부족 PCS",
+        "용마입고대기 PACK",
+        "포장대기(PCS)",
+        "샘플신청가능수량",
+        "생산진도율",
+        "판매코드 수",
+    ]
     for col in numeric_cols:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+    for col in ["용마입고대기 PACK", "포장대기(PCS)", "샘플신청가능수량"]:
+        if col not in out.columns:
+            out[col] = 0.0
+    has_request = out["요청 PACK"] > 0
+    out["샘플신청가능수량"] = out["샘플신청가능수량"].where(has_request, out["_추정샘플신청가능수량"])
+    out["용마입고대기 PACK"] = out["용마입고대기 PACK"].where(
+        out["용마입고대기 PACK"] > 0,
+        (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0),
+    )
+    out["포장대기(PCS)"] = np.where(
+        has_request,
+        (out["요청 PCS"] - out["생산부족 PCS"] + out["샘플신청가능수량"]).clip(lower=0.0),
+        0.0,
+    )
     out["재고부족수량"] = (-out["재고수량"]).clip(lower=0.0).fillna(0.0)
+    pack_units = out["PACK"].map(pack_unit_from_label)
+    stock_shortage_pcs = (out["재고부족수량"] * pack_units).clip(lower=0.0)
+    out["포장부족(재고 PCS)"] = np.where(
+        has_request,
+        (stock_shortage_pcs - out["포장대기(PCS)"]).clip(lower=0.0),
+        out["샘플신청가능수량"],
+    )
     out["대응상태"] = out.apply(classify_daily_inventory_status, axis=1)
     out["_urgent_sort"] = out["긴급요청"].astype(int)
     out["_negative_sort"] = (out["재고수량"] < 0).astype(int)
@@ -6318,6 +6426,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "용마입고수량": st.column_config.NumberColumn("용마입고수량", format=numeric_format),
         "용마입고수량(PACK)": st.column_config.NumberColumn("용마입고수량(PACK)", format=numeric_format),
         "용마입고수량(PCS)": st.column_config.NumberColumn("용마입고수량(PCS)", format=numeric_format),
+        "용마입고대기 PACK": st.column_config.NumberColumn("용마입고대기 PACK", format=numeric_format),
         "용마입고대기수량": st.column_config.NumberColumn("용마입고대기수량", format=numeric_format),
         "용마입고대기수량(PACK)": st.column_config.NumberColumn("용마입고대기수량(PACK)", format=numeric_format),
         "용마입고대기수량(PCS)": st.column_config.NumberColumn("용마입고대기수량(PCS)", format=numeric_format),
@@ -6331,6 +6440,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "생산부족수량(PCS)": st.column_config.NumberColumn("생산부족수량(PCS)", format=numeric_format),
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
         "포장부족(PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format),
+        "포장부족(재고 PCS)": st.column_config.NumberColumn("포장부족(재고 PCS)", format=numeric_format),
         "5P 필요팩": st.column_config.NumberColumn("5P 필요팩", format=numeric_format),
         "10P 필요팩": st.column_config.NumberColumn("10P 필요팩", format=numeric_format),
         "30P 필요팩": st.column_config.NumberColumn("30P 필요팩", format=numeric_format),
@@ -6421,7 +6531,11 @@ def render_selectable_table(
     return get_selected_row(event, df)
 
 
-def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> None:
+def render_daily_inventory_tab(
+    daily_inventory_df: pd.DataFrame,
+    code_summary: pd.DataFrame,
+    sample_available_df: pd.DataFrame | None = None,
+) -> None:
     render_panel_title(
         "일일 재고 대응",
         "매일 공유되는 재고현황표 기준으로 요청물량 외 긴급 품목과 재고부족을 확인합니다.",
@@ -6430,7 +6544,7 @@ def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: p
         st.warning("일일 재고현황표를 찾지 못했거나 처리할 데이터가 없습니다.")
         return
 
-    response_view = build_daily_inventory_response_view(daily_inventory_df, code_summary)
+    response_view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
     if response_view.empty:
         st.warning("표시할 일일 재고 대응 데이터가 없습니다.")
         return
@@ -6521,6 +6635,9 @@ def render_daily_inventory_tab(daily_inventory_df: pd.DataFrame, code_summary: p
             "용마입고 PACK",
             "미입고 PACK",
             "포장 PACK",
+            "용마입고대기 PACK",
+            "포장대기(PCS)",
+            "포장부족(재고 PCS)",
             "생산부족 PCS",
             "생산진도율",
             "최소 납기",
@@ -7213,7 +7330,7 @@ def load_dashboard_data(
     progress_fingerprint: tuple[str, int, int] | None,
     inventory_fingerprint: tuple[str, int, int] | None,
     daily_inventory_fingerprint: tuple[str, int, int] | None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
@@ -7232,7 +7349,7 @@ def load_dashboard_data(
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
-    return product_summary, code_summary, lot_status_df, daily_inventory_df
+    return product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df
 
 
 def render_dashboard_nav() -> str:
@@ -7254,7 +7371,7 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        product_summary, code_summary, lot_status_df, daily_inventory_df = load_dashboard_data(
+        product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df = load_dashboard_data(
             file_fingerprint(files.request_file),
             file_fingerprint(files.packing_file),
             file_fingerprint(files.progress_file),
@@ -7274,7 +7391,7 @@ def main() -> None:
     if active_tab == "제품 진도 현황":
         render_product_summary_tab(product_summary, code_summary)
     elif active_tab == "일일 재고 대응":
-        render_daily_inventory_tab(daily_inventory_df, code_summary)
+        render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df)
     elif active_tab == "생산코드 상세":
         render_production_code_tab(code_summary)
     elif active_tab == "판매코드 상세":
