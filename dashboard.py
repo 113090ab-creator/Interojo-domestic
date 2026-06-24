@@ -3177,14 +3177,13 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
     columns = [
         "생산코드",
         "대표 제품명",
-        "PACK 구성",
+        *pack_labels,
         "요청합계(PACK)",
         "포장부족(PACK)",
         "생산부족수량(PCS)",
         "포장진도율",
         "생산진도율",
         "최소 납기일",
-        "상태",
     ]
     return visible_columns(df, columns)
 
@@ -3201,7 +3200,6 @@ def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str
         "포장진도율",
         "생산진도율",
         "최소 납기일",
-        "상태",
     ]
     return visible_columns(df, columns)
 
@@ -4621,15 +4619,6 @@ def production_code_prefix(value: Any) -> str:
     return text[:5]
 
 
-def pack_composition_text(row: pd.Series, pack_labels: list[str]) -> str:
-    parts: list[str] = []
-    for label in pack_labels:
-        qty = pd.to_numeric(row.get(label, 0.0), errors="coerce")
-        if pd.notna(qty) and float(qty) > 0:
-            parts.append(f"{label}: {format_int(float(qty))}")
-    return " / ".join(parts) if parts else "-"
-
-
 def build_production_power_main_view(
     rows: pd.DataFrame,
     pack_labels: list[str],
@@ -4638,14 +4627,13 @@ def build_production_power_main_view(
     visible_columns = [
         "생산코드",
         "대표 제품명",
-        "PACK 구성",
+        *pack_labels,
         "요청합계(PACK)",
         "포장부족(PACK)",
         "생산부족수량(PCS)",
         "포장진도율",
         "생산진도율",
         "최소 납기일",
-        "상태",
     ]
     if rows.empty:
         return pd.DataFrame(
@@ -4696,7 +4684,6 @@ def build_production_power_main_view(
     grouped = base.merge(pack_pivot[group_cols + pack_labels], on=group_cols, how="left")
     for label in pack_labels:
         grouped[label] = grouped[label].fillna(0.0)
-    grouped["PACK 구성"] = [pack_composition_text(row, pack_labels) for _, row in grouped.iterrows()]
     grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
     grouped["포장진도율"] = np.where(
         grouped["request_pack"] > 0,
@@ -4769,7 +4756,6 @@ def build_production_power_detail_view(
         "포장진도율",
         "생산진도율",
         "최소 납기일",
-        "상태",
     ]
     if rows.empty:
         return pd.DataFrame(
@@ -7760,7 +7746,7 @@ def render_production_power_detail_dialog(
     @st.dialog(title, width="large")
     def _dialog() -> None:
         st.caption(
-            f"{production_code}에 해당하는 POWER별 PACK 구성, 부족수량, 진도율, 납기 현황 | 표시 건수: {len(detail_view):,}"
+            f"{production_code}에 해당하는 POWER별 PACK 단위 수량, 부족수량, 진도율, 납기 현황 | 표시 건수: {len(detail_view):,}"
         )
         if detail_view.empty:
             st.warning("상세 데이터가 없습니다.")
