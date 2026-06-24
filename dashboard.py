@@ -50,7 +50,7 @@ DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 2
+DATA_CACHE_VERSION = 3
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
     "Clalen 1Day",
@@ -2657,16 +2657,8 @@ def render_status_board(
         code_summary,
         sample_available_df,
     )
-    request_pack = (
-        float(pd.to_numeric(product_summary.get("요청 PACK", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-        if product_summary is not None and not product_summary.empty
-        else 0.0
-    )
-    yongma_in_pack = (
-        float(pd.to_numeric(product_summary.get("용마입고 PACK", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-        if product_summary is not None and not product_summary.empty
-        else 0.0
-    )
+    request_pack = float(kpi.get("request_pack", 0.0))
+    yongma_in_pack = float(kpi.get("yongma_in_pack", 0.0))
     missing_pack = float(kpi.get("packing_shortage_pack", 0.0))
     production_shortage = float(kpi.get("production_shortage_pcs", 0.0))
     packing_progress = float(kpi.get("packing_progress_pct", 0.0))
@@ -3050,21 +3042,19 @@ def calc_operation_kpis(
     request_pack = float(product_summary["요청 PACK"].sum()) if "요청 PACK" in product_summary.columns and not product_summary.empty else 0.0
     request_pcs = float(product_summary["요청 PCS"].sum()) if "요청 PCS" in product_summary.columns and not product_summary.empty else 0.0
     packing_pack = float(product_summary["포장 PACK"].sum()) if "포장 PACK" in product_summary.columns and not product_summary.empty else 0.0
-    yongma_in_pack = (
+    product_yongma_in_pack = (
         float(product_summary["용마입고 PACK"].sum())
         if "용마입고 PACK" in product_summary.columns and not product_summary.empty
-        else packing_pack
+        else 0.0
     )
+    code_yongma_in_pack = float(pd.to_numeric(work["yongma_in_pack"], errors="coerce").fillna(0.0).sum()) if not work.empty else 0.0
+    yongma_in_pack = code_yongma_in_pack if code_yongma_in_pack > 0 else product_yongma_in_pack
     packing_shortage_pack = (
         float(product_summary["포장부족수량"].sum())
         if "포장부족수량" in product_summary.columns and not product_summary.empty
         else max(0.0, request_pack - packing_pack)
     )
-    receipt_shortage_pack = (
-        float(product_summary["미입고수량"].sum())
-        if "미입고수량" in product_summary.columns and not product_summary.empty
-        else max(0.0, request_pack - yongma_in_pack)
-    )
+    receipt_shortage_pack = max(0.0, request_pack - yongma_in_pack)
     receipt_wait_pack = (
         float(product_summary["입고대기수량"].sum())
         if "입고대기수량" in product_summary.columns and not product_summary.empty
@@ -3087,7 +3077,9 @@ def calc_operation_kpis(
         "priority_products": float((shortage_mask & priority_mask).sum()),
         "urgent_products": float((shortage_mask & due_mask).sum()),
         "stock_shortage_products": float((shortage_mask & stock_shortage_mask).sum()),
+        "request_pack": request_pack,
         "request_pcs": request_pcs,
+        "yongma_in_pack": yongma_in_pack,
         "packing_done_pack": packing_pack,
         "packing_todo_pack": packing_shortage_pack,
         "receipt_shortage_pack": receipt_shortage_pack,
