@@ -3974,6 +3974,16 @@ def classify_daily_inventory_status(row: pd.Series) -> str:
     return "재고 모니터링"
 
 
+def complete_daily_response_mask(df: pd.DataFrame) -> pd.Series:
+    required_cols = ["품목코드", "제품명", "제품코드", "PACK", "POWER"]
+    mask = pd.Series(True, index=df.index)
+    for col in required_cols:
+        if col not in df.columns:
+            return pd.Series(False, index=df.index)
+        mask &= df[col].map(clean_str) != ""
+    return mask
+
+
 def build_daily_inventory_response_view(
     daily_inventory_df: pd.DataFrame,
     code_summary: pd.DataFrame,
@@ -4043,6 +4053,9 @@ def build_daily_inventory_response_view(
     for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "재고표 제품명", "품목코드"]:
         if col in out.columns:
             out[col] = out[col].fillna("")
+    out = out[complete_daily_response_mask(out)].copy()
+    if out.empty:
+        return pd.DataFrame(columns=columns)
     sample_lookup = build_sample_available_lookup(sample_available_df)
     inferred_production_code = [
         replace_power_in_production_code(template, source_power, power)
