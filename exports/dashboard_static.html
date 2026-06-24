@@ -17,9 +17,10 @@
     h1 { margin:0; font-size:32px; line-height:1.2; letter-spacing:0; }
     h2 { margin:0 0 12px; font-size:18px; }
     .stamp { color:var(--muted); font-size:13px; }
-    .status-board { display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:12px; margin:0 0 14px; }
+    .lead { color:var(--muted); font-size:14px; margin:8px 0 18px; }
+    .status-board { display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:10px; margin:0 0 12px; }
     .status-main, .status-tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; }
-    .status-main { padding:20px 22px; border-left:5px solid #1d9e75; box-shadow:0 10px 22px rgba(38,52,67,0.08); }
+    .status-main { padding:16px 18px; border-left:4px solid #9e9d99; }
     .status-board.warn .status-main { border-left-color:var(--amber); }
     .status-board.risk .status-main { border-left-color:var(--risk); }
     .status-head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:12px; }
@@ -27,19 +28,19 @@
     .status-pill { display:inline-flex; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:700; background:#eaf6f1; color:#1d9e75; }
     .status-pill.warn { background:#f7efe3; color:#ba7517; }
     .status-pill.risk { background:var(--soft); color:var(--risk); }
-    .status-main-value { font-size:38px; line-height:1; font-weight:900; color:var(--text); margin-bottom:14px; }
-    .status-flow { display:flex; height:14px; border-radius:999px; background:#e9eff5; overflow:hidden; }
+    .status-main-value { font-size:34px; line-height:1; font-weight:900; color:var(--text); margin-bottom:12px; }
+    .status-flow { display:flex; height:10px; border-radius:999px; background:#e9eff5; overflow:hidden; }
     .status-flow-fill.receipt { background:#1d9e75; }
     .status-flow-fill.shortage { background:var(--risk); }
-    .status-flow-legend { display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:var(--muted); font-size:11px; }
-    .status-tile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-    .status-tile { padding:14px 16px; min-height:86px; }
+    .status-flow-legend { display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-top:9px; color:var(--muted); font-size:11px; }
+    .status-tile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .status-tile { padding:11px 13px; min-height:72px; }
     .metric-label { color:var(--muted); font-size:12px; margin-bottom:8px; }
     .metric-value { color:var(--primary); font-size:25px; font-weight:800; }
     .status-tile.warn .metric-value, .risk { color:var(--risk); }
-    section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-top:16px; }
-    .family-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
-    .family-card { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
+    section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-top:12px; }
+    .family-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+    .family-card { border:1px solid var(--line); border-radius:8px; padding:11px 13px; background:#fff; }
     .family-head, .family-foot { display:flex; justify-content:space-between; gap:12px; align-items:center; }
     .family-head span, .family-foot { color:var(--muted); font-size:12px; }
     .family-foot b { color:var(--risk); }
@@ -69,15 +70,16 @@
     <header>
       <div>
         <h1>국내 생산·포장 현황 대시보드</h1>
-        <div class="stamp">정적 HTML 스냅샷 · 생성 2026-06-24 11:53</div>
+        <div class="stamp">정적 HTML 스냅샷 · 생성 2026-06-24 12:44</div>
       </div>
       <div class="stamp">기준: 요청물량, 수요정보, 용마입고, 일일 재고현황</div>
     </header>
+    <p class="lead">국내 요청 물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.</p>
 
     
     <div class="status-board risk">
       <div class="status-main">
-        <div class="status-head"><span class="status-pill risk">우선 대응</span><strong>요청 대비 용마 입고 현황</strong></div>
+        <div class="status-head"><span class="status-pill risk">용마입고율</span><strong>요청 대비 용마 입고 현황</strong></div>
         <div class="status-main-value">4.0%</div>
         <div class="status-flow">
           <div class="status-flow-fill receipt" style="width:4.0%"></div>
@@ -85,11 +87,17 @@
         </div>
         <div class="status-flow-legend">
           <span>요청 190,609 PACK</span>
-          <span>입고 7,598 PACK</span>
+          <span>용마입고 7,598 PACK</span>
           <span>미입고 183,011 PACK</span>
+          <span>용마입고율 4.0%</span>
         </div>
       </div>
       <div class="status-tile-grid">
+        <div class="status-tile ">
+          <div class="metric-label">국내 요청량 PACK</div>
+          <div class="metric-value">190,609</div>
+        </div>
+        
         <div class="status-tile ">
           <div class="metric-label">생산진도율</div>
           <div class="metric-value">78.3%</div>
@@ -106,40 +114,27 @@
         </div>
         
         <div class="status-tile warn">
-          <div class="metric-label">포장부족 PACK</div>
-          <div class="metric-value">184,255</div>
-        </div>
-        
-        <div class="status-tile warn">
-          <div class="metric-label">입고대기 PACK</div>
-          <div class="metric-value">5,279</div>
-        </div>
-        
-        <div class="status-tile warn">
           <div class="metric-label">미입고 PACK</div>
           <div class="metric-value">183,011</div>
         </div>
         
         <div class="status-tile warn">
-          <div class="metric-label">생산부족 PCS</div>
-          <div class="metric-value">477,925</div>
-        </div>
-        
-        <div class="status-tile warn">
-          <div class="metric-label">요청외 긴급</div>
+          <div class="metric-label">긴급 대응 품목 수</div>
           <div class="metric-value">5</div>
-        </div>
-        
-        <div class="status-tile ">
-          <div class="metric-label">전체 포장가능 PCS</div>
-          <div class="metric-value">1,727,591</div>
         </div>
         </div>
     </div>
     
 
     <section>
-      <h2>본품 분류별 진도 현황</h2>
+      <h2>미입고 TOP10</h2>
+      <div class="table-wrap">
+        <table><thead><tr><th>순위</th><th>제품명</th><th>미입고 PACK</th><th>생산진도율</th><th>포장진도율</th><th>용마입고율</th><th>추정 원인</th></tr></thead><tbody><tr><td class='num'>1</td><td class=''>Clalen O2O2 D_Sepia Choco EX</td><td class='num risk'>36,080</td><td class='num'>57.8%</td><td class='num'>5.5%</td><td class='num'>1.7%</td><td class=''>생산 부족</td></tr><tr><td class='num'>2</td><td class=''>Clalen O2O2 D_Pale Choco</td><td class='num risk'>20,699</td><td class='num'>98.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class=''>포장 대기</td></tr><tr><td class='num'>3</td><td class=''>Clalen O2O2 D_Mute Brown</td><td class='num risk'>18,959</td><td class='num'>77.6%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class=''>생산 부족</td></tr><tr><td class='num'>4</td><td class=''>Clalen O2O2 1Day</td><td class='num risk'>17,824</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class=''>포장 대기</td></tr><tr><td class='num'>5</td><td class=''>Clalen O2O2 D_Ash Brown EX</td><td class='num risk'>16,472</td><td class='num'>59.7%</td><td class='num'>0.0%</td><td class='num'>0.1%</td><td class=''>생산 부족</td></tr><tr><td class='num'>6</td><td class=''>Clalen O2O2 D_Lake Gray</td><td class='num risk'>11,471</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class=''>포장 대기</td></tr><tr><td class='num'>7</td><td class=''>Iris Toric Alicia Brown</td><td class='num risk'>4,631</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num'>8.4%</td><td class=''>포장 대기</td></tr><tr><td class='num'>8</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%</td><td class='num risk'>4,430</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class=''>포장 대기</td></tr><tr><td class='num'>9</td><td class=''>T38 정축</td><td class='num risk'>4,384</td><td class='num'>47.1%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class=''>전체 지연</td></tr><tr><td class='num'>10</td><td class=''>Clalen O2O2 D_Deep Black</td><td class='num risk'>3,988</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class=''>포장 대기</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section>
+      <h2>본품 분류별 진도현황</h2>
       <div class="family-grid">
             <article class="family-card">
               <div class="family-head">
@@ -148,7 +143,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:0.0%"></i></div><em>0.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:85.2%"></i></div><em>85.2%</em></div>
-              <div class="family-foot"><span>생산부족 <b>75,152</b></span><span>미입고 <b>49</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>75,152</b></span></div>
             </article>
             
             <article class="family-card">
@@ -158,7 +153,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:100.0%"></i></div><em>100.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:0.0%"></i></div><em>0.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>0</b></span><span>미입고 <b>17,824</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>0</b></span></div>
             </article>
             
             <article class="family-card">
@@ -168,7 +163,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:68.8%"></i></div><em>68.8%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:0.6%"></i></div><em>0.6%</em></div>
-              <div class="family-foot"><span>생산부족 <b>312,260</b></span><span>미입고 <b>108,369</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>312,260</b></span></div>
             </article>
             
             <article class="family-card">
@@ -178,7 +173,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:100.0%"></i></div><em>100.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:33.2%"></i></div><em>33.2%</em></div>
-              <div class="family-foot"><span>생산부족 <b>0</b></span><span>미입고 <b>7,316</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>0</b></span></div>
             </article>
             
             <article class="family-card">
@@ -188,7 +183,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:21.0%"></i></div><em>21.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:16.9%"></i></div><em>16.9%</em></div>
-              <div class="family-foot"><span>생산부족 <b>57,533</b></span><span>미입고 <b>2,017</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>57,533</b></span></div>
             </article>
             
             <article class="family-card">
@@ -198,7 +193,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:91.2%"></i></div><em>91.2%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:1.0%"></i></div><em>1.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>135</b></span><span>미입고 <b>661</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>135</b></span></div>
             </article>
             
             <article class="family-card">
@@ -208,7 +203,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:100.0%"></i></div><em>100.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:0.0%"></i></div><em>0.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>0</b></span><span>미입고 <b>14,130</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>0</b></span></div>
             </article>
             
             <article class="family-card">
@@ -218,7 +213,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:100.0%"></i></div><em>100.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:0.0%"></i></div><em>0.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>0</b></span><span>미입고 <b>22</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>0</b></span></div>
             </article>
             
             <article class="family-card">
@@ -228,7 +223,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:100.0%"></i></div><em>100.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:0.0%"></i></div><em>0.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>0</b></span><span>미입고 <b>7,800</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>0</b></span></div>
             </article>
             
             <article class="family-card">
@@ -238,7 +233,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:77.4%"></i></div><em>77.4%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:0.0%"></i></div><em>0.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>1,128</b></span><span>미입고 <b>2,496</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>1,128</b></span></div>
             </article>
             
             <article class="family-card">
@@ -248,7 +243,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:93.5%"></i></div><em>93.5%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:17.0%"></i></div><em>17.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>29,395</b></span><span>미입고 <b>7,223</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>29,395</b></span></div>
             </article>
             
             <article class="family-card">
@@ -258,7 +253,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:100.0%"></i></div><em>100.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:8.0%"></i></div><em>8.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>0</b></span><span>미입고 <b>8,060</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>0</b></span></div>
             </article>
             
             <article class="family-card">
@@ -268,7 +263,7 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:58.4%"></i></div><em>58.4%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:0.0%"></i></div><em>0.0%</em></div>
-              <div class="family-foot"><span>생산부족 <b>2,322</b></span><span>미입고 <b>5,583</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>2,322</b></span></div>
             </article>
             
             <article class="family-card">
@@ -278,15 +273,22 @@
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:100.0%"></i></div><em>100.0%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:20.8%"></i></div><em>20.8%</em></div>
-              <div class="family-foot"><span>생산부족 <b>0</b></span><span>미입고 <b>1,461</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>0</b></span></div>
             </article>
             </div>
     </section>
 
     <section>
-      <h2>일일 재고 대응 우선 확인</h2>
+      <h2>생산완료 후 미입고 TOP10</h2>
       <div class="table-wrap">
-        <table><thead><tr><th>대응상태</th><th>품목코드</th><th>제품명</th><th>제품코드</th><th>PACK</th><th>POWER</th><th>재고수량</th><th>요청 PACK</th><th>용마입고 PACK</th><th>미입고 PACK</th><th>용마입고대기 PACK</th><th>포장가능재고(PCS)</th><th>생산부족 PCS</th><th>생산진도율</th><th>최소 납기</th></tr></thead><tbody><tr><td class=''>요청내 긴급</td><td class=''>S309-07.50</td><td class=''>Clalen O2O2 D_Micelia_Mute Brown_10P</td><td class=''>S309</td><td class=''>10P</td><td class=''>-07.50</td><td class='num'>0</td><td class='num'>300</td><td class='num'>0</td><td class='num risk'>300</td><td class='num'>0</td><td class='num'>29,020</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S147-06.50</td><td class=''>Iris Toric Alicia Brown_30팩</td><td class=''>S147</td><td class=''>30P</td><td class=''>-06.50</td><td class='num'>613</td><td class='num'>416</td><td class='num'>33</td><td class='num risk'>383</td><td class='num'>0</td><td class='num'>23,340</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S309-08.00</td><td class=''>Clalen O2O2 D_Micelia_Mute Brown_10P</td><td class=''>S309</td><td class=''>10P</td><td class=''>-08.00</td><td class='num'>0</td><td class='num'>320</td><td class='num'>0</td><td class='num risk'>320</td><td class='num'>0</td><td class='num'>14,310</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S548-01.25</td><td class=''>Clalen O2O2 M_6P</td><td class=''>S548</td><td class=''>6P</td><td class=''>-01.25</td><td class='num'>14</td><td class='num'>23</td><td class='num'>7</td><td class='num risk'>16</td><td class='num'>0</td><td class='num'>9,454</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-26</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S154-02.50</td><td class=''>Iris Toric Halo Brown_30</td><td class=''>S154</td><td class=''>30P</td><td class=''>-02.50</td><td class='num'>262</td><td class='num'>122</td><td class='num'>25</td><td class='num risk'>97</td><td class='num'>0</td><td class='num'>6,860</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S154-01.75</td><td class=''>Iris Toric Halo Brown_30</td><td class=''>S154</td><td class=''>30P</td><td class=''>-01.75</td><td class='num'>283</td><td class='num'>116</td><td class='num'>3</td><td class='num risk'>113</td><td class='num'>0</td><td class='num'>5,885</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S548-07.50</td><td class=''>Clalen O2O2 M_6P</td><td class=''>S548</td><td class=''>6P</td><td class=''>-07.50</td><td class='num'>10</td><td class='num'>27</td><td class='num'>0</td><td class='num risk'>27</td><td class='num'>0</td><td class='num'>5,693</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-26</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S154-09.00</td><td class=''>Iris Toric Halo Brown_30</td><td class=''>S154</td><td class=''>30P</td><td class=''>-09.00</td><td class='num'>279</td><td class='num'>184</td><td class='num'>15</td><td class='num risk'>169</td><td class='num'>0</td><td class='num'>5,520</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S154-03.00</td><td class=''>Iris Toric Halo Brown_30</td><td class=''>S154</td><td class=''>30P</td><td class=''>-03.00</td><td class='num'>507</td><td class='num'>126</td><td class='num'>18</td><td class='num risk'>108</td><td class='num'>0</td><td class='num'>5,265</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S154-02.00</td><td class=''>Iris Toric Halo Brown_30</td><td class=''>S154</td><td class=''>30P</td><td class=''>-02.00</td><td class='num'>292</td><td class='num'>129</td><td class='num'>27</td><td class='num risk'>102</td><td class='num'>0</td><td class='num'>4,950</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S159-00.00</td><td class=''>Iris Toric Halo Gray_30</td><td class=''>S159</td><td class=''>30P</td><td class=''>-00.00</td><td class='num'>571</td><td class='num'>153</td><td class='num'>2</td><td class='num risk'>151</td><td class='num'>0</td><td class='num'>4,590</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S159-02.25</td><td class=''>Iris Toric Halo Gray_30</td><td class=''>S159</td><td class=''>30P</td><td class=''>-02.25</td><td class='num'>381</td><td class='num'>148</td><td class='num'>9</td><td class='num risk'>139</td><td class='num'>0</td><td class='num'>4,440</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-04.25</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-04.25</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>3,110</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-01.75</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-01.75</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>3,041</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S159-02.50</td><td class=''>Iris Toric Halo Gray_30</td><td class=''>S159</td><td class=''>30P</td><td class=''>-02.50</td><td class='num'>340</td><td class='num'>93</td><td class='num'>0</td><td class='num risk'>93</td><td class='num'>0</td><td class='num'>2,790</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-10</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-02.75</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-02.75</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>2,758</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S318-03.50</td><td class=''>Clalen O2O2 M_Micelia_Deep Black_45%_2P</td><td class=''>S318</td><td class=''>2P</td><td class=''>-03.50</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>1,860</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-03.75</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-03.75</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>1,642</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-03.25</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-03.25</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>1,507</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-04.00</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-04.00</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>1,500</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-03.00</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-03.00</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>1,465</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-03.50</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-03.50</td><td class='num'>0</td><td class='num'>260</td><td class='num'>0</td><td class='num risk'>260</td><td class='num'>0</td><td class='num'>1,450</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S320-00.00</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%_2P</td><td class=''>S320</td><td class=''>2P</td><td class=''>-00.00</td><td class='num'>0</td><td class='num'>400</td><td class='num'>0</td><td class='num risk'>400</td><td class='num'>0</td><td class='num'>1,062</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S611-03.50</td><td class=''>Clalen O2O2 M_Natural Chocolat EX_2P</td><td class=''>S611</td><td class=''>2P</td><td class=''>-03.50</td><td class='num'>23</td><td class='num'>84</td><td class='num'>0</td><td class='num risk'>84</td><td class='num'>0</td><td class='num'>833</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S611-03.25</td><td class=''>Clalen O2O2 M_Natural Chocolat EX_2P</td><td class=''>S611</td><td class=''>2P</td><td class=''>-03.25</td><td class='num'>21</td><td class='num'>40</td><td class='num'>0</td><td class='num risk'>40</td><td class='num'>0</td><td class='num'>127</td><td class='num'>0</td><td class='num'>100.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S309-02.75</td><td class=''>Clalen O2O2 D_Micelia_Mute Brown_10P</td><td class=''>S309</td><td class=''>10P</td><td class=''>-02.75</td><td class='num'>0</td><td class='num'>400</td><td class='num'>0</td><td class='num risk'>400</td><td class='num'>138</td><td class='num'>0</td><td class='num risk'>12,364</td><td class='num'>0.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청내 긴급</td><td class=''>S309-04.25</td><td class=''>Clalen O2O2 D_Micelia_Mute Brown_10P</td><td class=''>S309</td><td class=''>10P</td><td class=''>-04.25</td><td class='num'>0</td><td class='num'>320</td><td class='num'>0</td><td class='num risk'>320</td><td class='num'>0</td><td class='num'>0</td><td class='num risk'>7,437</td><td class='num'>0.0%</td><td class=''>2026-06-17</td></tr><tr><td class=''>요청외 긴급</td><td class=''>S129-07.00</td><td class=''>Iris SoulBrown_40팩</td><td class=''>S129</td><td class=''>40P</td><td class=''>-07.00</td><td class='num'>-30</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0</td><td class='num'>53,770</td><td class='num'>0</td><td class='num'>0.0%</td><td class=''></td></tr><tr><td class=''>요청외 긴급</td><td class=''>S129-06.50</td><td class=''>Iris SoulBrown_40팩</td><td class=''>S129</td><td class=''>40P</td><td class=''>-06.50</td><td class='num'>-30</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0</td><td class='num'>40,410</td><td class='num'>0</td><td class='num'>0.0%</td><td class=''></td></tr><tr><td class=''>요청외 긴급</td><td class=''>S547-07.00</td><td class=''>Clalen O2O2 M_2P</td><td class=''>S547</td><td class=''>2P</td><td class=''>-07.00</td><td class='num'>18</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0</td><td class='num'>8,403</td><td class='num'>0</td><td class='num'>0.0%</td><td class=''></td></tr></tbody></table>
+        <table><thead><tr><th>순위</th><th>제품명</th><th>생산진도율</th><th>용마입고율</th><th>GAP</th></tr></thead><tbody><tr><td class='num'>1</td><td class=''>Clalen O2O2 1Day</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>2</td><td class=''>Clalen O2O2 D_Lake Gray</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>3</td><td class=''>Clalen O2O2 M_Micelia_Mute Brown_45%</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>4</td><td class=''>Clalen O2O2 D_Deep Black</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>5</td><td class=''>Clalen O2O2 M_Micelia_Deep Black_45%</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>6</td><td class=''>Clalen O2O2 M_Micelia_Lake Gray_45%</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>7</td><td class=''>Clalen O2O2 M_Micelia_Pale Choco_45%</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>8</td><td class=''>Clalen O2O2 D_Micelia_Lake Gray</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>9</td><td class=''>Clalen D_Iris_Soul Brown</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr><tr><td class='num'>10</td><td class=''>US38_팩</td><td class='num'>100.0%</td><td class='num'>0.0%</td><td class='num risk'>100.0</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section>
+      <h2>요청 긴급 요약</h2>
+      <div class="table-wrap">
+        <table><thead><tr><th>품목코드</th><th>제품명</th><th>현재 재고수량</th><th>부족수량</th><th>포장가능재고(PCS)</th><th>대응가능 여부</th></tr></thead><tbody><tr><td class=''>S129-07.00</td><td class=''>Iris SoulBrown_40팩</td><td class='num risk'>-30</td><td class='num risk'>1,200</td><td class='num'>53,770</td><td class=''>충당 가능</td></tr><tr><td class=''>S129-06.50</td><td class=''>Iris SoulBrown_40팩</td><td class='num risk'>-30</td><td class='num risk'>1,200</td><td class='num'>40,410</td><td class=''>충당 가능</td></tr><tr><td class=''>S547-07.00</td><td class=''>Clalen O2O2 M_2P</td><td class='num'>18</td><td class='num'>0</td><td class='num'>8,403</td><td class=''>충당 가능</td></tr><tr><td class=''>S162-00.75</td><td class=''>Iris BlueMoon_40팩</td><td class='num'>19</td><td class='num'>0</td><td class='num'>760</td><td class=''>충당 가능</td></tr><tr><td class=''>S548-07.00</td><td class=''>Clalen O2O2 M_6P</td><td class='num'>0</td><td class='num'>0</td><td class='num'>8,403</td><td class=''>충당 가능</td></tr></tbody></table>
       </div>
     </section>
 

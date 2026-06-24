@@ -1330,13 +1330,18 @@ def finalize_summary(summary: pd.DataFrame) -> pd.DataFrame:
         out["용마입고 PACK"] / out["요청 PACK"] * 100.0,
         0.0,
     )
+    packing_progress = np.where(
+        out["요청 PACK"] > 0,
+        out["포장 PACK"] / out["요청 PACK"] * 100.0,
+        0.0,
+    )
     out["용마입고율"] = np.clip(raw_progress, 0.0, 100.0)
-    out["포장진도율"] = out["용마입고율"]
+    out["포장진도율"] = np.clip(packing_progress, 0.0, 100.0)
     out["부족 PACK"] = out["미입고수량"]
     out["진도율(%)"] = out["용마입고율"]
     out["상태"] = [
         classify_status(float(packing), float(progress))
-        for packing, progress in zip(out["용마입고 PACK"], out["용마입고율"])
+        for packing, progress in zip(out["포장 PACK"], out["포장진도율"])
     ]
     return out
 
@@ -2303,7 +2308,12 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
         0.0,
     )
     grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
-    grouped["포장진도율"] = grouped["용마입고율"]
+    grouped["포장진도율"] = np.where(
+        grouped["요청 PACK"] > 0,
+        grouped["포장 PACK"] / grouped["요청 PACK"] * 100.0,
+        0.0,
+    )
+    grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
     grouped["_order"] = grouped["본품분류"].map(
         {name: idx for idx, name in enumerate(MAIN_PRODUCT_FAMILY_ORDER)}
     ).fillna(999)
@@ -2334,15 +2344,13 @@ def family_card_html(row: pd.Series) -> str:
     production_progress = float(row["생산진도율"])
     receipt_progress = float(row.get("용마입고율", row["포장진도율"]))
     production_shortage = format_int(float(row["생산부족수량"]))
-    receipt_shortage = format_int(float(row.get("미입고수량", row["포장부족수량"])))
     return (
         "<div class='family-card'>"
         f"<div class='family-head'><span>{family}</span><b>요청 {request_pack} PACK</b></div>"
         f"{progress_cell_html(production_progress, '생산')}"
         f"{progress_cell_html(receipt_progress, '입고')}"
         "<div class='family-shortages'>"
-        f"<span>생산부족 <b>{production_shortage}</b></span>"
-        f"<span>미입고 <b>{receipt_shortage}</b></span>"
+        f"<span>생산부족 PCS <b>{production_shortage}</b></span>"
         "</div>"
         "</div>"
     )
@@ -2371,39 +2379,93 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
 
 
 def build_top_shortage_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
+    columns = ["순위", "제품명", "미입고 PACK", "생산진도율", "포장진도율", "용마입고율", "추정 원인"]
     if product_df.empty:
-        return pd.DataFrame(columns=["제품명", "미입고수량", "용마입고율"])
-    return (
-        product_df[product_df["미입고수량"] > 0]
-        .sort_values("미입고수량", ascending=False, kind="stable")
-        .head(top_n)[["제품명", "미입고수량", "용마입고율"]]
-        .copy()
-    )
+        return pd.DataFrame(columns=columns)
+
+    view = product_df.copy()
+    for col in ["미입고수량", "생산진도율", "포장진도율", "용마입고율"]:
+        if col not in view.columns:
+            view[col] = 0.0
+        view[col] = pd.to_numeric(view[col], errors="coerce").fillna(0.0)
+    view = view[view["미입고수량"] > 0].sort_values("미입고수량", ascending=False, kind="stable").head(top_n).copy()
+    if view.empty:
+        return pd.DataFrame(columns=columns)
+    view["미입고 PACK"] = view["미입고수량"]
+    view["추정 원인"] = [
+        estimate_shortage_cause(production, packing, receipt)
+        for production, packing, receipt in zip(view["생산진도율"], view["포장진도율"], view["용마입고율"])
+    ]
+    view["순위"] = range(1, len(view) + 1)
+    return view[columns].copy()
+
+
+def estimate_shortage_cause(production_progress: Any, packing_progress: Any, receipt_progress: Any) -> str:
+    production_num = pd.to_numeric(production_progress, errors="coerce")
+    packing_num = pd.to_numeric(packing_progress, errors="coerce")
+    receipt_num = pd.to_numeric(receipt_progress, errors="coerce")
+    production = 0.0 if pd.isna(production_num) else float(production_num)
+    packing = 0.0 if pd.isna(packing_num) else float(packing_num)
+    receipt = 0.0 if pd.isna(receipt_num) else float(receipt_num)
+    if production < 50.0 and packing < 50.0 and receipt < 50.0:
+        return "전체 지연"
+    if production < 80.0:
+        return "생산 부족"
+    if production >= 80.0 and packing < 80.0:
+        return "포장 대기"
+    if packing >= 80.0 and receipt < 80.0:
+        return "용마 미입고"
+    if receipt < 80.0:
+        return "용마 미입고"
+    return "진행 확인"
 
 
 def render_top_shortage_list(top_df: pd.DataFrame) -> None:
     if top_df.empty:
         st.warning("미입고 제품이 없습니다.")
         return
-
     rows: list[str] = []
-    for idx, (_, row) in enumerate(top_df.iterrows(), start=1):
-        product = escape(str(row["제품명"]))
-        shortage = format_int(float(row["미입고수량"]))
-        progress = float(row["용마입고율"])
+    for _, row in top_df.iterrows():
+        cause = clean_str(row.get("추정 원인", ""))
         rows.append(
-            "<div class='top-row'>"
-            f"<div class='top-rank'>{idx}</div>"
-            f"<div class='top-name'>{product}</div>"
-            f"<div class='top-shortage'>{shortage}</div>"
-            f"<div class='top-progress'>{progress_cell_html(progress, '입고')}</div>"
-            "</div>"
+            "<tr>"
+            f"<td class='num muted'>{format_int(float(row.get('순위', 0.0)))}</td>"
+            f"<td class='left'>{escape(str(row.get('제품명', '')))}</td>"
+            f"<td class='num shortage'>{format_int(float(row.get('미입고 PACK', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('포장진도율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)))}</td>"
+            f"<td><span class='cause-badge {cause_badge_class(cause)}'>{escape(cause)}</span></td>"
+            "</tr>"
         )
-    st.markdown("<div class='top-list'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='table-wrap compact-table'>"
+        "<table class='ops-table progress-summary-table'>"
+        "<thead><tr>"
+        "<th class='num'>순위</th>"
+        "<th class='left'>제품명</th>"
+        "<th class='num'>미입고 PACK</th>"
+        "<th>생산진도율</th>"
+        "<th>포장진도율</th>"
+        "<th>용마입고율</th>"
+        "<th>추정 원인</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def cause_badge_class(cause: str) -> str:
+    if cause in {"생산 부족", "전체 지연"}:
+        return "need"
+    if cause in {"포장 대기", "용마 미입고"}:
+        return "partial"
+    return "ok"
 
 
 def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    columns = ["제품명", "생산진도율", "용마입고율", "GAP", "미입고수량"]
+    columns = ["순위", "제품명", "생산진도율", "용마입고율", "GAP"]
     if product_df.empty:
         return pd.DataFrame(columns=columns)
 
@@ -2423,38 +2485,48 @@ def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFram
     if source.empty:
         return pd.DataFrame(columns=columns)
 
-    return (
+    out = (
         source.sort_values(
             ["GAP", "미입고수량", "요청 PACK"],
             ascending=[False, False, False],
             kind="stable",
         )
-        .head(top_n)[columns]
+        .head(top_n)
         .copy()
     )
+    out["순위"] = range(1, len(out) + 1)
+    return out[columns].copy()
 
 
 def render_gap_top_list(gap_df: pd.DataFrame) -> None:
     if gap_df.empty:
         st.warning("생산진도율이 용마입고율보다 높은 GAP 제품이 없습니다.")
         return
-
     rows: list[str] = []
-    for idx, (_, row) in enumerate(gap_df.iterrows(), start=1):
-        product = escape(str(row["제품명"]))
-        production_progress = float(row["생산진도율"])
-        receipt_progress = float(row["용마입고율"])
-        gap = float(row["GAP"])
+    for _, row in gap_df.iterrows():
         rows.append(
-            "<div class='gap-row'>"
-            f"<div class='top-rank'>{idx}</div>"
-            f"<div class='top-name'>{product}</div>"
-            f"<div class='gap-progress'>{progress_cell_html(production_progress, '생산')}</div>"
-            f"<div class='gap-progress'>{progress_cell_html(receipt_progress, '입고')}</div>"
-            f"<div class='gap-value'>+{gap:.1f}</div>"
-            "</div>"
+            "<tr>"
+            f"<td class='num muted'>{format_int(float(row.get('순위', 0.0)))}</td>"
+            f"<td class='left'>{escape(str(row.get('제품명', '')))}</td>"
+            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)))}</td>"
+            f"<td class='num shortage'>+{float(row.get('GAP', 0.0)):.1f}</td>"
+            "</tr>"
         )
-    st.markdown("<div class='gap-list'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='table-wrap compact-table'>"
+        "<table class='ops-table progress-summary-table'>"
+        "<thead><tr>"
+        "<th class='num'>순위</th>"
+        "<th class='left'>제품명</th>"
+        "<th>생산진도율</th>"
+        "<th>용마입고율</th>"
+        "<th class='num'>GAP</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PACK) -> None:
@@ -2473,7 +2545,7 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
               <div class='metric-value'>{format_int(kpi.get('request_pcs', 0.0))}</div>
             </div>
             <div class='kpi-card'>
-              <div class='metric-label'>생산부족수량(PCS)</div>
+              <div class='metric-label'>생산부족 PCS</div>
               <div class='{production_shortage_class}'>{format_int(kpi.get('production_shortage_pcs', 0.0))}</div>
             </div>
             <div class='kpi-card'>
@@ -2614,30 +2686,24 @@ def render_status_board(
     receipt_wait_pack = float(kpi.get("receipt_wait_pack", 0.0))
     priority_products = int(kpi.get("priority_products", 0.0))
     request_out_count = int(exception_kpis.get("request_out_count", 0.0))
-    packable_pcs = float(kpi.get("packable_pcs", max(0.0, float(kpi.get("request_pcs", 0.0)) - production_shortage)))
 
     receipt_width = max(0.0, min(100.0, receipt_progress))
     missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
-    if request_out_count > 0 or priority_products > 0:
+    emergency_count = request_out_count
+    if emergency_count > 0 or priority_products > 0:
         board_tone = "risk"
-        status_label = "우선 대응"
     elif missing_pack > 0 or production_shortage > 0:
         board_tone = "warn"
-        status_label = "진행 관리"
     else:
         board_tone = "good"
-        status_label = "정상"
 
     cards = [
+        ("국내 요청량 PACK", format_int(request_pack), "normal"),
         ("생산진도율", f"{production_progress:.1f}%", metric_progress_tone(production_progress)),
         ("포장진도율", f"{packing_progress:.1f}%", metric_progress_tone(packing_progress)),
         ("용마입고율", f"{receipt_progress:.1f}%", metric_progress_tone(receipt_progress)),
-        ("포장부족 PACK", format_int(packing_todo_pack), "warn" if packing_todo_pack > 0 else "normal"),
-        ("입고대기 PACK", format_int(receipt_wait_pack), "warn" if receipt_wait_pack > 0 else "normal"),
         ("미입고 PACK", format_int(missing_pack), "warn" if missing_pack > 0 else "normal"),
-        ("생산부족 PCS", format_int(production_shortage), "warn" if production_shortage > 0 else "normal"),
-        ("요청외 긴급", f"{request_out_count:,}", "warn" if request_out_count > 0 else "normal"),
-        ("전체 포장가능 PCS", format_int(packable_pcs), "normal"),
+        ("긴급 대응 품목 수", f"{emergency_count:,}", "warn" if emergency_count > 0 else "normal"),
     ]
     card_html = "".join(
         "<div class='status-tile'>"
@@ -2651,7 +2717,7 @@ def render_status_board(
     <div class='status-board {board_tone}'>
       <div class='status-main'>
         <div class='status-head'>
-          <span class='status-pill {board_tone}'>{escape(status_label)}</span>
+          <span class='status-pill {board_tone}'>용마입고율</span>
           <strong>요청 대비 용마 입고 현황</strong>
         </div>
         <div class='status-main-value'>{receipt_progress:.1f}%</div>
@@ -2661,8 +2727,9 @@ def render_status_board(
         </div>
         <div class='status-flow-legend'>
           <span>요청 {format_int(request_pack)} PACK</span>
-          <span>입고 {format_int(yongma_in_pack)} PACK</span>
+          <span>용마입고 {format_int(yongma_in_pack)} PACK</span>
           <span>미입고 {format_int(missing_pack)} PACK</span>
+          <span>용마입고율 {receipt_progress:.1f}%</span>
         </div>
       </div>
       <div class='status-tile-grid'>
@@ -3054,8 +3121,8 @@ def render_operation_kpis(
     if unit_mode == UNIT_PCS:
         render_metric_card_grid(
             [
-                ("요청합계(PCS)", format_int(kpi["request_pcs"]), "normal"),
-                ("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "warn"),
+                ("요청 PCS", format_int(kpi["request_pcs"]), "normal"),
+                ("생산부족 PCS", format_int(kpi["production_shortage_pcs"]), "warn"),
                 ("생산진도율", f"{kpi['production_progress_pct']:.1f}%", metric_progress_tone(kpi["production_progress_pct"])),
                 ("포장진도율", f"{kpi['packing_progress_pct']:.1f}%", metric_progress_tone(kpi["packing_progress_pct"])),
                 ("용마입고율", f"{kpi['receipt_progress_pct']:.1f}%", metric_progress_tone(kpi["receipt_progress_pct"])),
@@ -3064,10 +3131,10 @@ def render_operation_kpis(
         return
     render_metric_card_grid(
         [
-            ("우선품목 수", f"{int(kpi['priority_products']):,}", "normal"),
+            ("긴급 대응 품목 수", f"{int(kpi['priority_products']):,}", "normal"),
             ("재고부족 품목 수", f"{int(kpi['stock_shortage_products']):,}", "normal"),
-            ("미입고(PACK)", format_int(kpi["packing_shortage_pack"]), "warn"),
-            ("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "warn"),
+            ("미입고 PACK", format_int(kpi["packing_shortage_pack"]), "warn"),
+            ("생산부족 PCS", format_int(kpi["production_shortage_pcs"]), "warn"),
         ]
     )
 
@@ -5637,7 +5704,7 @@ def build_daily_exception_report_view(
     sample_available_df: pd.DataFrame | None = None,
     max_rows: int = 5,
 ) -> tuple[dict[str, float], pd.DataFrame]:
-    columns = ["품목코드", "제품명", "재고수량", "포장가능재고(PCS)"]
+    columns = ["품목코드", "제품명", "현재 재고수량", "부족수량", "포장가능재고(PCS)", "대응가능 여부"]
     empty_kpis = {"request_out_count": 0.0, "negative_count": 0.0, "waiting_pcs": 0.0}
     if daily_inventory_df is None or daily_inventory_df.empty:
         return empty_kpis, pd.DataFrame(columns=columns)
@@ -5651,23 +5718,85 @@ def build_daily_exception_report_view(
         return empty_kpis, pd.DataFrame(columns=columns)
 
     out["재고수량"] = pd.to_numeric(out["재고수량"], errors="coerce")
+    out["재고부족수량"] = pd.to_numeric(out.get("재고부족수량", 0.0), errors="coerce").fillna(0.0)
+    pack_units = out["PACK"].map(pack_unit_from_label)
+    out["부족수량"] = (out["재고부족수량"] * pack_units).clip(lower=0.0).round(0)
     out["포장가능재고(PCS)"] = pd.to_numeric(out["포장가능재고(PCS)"], errors="coerce").fillna(0.0)
+    out["대응가능 여부"] = [
+        classify_exception_response(available, shortage)
+        for available, shortage in zip(out["포장가능재고(PCS)"], out["부족수량"])
+    ]
+    out["현재 재고수량"] = out["재고수량"]
     out["_stock_missing_sort"] = out["재고수량"].isna().astype(int)
     out["_stock_sort"] = out["재고수량"].fillna(0.0)
+    out["_response_sort"] = out["대응가능 여부"].map({"대응 필요": 0, "일부 가능": 1, "충당 가능": 2}).fillna(3)
     kpis = {
         "request_out_count": float(len(out)),
         "negative_count": float((out["재고수량"] < 0).sum()),
         "waiting_pcs": float(out["포장가능재고(PCS)"].sum()),
     }
     detail = out.sort_values(
-        ["_stock_missing_sort", "_stock_sort", "포장가능재고(PCS)", "품목코드"],
-        ascending=[True, True, False, True],
+        ["_response_sort", "_stock_missing_sort", "_stock_sort", "포장가능재고(PCS)", "품목코드"],
+        ascending=[True, True, True, False, True],
         kind="stable",
     ).head(max_rows)
     for col in columns:
         if col not in detail.columns:
             detail[col] = ""
     return kpis, detail[columns].copy()
+
+
+def classify_exception_response(available_pcs: Any, shortage_pcs: Any) -> str:
+    available_num = pd.to_numeric(available_pcs, errors="coerce")
+    shortage_num = pd.to_numeric(shortage_pcs, errors="coerce")
+    available = 0.0 if pd.isna(available_num) else float(available_num)
+    shortage = 0.0 if pd.isna(shortage_num) else float(shortage_num)
+    if available <= 0:
+        return "대응 필요"
+    if available >= shortage:
+        return "충당 가능"
+    return "일부 가능"
+
+
+def render_exception_summary_table(exception_detail: pd.DataFrame) -> None:
+    if exception_detail.empty:
+        st.warning("요청외 긴급 품목이 없습니다.")
+        return
+
+    headers = ["품목코드", "제품명", "현재 재고수량", "부족수량", "포장가능재고(PCS)", "대응가능 여부"]
+    rows: list[str] = []
+    for _, row in exception_detail.iterrows():
+        stock = pd.to_numeric(row.get("현재 재고수량", np.nan), errors="coerce")
+        shortage = pd.to_numeric(row.get("부족수량", 0.0), errors="coerce")
+        available = pd.to_numeric(row.get("포장가능재고(PCS)", 0.0), errors="coerce")
+        response = clean_str(row.get("대응가능 여부", ""))
+        response_class = {
+            "충당 가능": "ok",
+            "일부 가능": "partial",
+            "대응 필요": "need",
+        }.get(response, "need")
+        stock_text = "-" if pd.isna(stock) else format_int(float(stock))
+        stock_class = "num negative" if not pd.isna(stock) and float(stock) < 0 else "num"
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(row.get('품목코드', '')))}</td>"
+            f"<td class='left'>{escape(str(row.get('제품명', '')))}</td>"
+            f"<td class='{stock_class}'>{stock_text}</td>"
+            f"<td class='num shortage'>{format_int(float(shortage) if not pd.isna(shortage) else 0.0)}</td>"
+            f"<td class='num'>{format_int(float(available) if not pd.isna(available) else 0.0)}</td>"
+            f"<td><span class='response-badge {response_class}'>{escape(response)}</span></td>"
+            "</tr>"
+        )
+    header_html = "".join(f"<th class='{'left' if header == '제품명' else ''}'>{escape(header)}</th>" for header in headers)
+    st.markdown(
+        "<div class='table-wrap compact-table'>"
+        "<table class='ops-table urgent-summary-table'>"
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def to_report_float(value: Any) -> float:
@@ -6578,21 +6707,21 @@ def render_style() -> None:
         .status-board {{
             display: grid;
             grid-template-columns: minmax(320px, 1.1fr) minmax(420px, 1.9fr);
-            gap: 12px;
-            margin: 4px 0 12px;
+            gap: 10px;
+            margin: 2px 0 10px;
             align-items: stretch;
         }}
         .status-main,
         .status-tile {{
             background: {BG_CARD};
             border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
+            border-radius: 8px;
             box-shadow: none;
         }}
         .status-main {{
-            padding: 20px 22px;
-            border-left: 5px solid {COLOR_TEAL};
-            box-shadow: 0 10px 22px rgba(38, 52, 67, 0.08);
+            padding: 16px 18px;
+            border-left: 4px solid {TEXT_TERTIARY};
+            box-shadow: none;
         }}
         .status-board.warn .status-main {{
             border-left-color: {COLOR_AMBER};
@@ -6605,7 +6734,7 @@ def render_style() -> None:
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
         }}
         .status-head strong {{
             color: {TEXT_PRIMARY};
@@ -6616,11 +6745,11 @@ def render_style() -> None:
             display: inline-flex;
             align-items: center;
             border-radius: 999px;
-            padding: 5px 10px;
+            padding: 4px 9px;
             font-size: 11px;
             font-weight: 700;
-            color: {COLOR_TEAL};
-            background: #EAF6F1;
+            color: {TEXT_SECONDARY};
+            background: {BG_SECTION};
         }}
         .status-pill.warn {{
             color: {COLOR_AMBER};
@@ -6632,16 +6761,16 @@ def render_style() -> None:
         }}
         .status-main-value {{
             color: {TEXT_PRIMARY};
-            font-size: 38px;
+            font-size: 34px;
             line-height: 1;
             font-weight: 900;
             font-variant-numeric: tabular-nums;
-            margin-bottom: 14px;
+            margin-bottom: 12px;
         }}
         .status-flow {{
             display: flex;
             width: 100%;
-            height: 14px;
+            height: 10px;
             border-radius: 999px;
             background: {BG_SECTION};
             overflow: hidden;
@@ -6656,7 +6785,8 @@ def render_style() -> None:
             display: flex;
             justify-content: space-between;
             gap: 10px;
-            margin-top: 10px;
+            flex-wrap: wrap;
+            margin-top: 9px;
             color: {TEXT_SECONDARY};
             font-size: 11px;
             font-variant-numeric: tabular-nums;
@@ -6664,17 +6794,17 @@ def render_style() -> None:
         .status-tile-grid {{
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 10px;
+            gap: 8px;
         }}
         .status-tile {{
-            min-height: 86px;
-            padding: 14px 16px;
+            min-height: 72px;
+            padding: 11px 13px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
         }}
         .status-tile .metric-value {{
-            font-size: 21px;
+            font-size: 20px;
         }}
         @media (max-width: 1100px) {{
             .status-board {{
@@ -6696,8 +6826,8 @@ def render_style() -> None:
         .panel-box {{
             background: {BG_CARD};
             border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
-            padding: 16px 20px;
+            border-radius: 8px;
+            padding: 12px 14px;
             box-shadow: none;
         }}
         .family-section {{
@@ -6722,17 +6852,17 @@ def render_style() -> None:
         .family-grid {{
             display: grid;
             grid-template-columns: repeat(5, minmax(0, 1fr));
-            gap: 10px;
+            gap: 8px;
         }}
         .family-card {{
             border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
+            border-radius: 8px;
             background: {BG_CARD};
-            padding: 14px 16px;
-            min-height: 128px;
+            padding: 11px 13px;
+            min-height: 106px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 8px;
         }}
         .family-card:has(.progress-fill.production.risk),
         .family-card:has(.progress-fill.production.warn) {{
@@ -6761,7 +6891,7 @@ def render_style() -> None:
         }}
         .family-shortages {{
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             gap: 8px;
             color: {TEXT_SECONDARY};
             font-size: 10px;
@@ -6860,8 +6990,11 @@ def render_style() -> None:
             max-height: 640px;
             overflow: auto;
             border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
+            border-radius: 8px;
             background: {BG_CARD};
+        }}
+        .compact-table {{
+            max-height: 360px;
         }}
         .ops-table {{
             width: 100%;
@@ -6900,6 +7033,40 @@ def render_style() -> None:
         .ops-table td.num.shortage {{
             color: {COLOR_ORANGE};
             font-weight: 500;
+        }}
+        .ops-table td.num.muted {{
+            color: {TEXT_SECONDARY};
+            font-weight: 500;
+        }}
+        .ops-table td.num.negative {{
+            color: {COLOR_ORANGE};
+            font-weight: 700;
+        }}
+        .response-badge,
+        .cause-badge {{
+            display: inline-flex;
+            align-items: center;
+            min-width: 72px;
+            justify-content: center;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            background: {BG_SECTION};
+            color: {TEXT_SECONDARY};
+        }}
+        .cause-badge.ok {{
+            min-width: 64px;
+        }}
+        .response-badge.partial,
+        .cause-badge.partial {{
+            background: #F7EFE3;
+            color: {COLOR_AMBER};
+        }}
+        .response-badge.need,
+        .cause-badge.need {{
+            background: {COLOR_ALERT_BG};
+            color: {COLOR_ORANGE};
         }}
         .ops-table td.power-cell {{
             text-align: center;
@@ -7365,6 +7532,9 @@ def drilldown_column_config() -> dict[str, Any]:
         "용마입고대기수량(PCS)": st.column_config.NumberColumn("용마입고대기수량(PCS)", format=numeric_format),
         "포장가능재고(PCS)": st.column_config.NumberColumn("포장가능재고(PCS)", format=numeric_format),
         "샘플신청가능수량": st.column_config.NumberColumn("샘플신청가능수량", format=numeric_format),
+        "순위": st.column_config.NumberColumn("순위", format="%d", width="small"),
+        "현재 재고수량": st.column_config.NumberColumn("현재 재고수량", format=numeric_format),
+        "부족수량": st.column_config.NumberColumn("부족수량", format=numeric_format),
         "미입고(PACK)": st.column_config.NumberColumn("미입고(PACK)", format=numeric_format),
         "미입고수량": st.column_config.NumberColumn("미입고수량", format=numeric_format),
         "입고대기수량": st.column_config.NumberColumn("입고대기수량", format=numeric_format),
@@ -7409,6 +7579,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "포장수량": st.column_config.NumberColumn("포장수량", format=numeric_format),
         "부족수량": st.column_config.NumberColumn("부족수량", format=numeric_format),
         "포장진도율": st.column_config.ProgressColumn("포장진도율", min_value=0, max_value=100, format="%.1f%%"),
+        "GAP": st.column_config.NumberColumn("GAP", format="%.1f"),
         "power_value": None,
         "_power_sort": None,
         "_min_due_date_sort": None,
@@ -7598,13 +7769,14 @@ def render_product_summary_tab(
         daily_inventory_df,
         code_summary,
         sample_available_df,
+        max_rows=10,
     )
 
     title_col, download_col = st.columns([4.8, 1.2], gap="small", vertical_alignment="center")
     with title_col:
         render_panel_title(
             "제품 진도 현황",
-            "월간 요청 대비 용마입고율과 생산/재고 리스크를 한 화면에서 확인합니다.",
+            "국내 요청 물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.",
         )
     with download_col:
         ppt_bytes = build_ppt_report(
@@ -7628,10 +7800,10 @@ def render_product_summary_tab(
             "제품_진도_현황",
             {
                 "제품 요약": product_summary,
-                "본품 분류별 진도": family_view,
                 "미입고 TOP10": top_shortage_view,
-                "생산입고 GAP TOP10": gap_top_view,
-                "요청외 긴급": exception_detail,
+                "본품 분류별 진도": family_view,
+                "생산완료 후 미입고 TOP10": gap_top_view,
+                "요청 긴급 요약": exception_detail,
             },
             key="download_product_progress_excel",
         )
@@ -7646,17 +7818,8 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "본품 분류별 진도현황",
-        "제품보다 상위 제품군 기준으로 생산/입고 진도와 부족수량을 먼저 확인합니다.",
-    )
-    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
-    render_family_progress_cards(family_view)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
         "미입고 TOP10",
-        "오늘 우선 확인해야 할 제품을 미입고수량 기준으로 표시합니다.",
+        "미입고 PACK이 큰 제품의 생산·포장·입고 진도와 추정 원인을 확인합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_top_shortage_list(top_shortage_view)
@@ -7664,8 +7827,17 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "생산/입고 GAP TOP10",
-        "생산진도율 대비 용마입고율이 뒤처진 제품을 GAP 기준으로 표시합니다.",
+        "본품 분류별 진도현황",
+        "제품군별 요청 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
+    )
+    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
+    render_family_progress_cards(family_view)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "생산완료 후 미입고 TOP10",
+        "생산은 진행됐지만 용마 입고가 지연되는 제품을 GAP 기준으로 표시합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_gap_top_list(gap_top_view)
@@ -7673,20 +7845,11 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "요청외 긴급 요약",
+        "요청 긴급 요약",
         f"일일 재고표 기준 요청물량 외 대응 품목 {int(exception_kpis.get('request_out_count', 0)):,}건을 확인합니다.",
     )
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
-    if exception_detail.empty:
-        st.warning("요청외 긴급 품목이 없습니다.")
-    else:
-        st.dataframe(
-            dataframe_for_streamlit(exception_detail),
-            hide_index=True,
-            height=220,
-            width="stretch",
-            column_config=drilldown_column_config(),
-        )
+    render_exception_summary_table(exception_detail)
     st.markdown("</div>", unsafe_allow_html=True)
 
 

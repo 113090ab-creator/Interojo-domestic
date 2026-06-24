@@ -42,12 +42,17 @@ def table_html(df: pd.DataFrame, columns: list[str], max_rows: int = 20) -> str:
         "요청 PACK",
         "용마입고 PACK",
         "미입고 PACK",
+        "현재 재고수량",
+        "부족수량",
         "용마입고대기 PACK",
         "포장가능재고(PCS)",
         "생산부족 PCS",
         "재고수량",
+        "순위",
+        "GAP",
     }
-    percent_like = {"생산진도율", "용마입고율"}
+    percent_like = {"생산진도율", "포장진도율", "용마입고율"}
+    decimal_like = {"GAP"}
     rows: list[str] = ["<table><thead><tr>"]
     for col in view.columns:
         rows.append(f"<th>{esc(col)}</th>")
@@ -60,9 +65,18 @@ def table_html(df: pd.DataFrame, columns: list[str], max_rows: int = 20) -> str:
             if col in percent_like:
                 text = fmt_pct(value)
                 klass = "num"
+            elif col in decimal_like:
+                num = pd.to_numeric(value, errors="coerce")
+                text = "0.0" if pd.isna(num) else f"{float(num):,.1f}"
+                klass = "num risk" if not pd.isna(num) and float(num) > 0 else "num"
             elif col in numeric_like:
                 text = fmt_int(value)
-                klass = "num risk" if col in {"미입고 PACK", "생산부족 PCS"} and float(pd.to_numeric(value, errors="coerce") or 0) > 0 else "num"
+                num = pd.to_numeric(value, errors="coerce")
+                is_risk = (
+                    (col in {"미입고 PACK", "생산부족 PCS", "부족수량"} and not pd.isna(num) and float(num) > 0)
+                    or (col in {"현재 재고수량", "재고수량"} and not pd.isna(num) and float(num) < 0)
+                )
+                klass = "num risk" if is_risk else "num"
             else:
                 text = esc(value)
             rows.append(f"<td class='{klass}'>{text}</td>")
@@ -73,39 +87,29 @@ def table_html(df: pd.DataFrame, columns: list[str], max_rows: int = 20) -> str:
 
 def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], request_out_count: int) -> str:
     request_pack = float(pd.to_numeric(kpi.get("request_pack", 0), errors="coerce") or 0)
-    request_pcs = float(pd.to_numeric(operation_kpi.get("request_pcs", kpi.get("request_pcs", 0)), errors="coerce") or 0)
     packing_pack = float(pd.to_numeric(kpi.get("packing_pack", 0), errors="coerce") or 0)
     yongma_in_pack = float(pd.to_numeric(kpi.get("yongma_in_pack", 0), errors="coerce") or 0)
     missing_pack = float(pd.to_numeric(kpi.get("shortage_pack", operation_kpi.get("packing_shortage_pack", 0)), errors="coerce") or 0)
     packing_progress = float(pd.to_numeric(operation_kpi.get("packing_progress_pct", (packing_pack / request_pack * 100.0) if request_pack > 0 else 0), errors="coerce") or 0)
     receipt_progress = float(pd.to_numeric(operation_kpi.get("receipt_progress_pct", kpi.get("progress_pct", 0)), errors="coerce") or 0)
     production_progress = float(pd.to_numeric(operation_kpi.get("production_progress_pct", 0), errors="coerce") or 0)
-    packing_todo_pack = float(pd.to_numeric(operation_kpi.get("packing_todo_pack", max(0.0, request_pack - packing_pack)), errors="coerce") or 0)
-    receipt_wait_pack = float(pd.to_numeric(operation_kpi.get("receipt_wait_pack", max(0.0, packing_pack - yongma_in_pack)), errors="coerce") or 0)
     production_shortage = float(pd.to_numeric(operation_kpi.get("production_shortage_pcs", 0), errors="coerce") or 0)
-    packable_pcs = float(pd.to_numeric(operation_kpi.get("packable_pcs", max(0.0, request_pcs - production_shortage)), errors="coerce") or 0)
     priority_products = int(pd.to_numeric(operation_kpi.get("priority_products", 0), errors="coerce") or 0)
     receipt_width = max(0.0, min(100.0, receipt_progress))
     missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
     if request_out_count > 0 or priority_products > 0:
         tone = "risk"
-        status = "우선 대응"
     elif missing_pack > 0 or production_shortage > 0:
         tone = "warn"
-        status = "진행 관리"
     else:
         tone = "good"
-        status = "정상"
     tiles = [
+        ("국내 요청량 PACK", fmt_int(request_pack), ""),
         ("생산진도율", fmt_pct(production_progress), ""),
         ("포장진도율", fmt_pct(packing_progress), ""),
         ("용마입고율", fmt_pct(receipt_progress), ""),
-        ("포장부족 PACK", fmt_int(packing_todo_pack), "warn" if packing_todo_pack > 0 else ""),
-        ("입고대기 PACK", fmt_int(receipt_wait_pack), "warn" if receipt_wait_pack > 0 else ""),
         ("미입고 PACK", fmt_int(missing_pack), "warn" if missing_pack > 0 else ""),
-        ("생산부족 PCS", fmt_int(production_shortage), "warn" if production_shortage > 0 else ""),
-        ("요청외 긴급", fmt_int(request_out_count), "warn" if request_out_count else ""),
-        ("전체 포장가능 PCS", fmt_int(packable_pcs), ""),
+        ("긴급 대응 품목 수", fmt_int(request_out_count), "warn" if request_out_count else ""),
     ]
     tile_html = "".join(
         f"""
@@ -119,7 +123,7 @@ def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], reques
     return f"""
     <div class="status-board {tone}">
       <div class="status-main">
-        <div class="status-head"><span class="status-pill {tone}">{esc(status)}</span><strong>요청 대비 용마 입고 현황</strong></div>
+        <div class="status-head"><span class="status-pill {tone}">용마입고율</span><strong>요청 대비 용마 입고 현황</strong></div>
         <div class="status-main-value">{receipt_progress:.1f}%</div>
         <div class="status-flow">
           <div class="status-flow-fill receipt" style="width:{receipt_width:.1f}%"></div>
@@ -127,8 +131,9 @@ def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], reques
         </div>
         <div class="status-flow-legend">
           <span>요청 {fmt_int(request_pack)} PACK</span>
-          <span>입고 {fmt_int(yongma_in_pack)} PACK</span>
+          <span>용마입고 {fmt_int(yongma_in_pack)} PACK</span>
           <span>미입고 {fmt_int(missing_pack)} PACK</span>
+          <span>용마입고율 {receipt_progress:.1f}%</span>
         </div>
       </div>
       <div class="status-tile-grid">{tile_html}</div>
@@ -145,7 +150,6 @@ def family_cards_html(family_view: pd.DataFrame) -> str:
         production = float(pd.to_numeric(row.get("생산진도율", 0), errors="coerce") or 0)
         receipt = float(pd.to_numeric(row.get("용마입고율", 0), errors="coerce") or 0)
         production_short = fmt_int(row.get("생산부족수량", 0))
-        receipt_short = fmt_int(row.get("미입고수량", 0))
         rows.append(
             f"""
             <article class="family-card">
@@ -155,7 +159,7 @@ def family_cards_html(family_view: pd.DataFrame) -> str:
               </div>
               <div class="bar-row"><span>생산</span><div class="bar"><i style="width:{max(0, min(production, 100)):.1f}%"></i></div><em>{production:.1f}%</em></div>
               <div class="bar-row"><span>입고</span><div class="bar"><i style="width:{max(0, min(receipt, 100)):.1f}%"></i></div><em>{receipt:.1f}%</em></div>
-              <div class="family-foot"><span>생산부족 <b>{production_short}</b></span><span>미입고 <b>{receipt_short}</b></span></div>
+              <div class="family-foot"><span>생산부족 PCS <b>{production_short}</b></span></div>
             </article>
             """
         )
@@ -180,14 +184,14 @@ def build_html() -> str:
     )
     main_products, _sample_products = dashboard.split_main_sample(product_summary)
     family_view = dashboard.build_family_progress_view(main_products)
-    daily_view = dashboard.build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
-    exception_kpis, _exception_detail = dashboard.build_daily_exception_report_view(
+    top_shortage_view = dashboard.build_top_shortage_view(product_summary, top_n=10)
+    gap_top_view = dashboard.build_gap_top_view(product_summary, top_n=10)
+    exception_kpis, exception_detail = dashboard.build_daily_exception_report_view(
         daily_inventory_df,
         code_summary,
         sample_available_df,
+        max_rows=10,
     )
-    urgent = daily_view[daily_view["대응상태"].isin(["요청외 긴급", "요청내 긴급"])].copy()
-    urgent = urgent.sort_values(["대응상태", "포장가능재고(PCS)", "생산부족 PCS"], ascending=[True, False, False], kind="stable")
     request_out_count = int(exception_kpis.get("request_out_count", 0.0))
     generated_at = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M")
 
@@ -219,9 +223,10 @@ def build_html() -> str:
     h1 {{ margin:0; font-size:32px; line-height:1.2; letter-spacing:0; }}
     h2 {{ margin:0 0 12px; font-size:18px; }}
     .stamp {{ color:var(--muted); font-size:13px; }}
-    .status-board {{ display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:12px; margin:0 0 14px; }}
+    .lead {{ color:var(--muted); font-size:14px; margin:8px 0 18px; }}
+    .status-board {{ display:grid; grid-template-columns:minmax(320px,1.1fr) minmax(420px,1.9fr); gap:10px; margin:0 0 12px; }}
     .status-main, .status-tile {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; }}
-    .status-main {{ padding:20px 22px; border-left:5px solid #1d9e75; box-shadow:0 10px 22px rgba(38,52,67,0.08); }}
+    .status-main {{ padding:16px 18px; border-left:4px solid #9e9d99; }}
     .status-board.warn .status-main {{ border-left-color:var(--amber); }}
     .status-board.risk .status-main {{ border-left-color:var(--risk); }}
     .status-head {{ display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:12px; }}
@@ -229,19 +234,19 @@ def build_html() -> str:
     .status-pill {{ display:inline-flex; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:700; background:#eaf6f1; color:#1d9e75; }}
     .status-pill.warn {{ background:#f7efe3; color:#ba7517; }}
     .status-pill.risk {{ background:var(--soft); color:var(--risk); }}
-    .status-main-value {{ font-size:38px; line-height:1; font-weight:900; color:var(--text); margin-bottom:14px; }}
-    .status-flow {{ display:flex; height:14px; border-radius:999px; background:#e9eff5; overflow:hidden; }}
+    .status-main-value {{ font-size:34px; line-height:1; font-weight:900; color:var(--text); margin-bottom:12px; }}
+    .status-flow {{ display:flex; height:10px; border-radius:999px; background:#e9eff5; overflow:hidden; }}
     .status-flow-fill.receipt {{ background:#1d9e75; }}
     .status-flow-fill.shortage {{ background:var(--risk); }}
-    .status-flow-legend {{ display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:var(--muted); font-size:11px; }}
-    .status-tile-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }}
-    .status-tile {{ padding:14px 16px; min-height:86px; }}
+    .status-flow-legend {{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-top:9px; color:var(--muted); font-size:11px; }}
+    .status-tile-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }}
+    .status-tile {{ padding:11px 13px; min-height:72px; }}
     .metric-label {{ color:var(--muted); font-size:12px; margin-bottom:8px; }}
     .metric-value {{ color:var(--primary); font-size:25px; font-weight:800; }}
     .status-tile.warn .metric-value, .risk {{ color:var(--risk); }}
-    section {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-top:16px; }}
-    .family-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }}
-    .family-card {{ border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }}
+    section {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-top:12px; }}
+    .family-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }}
+    .family-card {{ border:1px solid var(--line); border-radius:8px; padding:11px 13px; background:#fff; }}
     .family-head, .family-foot {{ display:flex; justify-content:space-between; gap:12px; align-items:center; }}
     .family-head span, .family-foot {{ color:var(--muted); font-size:12px; }}
     .family-foot b {{ color:var(--risk); }}
@@ -275,18 +280,33 @@ def build_html() -> str:
       </div>
       <div class="stamp">기준: 요청물량, 수요정보, 용마입고, 일일 재고현황</div>
     </header>
+    <p class="lead">국내 요청 물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.</p>
 
     {status_board_html(kpi, operation_kpi, request_out_count)}
 
     <section>
-      <h2>본품 분류별 진도 현황</h2>
+      <h2>미입고 TOP10</h2>
+      <div class="table-wrap">
+        {table_html(top_shortage_view, ["순위", "제품명", "미입고 PACK", "생산진도율", "포장진도율", "용마입고율", "추정 원인"], 10)}
+      </div>
+    </section>
+
+    <section>
+      <h2>본품 분류별 진도현황</h2>
       <div class="family-grid">{family_cards_html(family_view)}</div>
     </section>
 
     <section>
-      <h2>일일 재고 대응 우선 확인</h2>
+      <h2>생산완료 후 미입고 TOP10</h2>
       <div class="table-wrap">
-        {table_html(urgent, ["대응상태", "품목코드", "제품명", "제품코드", "PACK", "POWER", "재고수량", "요청 PACK", "용마입고 PACK", "미입고 PACK", "용마입고대기 PACK", "포장가능재고(PCS)", "생산부족 PCS", "생산진도율", "최소 납기"], 30)}
+        {table_html(gap_top_view, ["순위", "제품명", "생산진도율", "용마입고율", "GAP"], 10)}
+      </div>
+    </section>
+
+    <section>
+      <h2>요청 긴급 요약</h2>
+      <div class="table-wrap">
+        {table_html(exception_detail, ["품목코드", "제품명", "현재 재고수량", "부족수량", "포장가능재고(PCS)", "대응가능 여부"], 10)}
       </div>
     </section>
 
