@@ -4546,6 +4546,7 @@ def build_production_progress_main_view(code_summary: pd.DataFrame, pack_labels:
 
 def prepare_production_power_rows(code_summary: pd.DataFrame) -> pd.DataFrame:
     work = with_operational_columns(code_summary)
+    work = work[work["production_code_display"].map(is_p_production_code)].copy()
     work = add_allocated_production_basis(work)
     work["_production_shortage_pcs"] = pd.to_numeric(
         work["_allocated_production_shortage_qty"],
@@ -4594,6 +4595,10 @@ def filter_production_power_rows(
     return out.copy()
 
 
+def is_p_production_code(value: Any) -> bool:
+    return clean_str(value).upper().startswith("P")
+
+
 def bottleneck_status(production_progress: Any, packing_progress: Any) -> str:
     production = float(pd.to_numeric(production_progress, errors="coerce") or 0.0)
     packing = float(pd.to_numeric(packing_progress, errors="coerce") or 0.0)
@@ -4616,7 +4621,7 @@ def production_code_prefix(value: Any) -> str:
     text = clean_str(value)
     if not text or text == "(생산코드 미기재)":
         return "(생산코드 미기재)"
-    return text[:5]
+    return text[:5].upper()
 
 
 def build_production_power_main_view(
@@ -7986,9 +7991,9 @@ def render_product_summary_tab(
 def render_production_code_tab(code_summary: pd.DataFrame) -> None:
     render_panel_title(
         "생산코드 상세",
-        "생산코드 5자리 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
+        "P로 시작하는 생산코드 5자리 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
     )
-    production_unit_mode = render_unit_selector("production_progress_unit_mode")
+    production_unit_mode = UNIT_PACK
     pack_options = available_pack_options(code_summary)
     pack_labels = PRODUCTION_CODE_PACK_LABELS
     power_options = available_production_power_options(code_summary)
@@ -8083,7 +8088,7 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_production_row = render_selectable_table(
         "생산코드 메인 테이블",
-        f"생산코드 5자리 기준 집계 | 납기일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
+        f"P로 시작하는 생산코드 5자리 기준 집계 | 납기일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
         production_view,
         key=f"production_code_main_table_{table_nonce}",
         height=620,
