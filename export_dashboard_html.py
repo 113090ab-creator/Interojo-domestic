@@ -71,22 +71,19 @@ def table_html(df: pd.DataFrame, columns: list[str], max_rows: int = 20) -> str:
     return "".join(rows)
 
 
-def metric_card(label: str, value: str, tone: str = "") -> str:
-    return f"""
-    <div class="metric {tone}">
-      <div class="metric-label">{esc(label)}</div>
-      <div class="metric-value">{esc(value)}</div>
-    </div>
-    """
-
-
-def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], request_out_count: int, waiting_pcs: float) -> str:
+def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], request_out_count: int) -> str:
     request_pack = float(pd.to_numeric(kpi.get("request_pack", 0), errors="coerce") or 0)
+    request_pcs = float(pd.to_numeric(operation_kpi.get("request_pcs", kpi.get("request_pcs", 0)), errors="coerce") or 0)
+    packing_pack = float(pd.to_numeric(kpi.get("packing_pack", 0), errors="coerce") or 0)
     yongma_in_pack = float(pd.to_numeric(kpi.get("yongma_in_pack", 0), errors="coerce") or 0)
     missing_pack = float(pd.to_numeric(kpi.get("shortage_pack", operation_kpi.get("packing_shortage_pack", 0)), errors="coerce") or 0)
-    receipt_progress = float(pd.to_numeric(kpi.get("progress_pct", operation_kpi.get("packing_progress_pct", 0)), errors="coerce") or 0)
+    packing_progress = float(pd.to_numeric(operation_kpi.get("packing_progress_pct", (packing_pack / request_pack * 100.0) if request_pack > 0 else 0), errors="coerce") or 0)
+    receipt_progress = float(pd.to_numeric(operation_kpi.get("receipt_progress_pct", kpi.get("progress_pct", 0)), errors="coerce") or 0)
     production_progress = float(pd.to_numeric(operation_kpi.get("production_progress_pct", 0), errors="coerce") or 0)
+    packing_todo_pack = float(pd.to_numeric(operation_kpi.get("packing_todo_pack", max(0.0, request_pack - packing_pack)), errors="coerce") or 0)
+    receipt_wait_pack = float(pd.to_numeric(operation_kpi.get("receipt_wait_pack", max(0.0, packing_pack - yongma_in_pack)), errors="coerce") or 0)
     production_shortage = float(pd.to_numeric(operation_kpi.get("production_shortage_pcs", 0), errors="coerce") or 0)
+    packable_pcs = float(pd.to_numeric(operation_kpi.get("packable_pcs", max(0.0, request_pcs - production_shortage)), errors="coerce") or 0)
     priority_products = int(pd.to_numeric(operation_kpi.get("priority_products", 0), errors="coerce") or 0)
     receipt_width = max(0.0, min(100.0, receipt_progress))
     missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
@@ -100,12 +97,15 @@ def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], reques
         tone = "good"
         status = "정상"
     tiles = [
-        ("용마입고율", fmt_pct(receipt_progress), ""),
         ("생산진도율", fmt_pct(production_progress), ""),
+        ("포장진도율", fmt_pct(packing_progress), ""),
+        ("용마입고율", fmt_pct(receipt_progress), ""),
+        ("포장부족 PACK", fmt_int(packing_todo_pack), "warn" if packing_todo_pack > 0 else ""),
+        ("입고대기 PACK", fmt_int(receipt_wait_pack), "warn" if receipt_wait_pack > 0 else ""),
         ("미입고 PACK", fmt_int(missing_pack), "warn" if missing_pack > 0 else ""),
         ("생산부족 PCS", fmt_int(production_shortage), "warn" if production_shortage > 0 else ""),
         ("요청외 긴급", fmt_int(request_out_count), "warn" if request_out_count else ""),
-        ("포장가능재고 PCS", fmt_int(waiting_pcs), "warn" if waiting_pcs else ""),
+        ("전체 포장가능 PCS", fmt_int(packable_pcs), ""),
     ]
     tile_html = "".join(
         f"""
@@ -189,7 +189,6 @@ def build_html() -> str:
     urgent = daily_view[daily_view["대응상태"].isin(["요청외 긴급", "요청내 긴급"])].copy()
     urgent = urgent.sort_values(["대응상태", "포장가능재고(PCS)", "생산부족 PCS"], ascending=[True, False, False], kind="stable")
     request_out_count = int(exception_kpis.get("request_out_count", 0.0))
-    waiting_pcs = float(exception_kpis.get("waiting_pcs", 0.0))
     generated_at = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M")
 
     source_list = [
@@ -237,12 +236,9 @@ def build_html() -> str:
     .status-flow-legend {{ display:flex; justify-content:space-between; gap:10px; margin-top:10px; color:var(--muted); font-size:11px; }}
     .status-tile-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }}
     .status-tile {{ padding:14px 16px; min-height:86px; }}
-    .metrics {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:18px; }}
-    .metric {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; min-height:86px; }}
-    .metric.warn {{ background:var(--soft); border-color:#f3b8a8; }}
     .metric-label {{ color:var(--muted); font-size:12px; margin-bottom:8px; }}
     .metric-value {{ color:var(--primary); font-size:25px; font-weight:800; }}
-    .metric.warn .metric-value, .status-tile.warn .metric-value, .risk {{ color:var(--risk); }}
+    .status-tile.warn .metric-value, .risk {{ color:var(--risk); }}
     section {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; margin-top:16px; }}
     .family-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }}
     .family-card {{ border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }}
@@ -265,7 +261,6 @@ def build_html() -> str:
       header {{ display:block; }}
       .status-board {{ grid-template-columns:1fr; }}
       .status-tile-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }}
-      .metrics {{ grid-template-columns:repeat(2,minmax(0,1fr)); }}
       .family-grid {{ grid-template-columns:1fr; }}
       h1 {{ font-size:24px; }}
     }}
@@ -281,15 +276,7 @@ def build_html() -> str:
       <div class="stamp">기준: 요청물량, 수요정보, 용마입고, 일일 재고현황</div>
     </header>
 
-    {status_board_html(kpi, operation_kpi, request_out_count, waiting_pcs)}
-
-    <div class="metrics">
-      {metric_card("요청 PACK", fmt_int(kpi.get("request_pack", 0)))}
-      {metric_card("용마입고 PACK", fmt_int(kpi.get("yongma_in_pack", 0)))}
-      {metric_card("미입고 PACK", fmt_int(operation_kpi.get("packing_shortage_pack", 0)), "warn")}
-      {metric_card("생산부족 PCS", fmt_int(operation_kpi.get("production_shortage_pcs", 0)), "warn")}
-      {metric_card("요청외 긴급 품목", fmt_int(request_out_count), "warn" if request_out_count else "")}
-    </div>
+    {status_board_html(kpi, operation_kpi, request_out_count)}
 
     <section>
       <h2>본품 분류별 진도 현황</h2>

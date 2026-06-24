@@ -2078,6 +2078,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
             "yongma_in_pack": 0.0,
             "shortage_pack": 0.0,
             "production_shortage_pcs": 0.0,
+            "packable_pcs": 0.0,
             "progress_pct": 0.0,
             "production_progress_pct": 0.0,
         }
@@ -2097,6 +2098,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
     )
     request_pcs = float(work["request_pcs"].sum())
     shortage_pcs = float(work["_allocated_production_shortage_qty"].sum())
+    packable_pcs = max(0.0, request_pcs - shortage_pcs)
     production_progress = ((request_pcs - shortage_pcs) / request_pcs * 100.0) if request_pcs > 0 else 0.0
 
     return {
@@ -2106,6 +2108,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
         "yongma_in_pack": yongma_in_pack,
         "shortage_pack": shortage_pack,
         "production_shortage_pcs": shortage_pcs,
+        "packable_pcs": packable_pcs,
         "progress_pct": min(100.0, max(0.0, receipt_progress)),
         "production_progress_pct": min(100.0, max(0.0, production_progress)),
     }
@@ -2595,11 +2598,14 @@ def render_status_board(
     )
     missing_pack = float(kpi.get("packing_shortage_pack", 0.0))
     production_shortage = float(kpi.get("production_shortage_pcs", 0.0))
-    receipt_progress = float(kpi.get("packing_progress_pct", 0.0))
+    packing_progress = float(kpi.get("packing_progress_pct", 0.0))
+    receipt_progress = float(kpi.get("receipt_progress_pct", kpi.get("packing_progress_pct", 0.0)))
     production_progress = float(kpi.get("production_progress_pct", 0.0))
+    packing_todo_pack = float(kpi.get("packing_todo_pack", 0.0))
+    receipt_wait_pack = float(kpi.get("receipt_wait_pack", 0.0))
     priority_products = int(kpi.get("priority_products", 0.0))
     request_out_count = int(exception_kpis.get("request_out_count", 0.0))
-    waiting_pcs = float(exception_kpis.get("waiting_pcs", 0.0))
+    packable_pcs = float(kpi.get("packable_pcs", max(0.0, float(kpi.get("request_pcs", 0.0)) - production_shortage)))
 
     receipt_width = max(0.0, min(100.0, receipt_progress))
     missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
@@ -2614,12 +2620,15 @@ def render_status_board(
         status_label = "정상"
 
     cards = [
-        ("용마입고율", f"{receipt_progress:.1f}%", metric_progress_tone(receipt_progress)),
         ("생산진도율", f"{production_progress:.1f}%", metric_progress_tone(production_progress)),
+        ("포장진도율", f"{packing_progress:.1f}%", metric_progress_tone(packing_progress)),
+        ("용마입고율", f"{receipt_progress:.1f}%", metric_progress_tone(receipt_progress)),
+        ("포장부족 PACK", format_int(packing_todo_pack), "warn" if packing_todo_pack > 0 else "normal"),
+        ("입고대기 PACK", format_int(receipt_wait_pack), "warn" if receipt_wait_pack > 0 else "normal"),
         ("미입고 PACK", format_int(missing_pack), "warn" if missing_pack > 0 else "normal"),
         ("생산부족 PCS", format_int(production_shortage), "warn" if production_shortage > 0 else "normal"),
         ("요청외 긴급", f"{request_out_count:,}", "warn" if request_out_count > 0 else "normal"),
-        ("포장가능재고 PCS", format_int(waiting_pcs), "warn" if waiting_pcs > 0 else "normal"),
+        ("전체 포장가능 PCS", format_int(packable_pcs), "normal"),
     ]
     card_html = "".join(
         "<div class='status-tile'>"
@@ -2980,12 +2989,29 @@ def calc_operation_kpis(
         if "용마입고 PACK" in product_summary.columns and not product_summary.empty
         else packing_pack
     )
+    packing_shortage_pack = (
+        float(product_summary["포장부족수량"].sum())
+        if "포장부족수량" in product_summary.columns and not product_summary.empty
+        else max(0.0, request_pack - packing_pack)
+    )
+    receipt_shortage_pack = (
+        float(product_summary["미입고수량"].sum())
+        if "미입고수량" in product_summary.columns and not product_summary.empty
+        else max(0.0, request_pack - yongma_in_pack)
+    )
+    receipt_wait_pack = (
+        float(product_summary["입고대기수량"].sum())
+        if "입고대기수량" in product_summary.columns and not product_summary.empty
+        else max(0.0, packing_pack - yongma_in_pack)
+    )
     production_shortage_pcs = (
         float(product_summary["생산부족수량"].sum())
         if "생산부족수량" in product_summary.columns and not product_summary.empty
         else 0.0
     )
-    packing_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
+    packable_pcs = max(0.0, request_pcs - production_shortage_pcs)
+    packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
+    receipt_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     production_progress = (
         (request_pcs - production_shortage_pcs) / request_pcs * 100.0
         if request_pcs > 0
@@ -2996,9 +3022,15 @@ def calc_operation_kpis(
         "urgent_products": float((shortage_mask & due_mask).sum()),
         "stock_shortage_products": float((shortage_mask & stock_shortage_mask).sum()),
         "request_pcs": request_pcs,
-        "packing_shortage_pack": float(product_summary["미입고수량"].sum()) if "미입고수량" in product_summary.columns and not product_summary.empty else 0.0,
+        "packing_done_pack": packing_pack,
+        "packing_todo_pack": packing_shortage_pack,
+        "receipt_shortage_pack": receipt_shortage_pack,
+        "receipt_wait_pack": receipt_wait_pack,
+        "packing_shortage_pack": receipt_shortage_pack,
         "production_shortage_pcs": production_shortage_pcs,
+        "packable_pcs": packable_pcs,
         "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
+        "receipt_progress_pct": min(100.0, max(0.0, receipt_progress)),
         "production_progress_pct": min(100.0, max(0.0, production_progress)),
     }
 
@@ -3016,7 +3048,8 @@ def render_operation_kpis(
                 ("요청합계(PCS)", format_int(kpi["request_pcs"]), "normal"),
                 ("생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "warn"),
                 ("생산진도율", f"{kpi['production_progress_pct']:.1f}%", metric_progress_tone(kpi["production_progress_pct"])),
-                ("용마입고율", f"{kpi['packing_progress_pct']:.1f}%", metric_progress_tone(kpi["packing_progress_pct"])),
+                ("포장진도율", f"{kpi['packing_progress_pct']:.1f}%", metric_progress_tone(kpi["packing_progress_pct"])),
+                ("용마입고율", f"{kpi['receipt_progress_pct']:.1f}%", metric_progress_tone(kpi["receipt_progress_pct"])),
             ]
         )
         return
