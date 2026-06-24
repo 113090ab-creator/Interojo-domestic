@@ -132,15 +132,14 @@ TEXT_MUTED = TEXT_SECONDARY
 MUTED_ORANGE = COLOR_ORANGE
 MUTED_RED = COLOR_ORANGE
 PPT_FONT_NAME = "Noto Sans KR"
-REPORT_BG = "#F7F8FA"
+REPORT_BG = "#FFFFFF"
 REPORT_PANEL = "#FFFFFF"
-REPORT_PANEL_LINE = "#D8DEE8"
-REPORT_HEADER = "#1F2937"
+REPORT_PANEL_LINE = "#E5E7EB"
+REPORT_HEADER = "#172033"
 REPORT_MUTED = "#6B7280"
-REPORT_FAINT = "#F1F4F8"
-REPORT_ROW_ALT = "#FBFCFD"
-REPORT_GOOD = "#14765D"
-REPORT_RISK = "#C4492D"
+REPORT_FAINT = "#F6F7F9"
+REPORT_ROW_ALT = "#FAFAFA"
+REPORT_ACCENT = "#D85A30"
 
 REQUEST_COLS = {
     "sales_code": ["판매코드", "판매 코드", "품목코드", "sales_code"],
@@ -5594,8 +5593,8 @@ def add_report_shape(
 def report_progress_color(value: Any) -> str:
     num = pd.to_numeric(value, errors="coerce")
     if pd.isna(num):
-        return REPORT_RISK
-    return REPORT_GOOD if float(num) >= 80.0 else REPORT_RISK
+        return REPORT_HEADER
+    return REPORT_HEADER
 
 
 def add_kpi_card(
@@ -5610,7 +5609,7 @@ def add_kpi_card(
 ) -> None:
     add_report_shape(
         slide,
-        MSO_SHAPE.ROUNDED_RECTANGLE,
+        MSO_SHAPE.RECTANGLE,
         left,
         top,
         width,
@@ -5619,17 +5618,16 @@ def add_kpi_card(
         REPORT_PANEL_LINE,
         0.5,
     )
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.14, top + 0.1, 0.42, 0.03, dot_color, dot_color, 0.3)
     add_textbox(
         slide,
         title,
         left + 0.14,
-        top + 0.15,
+        top + 0.11,
         width - 0.28,
-        0.16,
-        8.2,
+        0.18,
+        8,
         True,
-        REPORT_MUTED,
+        REPORT_HEADER,
         vertical_anchor=MSO_ANCHOR.MIDDLE,
     )
 
@@ -5640,19 +5638,19 @@ def add_kpi_card(
         format_report_value(receipt_progress, True),
         left + 0.14,
         top + 0.34,
-        1.25,
-        0.3,
-        17,
+        1.2,
+        0.32,
+        18,
         True,
-        report_progress_color(receipt_progress),
+        REPORT_HEADER,
         PP_ALIGN.LEFT,
         MSO_ANCHOR.MIDDLE,
     )
     add_textbox(
         slide,
         "용마입고율",
-        left + 1.52,
-        top + 0.42,
+        left + 1.48,
+        top + 0.43,
         0.9,
         0.2,
         7,
@@ -5661,16 +5659,16 @@ def add_kpi_card(
         PP_ALIGN.LEFT,
         MSO_ANCHOR.MIDDLE,
     )
-    add_report_rule(slide, left + 0.14, top + 0.69, width - 0.28, REPORT_FAINT)
+    add_report_rule(slide, left + 0.14, top + 0.72, width - 0.28, REPORT_PANEL_LINE)
 
     metrics = [
         ("요청 PACK", format_report_value(kpi.get("request_pack", 0.0)), REPORT_HEADER, True),
-        ("용마입고 PACK", format_report_value(kpi.get("yongma_in_pack", 0.0)), REPORT_HEADER, False),
-        ("미입고 PACK", format_report_value(kpi.get("shortage_pack", 0.0)), REPORT_RISK, False),
+        ("입고 PACK", format_report_value(kpi.get("yongma_in_pack", 0.0)), REPORT_HEADER, False),
+        ("미입고 PACK", format_report_value(kpi.get("shortage_pack", 0.0)), REPORT_ACCENT, False),
         (
             "생산진도율",
             format_report_value(production_progress, True),
-            report_progress_color(production_progress),
+            REPORT_HEADER,
             True,
         ),
     ]
@@ -5681,10 +5679,10 @@ def add_kpi_card(
             slide,
             label,
             metric_left,
-            top + 0.76,
+            top + 0.81,
             col_width,
             0.14,
-            6.7,
+            6.6,
             False,
             REPORT_MUTED,
             PP_ALIGN.LEFT,
@@ -5694,10 +5692,10 @@ def add_kpi_card(
             slide,
             value,
             metric_left,
-            top + 0.91,
+            top + 0.96,
             col_width,
-            0.22,
-            9.6 if big else 8.8,
+            0.2,
+            9.2 if big else 8.6,
             True,
             value_color,
             PP_ALIGN.LEFT,
@@ -5981,14 +5979,14 @@ def add_report_status_badge(slide: Any, status: str, left: float, top: float, wi
 def add_priority_report_table(
     slide: Any,
     priority_view: pd.DataFrame,
-    left: float = 0.25,
-    top: float = 3.15,
-    width: float = 8.15,
-    height: float = 4.0,
+    left: float = 0.35,
+    top: float = 3.12,
+    width: float = 8.2,
+    height: float = 3.92,
 ) -> None:
     add_report_shape(
         slide,
-        MSO_SHAPE.ROUNDED_RECTANGLE,
+        MSO_SHAPE.RECTANGLE,
         left,
         top,
         width,
@@ -5997,11 +5995,11 @@ def add_priority_report_table(
         REPORT_PANEL_LINE,
         0.5,
     )
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.38, REPORT_FAINT, REPORT_PANEL_LINE, 0.5)
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.34, REPORT_FAINT, REPORT_PANEL_LINE, 0.5)
 
-    headers = ["#", "제품명", "요청\nPACK", "용마\n입고율", "미입고\nPACK", "생산\n진도율"]
-    col_widths = [0.35, 3.28, 0.9, 1.0, 0.95, 1.0]
-    col_lefts = [left + 0.1]
+    headers = ["순위", "제품명", "요청 PACK", "용마입고율", "미입고 PACK", "생산진도율"]
+    col_widths = [0.42, 3.25, 1.0, 1.12, 1.08, 1.1]
+    col_lefts = [left + 0.08]
     for width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + width)
 
@@ -6012,11 +6010,11 @@ def add_priority_report_table(
             col_lefts[idx],
             top + 0.02,
             col_widths[idx],
-            0.34,
-            7.5,
+            0.3,
+            7,
             True,
             REPORT_MUTED,
-            PP_ALIGN.LEFT if idx <= 1 else PP_ALIGN.CENTER,
+            PP_ALIGN.LEFT if idx == 1 else PP_ALIGN.RIGHT,
             MSO_ANCHOR.MIDDLE,
         )
 
@@ -6036,18 +6034,15 @@ def add_priority_report_table(
         )
         return
 
-    row_height = 0.46
+    row_height = 0.5
     for row_idx, (_, row) in enumerate(priority_view.iterrows(), start=1):
-        row_top = top + 0.38 + (row_idx - 1) * row_height
+        row_top = top + 0.34 + (row_idx - 1) * row_height
         production_progress = to_report_float(row["생산진도율"])
         receipt_progress = to_report_float(row["용마입고율"])
         receipt_shortage = to_report_float(row["미입고수량"])
-        alert_row = receipt_shortage > 0 or production_progress < 80.0
 
         if row_idx % 2 == 0:
             add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.01, row_top, width - 0.02, row_height, REPORT_ROW_ALT)
-        if alert_row:
-            add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.01, row_top, 0.035, row_height, REPORT_RISK, REPORT_RISK)
 
         cell_top = row_top + 0.01
         cell_height = row_height - 0.02
@@ -6060,15 +6055,15 @@ def add_priority_report_table(
             format_report_value(production_progress, True),
         ]
         colors = [
-            "#9AA1AA",
+            REPORT_MUTED,
             REPORT_HEADER,
             REPORT_HEADER,
-            report_progress_color(receipt_progress),
-            "#9AA1AA" if receipt_shortage <= 0 else REPORT_RISK,
-            report_progress_color(production_progress),
+            REPORT_HEADER,
+            REPORT_MUTED if receipt_shortage <= 0 else REPORT_ACCENT,
+            REPORT_HEADER,
         ]
-        bolds = [False, alert_row, False, True, receipt_shortage > 0, True]
-        aligns = [PP_ALIGN.CENTER, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER]
+        bolds = [False, False, False, False, receipt_shortage > 0, False]
+        aligns = [PP_ALIGN.RIGHT, PP_ALIGN.LEFT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT]
 
         for col_idx, value in enumerate(values):
             add_textbox(
@@ -6078,7 +6073,7 @@ def add_priority_report_table(
                 cell_top,
                 col_widths[col_idx],
                 cell_height,
-                8.5 if col_idx != 0 else 8,
+                7.7 if col_idx != 1 else 7.9,
                 bolds[col_idx],
                 colors[col_idx],
                 aligns[col_idx],
@@ -6092,14 +6087,14 @@ def add_daily_exception_report_panel(
     slide: Any,
     exception_kpis: dict[str, float],
     exception_view: pd.DataFrame,
-    left: float = 8.65,
-    top: float = 3.15,
-    width: float = 4.4,
-    height: float = 4.0,
+    left: float = 8.85,
+    top: float = 3.12,
+    width: float = 4.15,
+    height: float = 3.92,
 ) -> None:
     add_report_shape(
         slide,
-        MSO_SHAPE.ROUNDED_RECTANGLE,
+        MSO_SHAPE.RECTANGLE,
         left,
         top,
         width,
@@ -6108,64 +6103,25 @@ def add_daily_exception_report_panel(
         REPORT_PANEL_LINE,
         0.5,
     )
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.44, REPORT_FAINT, REPORT_PANEL_LINE, 0.5)
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, 0.04, 0.44, REPORT_RISK, REPORT_RISK, 0.3)
-    add_textbox(
-        slide,
-        "요청물량 외 긴급 대응",
-        left + 0.14,
-        top + 0.06,
-        width - 0.28,
-        0.18,
-        8.5,
-        True,
-        REPORT_HEADER,
-        vertical_anchor=MSO_ANCHOR.MIDDLE,
-    )
-    add_textbox(
-        slide,
-        "제품 진도율에는 미포함, 일일 재고표 기준 별도 리스크",
-        left + 0.14,
-        top + 0.24,
-        width - 0.28,
-        0.16,
-        6.5,
-        False,
-        REPORT_MUTED,
-        vertical_anchor=MSO_ANCHOR.MIDDLE,
-    )
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.34, REPORT_FAINT, REPORT_PANEL_LINE, 0.5)
 
-    metric_specs = [
-        ("요청외 긴급 품목", format_report_value(exception_kpis.get("request_out_count", 0.0)), REPORT_RISK),
-        ("포장가능재고 PCS", format_report_value(exception_kpis.get("waiting_pcs", 0.0)), REPORT_HEADER),
-    ]
-    metric_top = top + 0.6
-    metric_width = (width - 0.34) / len(metric_specs)
-    for idx, (label, value, color) in enumerate(metric_specs):
-        box_left = left + 0.12 + idx * metric_width
-        add_report_shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, box_left, metric_top, metric_width - 0.06, 0.48, REPORT_BG, REPORT_PANEL_LINE, 0.4)
-        add_textbox(slide, label, box_left, metric_top + 0.07, metric_width - 0.06, 0.14, 6.2, False, REPORT_MUTED, PP_ALIGN.CENTER)
-        add_textbox(slide, value, box_left, metric_top + 0.22, metric_width - 0.06, 0.2, 9, True, color, PP_ALIGN.CENTER)
-
-    headers = ["품목", "제품명", "재고", "포장가능\n재고PCS"]
-    col_widths = [0.75, 1.75, 0.58, 0.95]
-    col_lefts = [left + 0.15]
+    headers = ["품목", "제품명", "재고", "포장가능재고 PCS"]
+    col_widths = [0.66, 1.65, 0.62, 1.02]
+    col_lefts = [left + 0.08]
     for col_width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + col_width)
-    header_top = top + 1.25
-    add_report_rule(slide, left + 0.12, header_top - 0.06, width - 0.24, REPORT_FAINT)
     for idx, header in enumerate(headers):
         add_textbox(
             slide,
             header,
             col_lefts[idx],
-            header_top,
+            top + 0.02,
             col_widths[idx],
-            0.22,
-            6.7,
+            0.3,
+            6.6,
             True,
             REPORT_MUTED,
-            PP_ALIGN.LEFT if idx in {0, 1, 3} else PP_ALIGN.CENTER,
+            PP_ALIGN.LEFT if idx in {0, 1} else PP_ALIGN.RIGHT,
             MSO_ANCHOR.MIDDLE,
         )
 
@@ -6174,7 +6130,7 @@ def add_daily_exception_report_panel(
             slide,
             "요청물량 외 긴급 대응 품목이 없습니다.",
             left + 0.18,
-            top + 1.72,
+            top + 0.72,
             width - 0.36,
             0.28,
             8,
@@ -6186,13 +6142,13 @@ def add_daily_exception_report_panel(
 
     row_height = 0.5
     for row_idx, (_, row) in enumerate(exception_view.iterrows(), start=1):
-        row_top = top + 1.5 + (row_idx - 1) * row_height
+        row_top = top + 0.34 + (row_idx - 1) * row_height
         stock = pd.to_numeric(row.get("현재 재고수량", row.get("재고수량", np.nan)), errors="coerce")
         waiting_pcs = pd.to_numeric(row.get("포장가능재고(PCS)", np.nan), errors="coerce")
         stock_text = "-" if pd.isna(stock) else format_report_value(stock)
         waiting_text = "-" if pd.isna(waiting_pcs) else format_report_value(waiting_pcs)
-        stock_color = REPORT_RISK if pd.notna(stock) and float(stock) < 0 else REPORT_HEADER
-        waiting_color = REPORT_RISK if pd.notna(waiting_pcs) and float(waiting_pcs) > 0 else REPORT_HEADER
+        stock_color = REPORT_ACCENT if pd.notna(stock) and float(stock) < 0 else REPORT_HEADER
+        waiting_color = REPORT_HEADER
         if row_idx % 2 == 0:
             add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.03, row_top, width - 0.06, row_height, REPORT_ROW_ALT)
         values = [
@@ -6202,7 +6158,7 @@ def add_daily_exception_report_panel(
             waiting_text,
         ]
         colors = [REPORT_HEADER, REPORT_HEADER, stock_color, waiting_color]
-        aligns = [PP_ALIGN.LEFT, PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER]
+        aligns = [PP_ALIGN.LEFT, PP_ALIGN.LEFT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT]
         for col_idx, value in enumerate(values):
             add_textbox(
                 slide,
@@ -6211,13 +6167,13 @@ def add_daily_exception_report_panel(
                 row_top + 0.03,
                 col_widths[col_idx],
                 row_height - 0.06,
-                6.8,
-                (col_idx == 2 and stock_color == REPORT_RISK) or (col_idx == 3 and waiting_color == REPORT_RISK),
+                6.6 if col_idx != 1 else 6.8,
+                col_idx == 2 and stock_color == REPORT_ACCENT,
                 colors[col_idx],
                 aligns[col_idx],
                 MSO_ANCHOR.MIDDLE,
             )
-        add_report_rule(slide, left + 0.03, row_top + row_height, width - 0.06, REPORT_FAINT)
+        add_report_rule(slide, left + 0.03, row_top + row_height, width - 0.06, REPORT_PANEL_LINE)
 
 
 def add_report_legend(slide: Any) -> None:
@@ -6328,77 +6284,50 @@ def build_ppt_report(
     total_shortage = to_report_float(total_kpi.get("shortage_pack", 0.0))
     exception_count = to_report_float(exception_kpis.get("request_out_count", 0.0))
     if total_shortage > 0 or exception_count > 0:
-        banner_fill = "#FFF6F2"
-        banner_color = REPORT_RISK
+        banner_fill = "#FFF7ED"
+        banner_color = REPORT_ACCENT
         status_label = "주의"
-        banner_text = (
-            f"전체 용마입고율 {total_progress:.1f}% - "
-            f"미입고 {format_report_value(total_shortage)} PACK"
-            f" / 요청외 긴급 {format_report_value(exception_count)}건. 우선순위 확인 필요."
-        )
     else:
-        banner_fill = REPORT_PANEL
-        banner_color = REPORT_GOOD
+        banner_fill = REPORT_FAINT
+        banner_color = REPORT_HEADER
         status_label = "정상"
-        banner_text = f"전체 용마입고율 {total_progress:.1f}% - 미입고 물량 없음."
-
-    add_report_shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, 0.35, 0.96, 12.65, 0.42, banner_fill, REPORT_PANEL_LINE, 0.5)
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.35, 0.96, 0.05, 0.42, banner_color, banner_color, 0.3)
-    add_textbox(
-        slide,
-        status_label,
-        0.55,
-        1.05,
-        0.5,
-        0.18,
-        8.2,
-        True,
-        banner_color,
-        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    banner_text = (
+        f"[{status_label}] 용마입고율 {total_progress:.1f}%"
+        f" / 미입고 {format_report_value(total_shortage)} PACK"
+        f" / 긴급 {format_report_value(exception_count)}건"
     )
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 1.16, 1.05, 0.01, 0.2, REPORT_PANEL_LINE, REPORT_PANEL_LINE, 0.3)
+
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.35, 0.96, 12.65, 0.36, banner_fill)
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.35, 0.96, 0.04, 0.36, banner_color, banner_color, 0.3)
     add_textbox(
         slide,
         banner_text,
-        1.32,
-        1.04,
-        11.3,
-        0.22,
+        0.52,
+        1.03,
+        12.2,
+        0.2,
         8.3,
         True,
-        REPORT_HEADER,
+        banner_color if status_label == "주의" else REPORT_HEADER,
         vertical_anchor=MSO_ANCHOR.MIDDLE,
     )
 
-    add_textbox(slide, "공급 운영 KPI", 0.35, 1.5, 2.0, 0.22, 8.3, True, REPORT_HEADER)
-    add_kpi_card(slide, "전체 KPI", total_kpi, COLOR_BLUE, 0.35, 1.68, 4.02, 1.16)
-    add_kpi_card(slide, "본품 KPI", kpi_map.get("본품", {}), COLOR_TEAL, 4.65, 1.68, 4.02, 1.16)
-    add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_ORANGE, 8.95, 1.68, 4.05, 1.16)
+    add_textbox(slide, "공급 운영 KPI", 0.35, 1.45, 2.0, 0.22, 8.3, True, REPORT_HEADER)
+    add_kpi_card(slide, "전체 KPI", total_kpi, REPORT_HEADER, 0.35, 1.66, 4.02, 1.18)
+    add_kpi_card(slide, "본품 KPI", kpi_map.get("본품", {}), REPORT_HEADER, 4.65, 1.66, 4.02, 1.18)
+    add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), REPORT_HEADER, 8.95, 1.66, 4.05, 1.18)
 
-    add_textbox(slide, "우선 대응 TOP 6", 0.25, 2.92, 3.0, 0.22, 8.2, True, REPORT_HEADER)
-    add_textbox(
-        slide,
-        "미입고 PACK -> 생산부족 PCS -> 요청 PACK 순 정렬",
-        3.9,
-        2.92,
-        4.4,
-        0.22,
-        7.2,
-        False,
-        REPORT_MUTED,
-        PP_ALIGN.RIGHT,
-        vertical_anchor=MSO_ANCHOR.MIDDLE,
-    )
-    add_textbox(slide, "일일 재고표 기준 예외 대응", 8.65, 2.92, 4.4, 0.22, 8.2, True, REPORT_HEADER)
+    add_textbox(slide, "우선 대응 TOP 6", 0.35, 2.9, 3.0, 0.22, 8.2, True, REPORT_HEADER)
+    add_textbox(slide, "일일 재고표 기준 예외 대응", 8.85, 2.9, 4.15, 0.22, 8.2, True, REPORT_HEADER)
 
     add_priority_report_table(slide, priority_view)
     add_daily_exception_report_panel(slide, exception_kpis, exception_view)
     add_textbox(
         slide,
-        "진도율은 생산요청등록 물량 기준입니다. 요청물량 외 긴급건은 일일 재고표 기준의 별도 대응 리스크로 분리 관리합니다.",
-        0.3,
+        "진도율은 생산요청 기준이며, 요청/긴급 대응 품목은 일일 재고표 기준으로 산출됩니다.",
+        0.35,
         7.26,
-        12.5,
+        12.4,
         0.22,
         7.5,
         False,
