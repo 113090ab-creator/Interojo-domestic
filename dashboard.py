@@ -50,6 +50,7 @@ DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
+DATA_CACHE_VERSION = 2
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
     "Clalen 1Day",
@@ -8468,6 +8469,7 @@ def load_dashboard_data(
     progress_fingerprint: tuple[str, int, int] | None,
     inventory_fingerprint: tuple[str, int, int] | None,
     daily_inventory_fingerprint: tuple[str, int, int] | None,
+    cache_version: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
@@ -8516,6 +8518,7 @@ def main() -> None:
             file_fingerprint(files.progress_file),
             file_fingerprint(files.inventory_file),
             file_fingerprint(files.daily_inventory_file),
+            DATA_CACHE_VERSION,
         )
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")

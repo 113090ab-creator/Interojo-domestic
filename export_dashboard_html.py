@@ -216,6 +216,7 @@ def build_html() -> str:
         dashboard.file_fingerprint(files.progress_file),
         dashboard.file_fingerprint(files.inventory_file),
         dashboard.file_fingerprint(files.daily_inventory_file),
+        dashboard.DATA_CACHE_VERSION,
     )
 
     kpi = dashboard.calc_kpi_from_code_summary(code_summary)
