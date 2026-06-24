@@ -141,6 +141,48 @@ def status_board_html(kpi: dict[str, Any], operation_kpi: dict[str, Any], reques
     """
 
 
+def scope_kpi_html(code_summary: pd.DataFrame) -> str:
+    def num(value: Any) -> float:
+        parsed = pd.to_numeric(value, errors="coerce")
+        return 0.0 if pd.isna(parsed) else float(parsed)
+
+    scopes = [
+        (f"{name} KPI", kpi)
+        for name, kpi in dashboard.build_scope_kpis(dashboard.add_allocated_production_basis(code_summary))
+        if name in {"본품", "샘플"}
+    ]
+    panels: list[str] = []
+    for title, kpi in scopes:
+        shortage_pack = num(kpi.get("shortage_pack", 0.0))
+        production_shortage = num(kpi.get("production_shortage_pcs", 0.0))
+        metrics = [
+            ("요청 PACK", fmt_int(kpi.get("request_pack", 0.0)), ""),
+            ("생산진도율", fmt_pct(kpi.get("production_progress_pct", 0.0)), ""),
+            ("포장진도율", fmt_pct(kpi.get("packing_progress_pct", 0.0)), ""),
+            ("용마입고율", fmt_pct(kpi.get("progress_pct", 0.0)), ""),
+            ("미입고 PACK", fmt_int(shortage_pack), "warn" if shortage_pack > 0 else ""),
+            ("생산부족 PCS", fmt_int(production_shortage), "warn" if production_shortage > 0 else ""),
+        ]
+        metric_html = "".join(
+            f"""
+            <div class="scope-metric {tone}">
+              <div class="metric-label">{esc(label)}</div>
+              <div class="metric-value">{esc(value)}</div>
+            </div>
+            """
+            for label, value, tone in metrics
+        )
+        panels.append(
+            f"""
+            <article class="scope-card">
+              <h3>{esc(title)}</h3>
+              <div class="scope-metrics">{metric_html}</div>
+            </article>
+            """
+        )
+    return f"<div class='scope-grid'>{''.join(panels)}</div>"
+
+
 def family_cards_html(family_view: pd.DataFrame) -> str:
     if family_view.empty:
         return "<div class='empty'>분류 데이터가 없습니다.</div>"
@@ -244,6 +286,13 @@ def build_html() -> str:
     .metric-label {{ color:var(--muted); font-size:12px; margin-bottom:8px; }}
     .metric-value {{ color:var(--primary); font-size:25px; font-weight:800; }}
     .status-tile.warn .metric-value, .risk {{ color:var(--risk); }}
+    .scope-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:0 0 14px; }}
+    .scope-card {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }}
+    .scope-card h3 {{ margin:0 0 10px; font-size:15px; }}
+    .scope-metrics {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }}
+    .scope-metric {{ border:1px solid #e5ebf1; border-radius:8px; padding:9px 10px; min-height:58px; }}
+    .scope-metric.warn .metric-value {{ color:var(--risk); }}
+    .scope-metric .metric-value {{ font-size:19px; }}
     section {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-top:12px; }}
     .family-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }}
     .family-card {{ border:1px solid var(--line); border-radius:8px; padding:11px 13px; background:#fff; }}
@@ -266,6 +315,8 @@ def build_html() -> str:
       header {{ display:block; }}
       .status-board {{ grid-template-columns:1fr; }}
       .status-tile-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }}
+      .scope-grid {{ grid-template-columns:1fr; }}
+      .scope-metrics {{ grid-template-columns:repeat(2,minmax(0,1fr)); }}
       .family-grid {{ grid-template-columns:1fr; }}
       h1 {{ font-size:24px; }}
     }}
@@ -283,11 +334,12 @@ def build_html() -> str:
     <p class="lead">국내 요청 물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.</p>
 
     {status_board_html(kpi, operation_kpi, request_out_count)}
+    {scope_kpi_html(code_summary)}
 
     <section>
       <h2>미입고 TOP10</h2>
       <div class="table-wrap">
-        {table_html(top_shortage_view, ["순위", "제품명", "미입고 PACK", "생산진도율", "포장진도율", "용마입고율", "추정 원인"], 10)}
+        {table_html(top_shortage_view, ["순위", "제품명", "미입고 PACK", "생산진도율", "포장진도율", "용마입고율"], 10)}
       </div>
     </section>
 

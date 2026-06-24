@@ -2009,6 +2009,7 @@ def calc_kpi(df: pd.DataFrame) -> dict[str, float]:
     )
     shortage_pack = float(df["미입고수량"].sum()) if "미입고수량" in df.columns and not df.empty else max(0.0, request_pack - yongma_in_pack)
     progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
+    packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     request_pcs = float(df["요청 PCS"].sum()) if "요청 PCS" in df.columns and not df.empty else 0.0
     production_shortage_qty = (
         float(df["생산부족수량"].sum()) if "생산부족수량" in df.columns and not df.empty else 0.0
@@ -2026,6 +2027,7 @@ def calc_kpi(df: pd.DataFrame) -> dict[str, float]:
         "shortage_pack": shortage_pack,
         "production_shortage_pcs": production_shortage_qty,
         "progress_pct": min(100.0, max(0.0, progress)),
+        "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
         "production_progress_pct": min(100.0, max(0.0, production_progress)),
         "production_shortage_products": int((df["생산부족수량"] > 0).sum()) if "생산부족수량" in df.columns else 0,
         "packing_shortage_products": int((df["포장부족수량"] > 0).sum()) if "포장부족수량" in df.columns else 0,
@@ -2085,6 +2087,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
             "production_shortage_pcs": 0.0,
             "packable_pcs": 0.0,
             "progress_pct": 0.0,
+            "packing_progress_pct": 0.0,
             "production_progress_pct": 0.0,
         }
 
@@ -2095,6 +2098,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
     )
     shortage_pack = max(0.0, request_pack - yongma_in_pack)
     receipt_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
+    packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
 
     work = (
         code_summary.copy()
@@ -2115,6 +2119,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
         "production_shortage_pcs": shortage_pcs,
         "packable_pcs": packable_pcs,
         "progress_pct": min(100.0, max(0.0, receipt_progress)),
+        "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
         "production_progress_pct": min(100.0, max(0.0, production_progress)),
     }
 
@@ -2379,7 +2384,7 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
 
 
 def build_top_shortage_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    columns = ["순위", "제품명", "미입고 PACK", "생산진도율", "포장진도율", "용마입고율", "추정 원인"]
+    columns = ["순위", "제품명", "미입고 PACK", "생산진도율", "포장진도율", "용마입고율"]
     if product_df.empty:
         return pd.DataFrame(columns=columns)
 
@@ -2392,32 +2397,8 @@ def build_top_shortage_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.Dat
     if view.empty:
         return pd.DataFrame(columns=columns)
     view["미입고 PACK"] = view["미입고수량"]
-    view["추정 원인"] = [
-        estimate_shortage_cause(production, packing, receipt)
-        for production, packing, receipt in zip(view["생산진도율"], view["포장진도율"], view["용마입고율"])
-    ]
     view["순위"] = range(1, len(view) + 1)
     return view[columns].copy()
-
-
-def estimate_shortage_cause(production_progress: Any, packing_progress: Any, receipt_progress: Any) -> str:
-    production_num = pd.to_numeric(production_progress, errors="coerce")
-    packing_num = pd.to_numeric(packing_progress, errors="coerce")
-    receipt_num = pd.to_numeric(receipt_progress, errors="coerce")
-    production = 0.0 if pd.isna(production_num) else float(production_num)
-    packing = 0.0 if pd.isna(packing_num) else float(packing_num)
-    receipt = 0.0 if pd.isna(receipt_num) else float(receipt_num)
-    if production < 50.0 and packing < 50.0 and receipt < 50.0:
-        return "전체 지연"
-    if production < 80.0:
-        return "생산 부족"
-    if production >= 80.0 and packing < 80.0:
-        return "포장 대기"
-    if packing >= 80.0 and receipt < 80.0:
-        return "용마 미입고"
-    if receipt < 80.0:
-        return "용마 미입고"
-    return "진행 확인"
 
 
 def render_top_shortage_list(top_df: pd.DataFrame) -> None:
@@ -2426,7 +2407,6 @@ def render_top_shortage_list(top_df: pd.DataFrame) -> None:
         return
     rows: list[str] = []
     for _, row in top_df.iterrows():
-        cause = clean_str(row.get("추정 원인", ""))
         rows.append(
             "<tr>"
             f"<td class='num muted'>{format_int(float(row.get('순위', 0.0)))}</td>"
@@ -2435,7 +2415,6 @@ def render_top_shortage_list(top_df: pd.DataFrame) -> None:
             f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)))}</td>"
             f"<td>{progress_cell_html(float(row.get('포장진도율', 0.0)))}</td>"
             f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)))}</td>"
-            f"<td><span class='cause-badge {cause_badge_class(cause)}'>{escape(cause)}</span></td>"
             "</tr>"
         )
     st.markdown(
@@ -2448,20 +2427,11 @@ def render_top_shortage_list(top_df: pd.DataFrame) -> None:
         "<th>생산진도율</th>"
         "<th>포장진도율</th>"
         "<th>용마입고율</th>"
-        "<th>추정 원인</th>"
         "</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table></div>",
         unsafe_allow_html=True,
     )
-
-
-def cause_badge_class(cause: str) -> str:
-    if cause in {"생산 부족", "전체 지연"}:
-        return "need"
-    if cause in {"포장 대기", "용마 미입고"}:
-        return "partial"
-    return "ok"
 
 
 def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -2532,6 +2502,7 @@ def render_gap_top_list(gap_df: pd.DataFrame) -> None:
 def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PACK) -> None:
     progress = float(kpi["progress_pct"])
     production_progress = float(kpi.get("production_progress_pct", 0.0))
+    packing_progress = float(kpi.get("packing_progress_pct", 0.0))
     shortage_class = "metric-value warn" if kpi["shortage_pack"] > 0 else "metric-value"
     production_shortage_class = "metric-value warn" if kpi.get("production_shortage_pcs", 0.0) > 0 else "metric-value"
 
@@ -2575,20 +2546,24 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
           <div class='metric-value'>{format_int(kpi['request_pack'])}</div>
         </div>
         <div class='kpi-card'>
-          <div class='metric-label'>용마입고 PACK</div>
-          <div class='metric-value'>{format_int(kpi.get('yongma_in_pack', kpi['packing_pack']))}</div>
+          <div class='metric-label'>생산진도율</div>
+          <div class='metric-value'>{production_progress:.1f}%</div>
         </div>
         <div class='kpi-card'>
-          <div class='metric-label'>미입고 PACK</div>
-          <div class='{shortage_class}'>{format_int(kpi['shortage_pack'])}</div>
+          <div class='metric-label'>포장진도율</div>
+          <div class='metric-value'>{packing_progress:.1f}%</div>
         </div>
         <div class='kpi-card'>
           <div class='metric-label'>용마입고율</div>
           <div class='metric-value'>{progress:.1f}%</div>
         </div>
         <div class='kpi-card'>
-          <div class='metric-label'>생산진도율</div>
-          <div class='metric-value'>{production_progress:.1f}%</div>
+          <div class='metric-label'>미입고 PACK</div>
+          <div class='{shortage_class}'>{format_int(kpi['shortage_pack'])}</div>
+        </div>
+        <div class='kpi-card'>
+          <div class='metric-label'>생산부족 PCS</div>
+          <div class='{production_shortage_class}'>{format_int(kpi.get('production_shortage_pcs', 0.0))}</div>
         </div>
       </div>
     </div>
@@ -2605,8 +2580,13 @@ def render_kpi_scope_panels(
     if product_names is not None:
         work = code_summary_for_products(work, product_names)
 
-    kpi_cols = st.columns(3, gap="small")
-    for col, title, (_, kpi) in zip(kpi_cols, ["전체 KPI", "본품 KPI", "샘플 KPI"], build_scope_kpis(work)):
+    scope_kpis = [
+        (f"{name} KPI", kpi)
+        for name, kpi in build_scope_kpis(work)
+        if name in {"본품", "샘플"}
+    ]
+    kpi_cols = st.columns(len(scope_kpis), gap="small")
+    for col, (title, kpi) in zip(kpi_cols, scope_kpis):
         with col:
             render_kpi_panel(title, kpi, unit_mode=unit_mode)
 
@@ -2614,11 +2594,10 @@ def render_kpi_scope_panels(
 def render_product_scope_kpi_panels(product_summary: pd.DataFrame, unit_mode: str = UNIT_PACK) -> None:
     main_products, sample_products = split_main_sample(product_summary)
     scopes = [
-        ("전체 KPI", product_summary),
         ("본품 KPI", main_products),
         ("샘플 KPI", sample_products),
     ]
-    kpi_cols = st.columns(3, gap="small")
+    kpi_cols = st.columns(2, gap="small")
     for col, (title, scope_df) in zip(kpi_cols, scopes):
         with col:
             render_kpi_panel(title, calc_kpi(scope_df), unit_mode=unit_mode)
@@ -6618,7 +6597,7 @@ def render_style() -> None:
             gap: var(--ui-gap);
         }}
         .scope-kpi .kpi-grid {{
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 8px;
         }}
         .kpi-card {{
@@ -7042,8 +7021,7 @@ def render_style() -> None:
             color: {COLOR_ORANGE};
             font-weight: 700;
         }}
-        .response-badge,
-        .cause-badge {{
+        .response-badge {{
             display: inline-flex;
             align-items: center;
             min-width: 72px;
@@ -7055,16 +7033,11 @@ def render_style() -> None:
             background: {BG_SECTION};
             color: {TEXT_SECONDARY};
         }}
-        .cause-badge.ok {{
-            min-width: 64px;
-        }}
-        .response-badge.partial,
-        .cause-badge.partial {{
+        .response-badge.partial {{
             background: #F7EFE3;
             color: {COLOR_AMBER};
         }}
-        .response-badge.need,
-        .cause-badge.need {{
+        .response-badge.need {{
             background: {COLOR_ALERT_BG};
             color: {COLOR_ORANGE};
         }}
@@ -7815,11 +7788,12 @@ def render_product_summary_tab(
         sample_available_df,
         stock_threshold_pack,
     )
+    render_kpi_scope_panels(code_summary)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
         "미입고 TOP10",
-        "미입고 PACK이 큰 제품의 생산·포장·입고 진도와 추정 원인을 확인합니다.",
+        "미입고 PACK이 큰 제품의 생산·포장·입고 진도를 확인합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_top_shortage_list(top_shortage_view)
