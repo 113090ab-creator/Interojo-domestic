@@ -50,7 +50,7 @@ DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 3
+DATA_CACHE_VERSION = 4
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
     "Clalen 1Day",
@@ -3008,7 +3008,7 @@ def calc_operation_kpis(
 ) -> dict[str, float]:
     today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
     due_limit = today + pd.Timedelta(days=7)
-    work = with_operational_columns(code_summary)
+    work = add_allocated_production_basis(with_operational_columns(code_summary))
     work["request_due_date"] = pd.to_datetime(work["request_due_date"], errors="coerce")
     if "available_stock_pack" not in work.columns:
         work["available_stock_pack"] = np.nan
@@ -3038,9 +3038,18 @@ def calc_operation_kpis(
     stock = pd.to_numeric(product_priority["current_stock_pack"], errors="coerce")
     stock_shortage_mask = stock.notna() & (stock <= float(stock_threshold_pack))
     priority_mask = product_priority["우선등급"].isin(["A 긴급", "B 주의"])
-    request_pack = float(product_summary["요청 PACK"].sum()) if "요청 PACK" in product_summary.columns and not product_summary.empty else 0.0
-    request_pcs = float(product_summary["요청 PCS"].sum()) if "요청 PCS" in product_summary.columns and not product_summary.empty else 0.0
-    packing_pack = float(product_summary["포장 PACK"].sum()) if "포장 PACK" in product_summary.columns and not product_summary.empty else 0.0
+    code_request_pack = float(pd.to_numeric(work.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+    code_request_pcs = float(pd.to_numeric(work.get("request_pcs", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+    code_packing_pack = float(pd.to_numeric(work.get("packing_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+    request_pack = code_request_pack or (
+        float(product_summary["요청 PACK"].sum()) if "요청 PACK" in product_summary.columns and not product_summary.empty else 0.0
+    )
+    request_pcs = code_request_pcs or (
+        float(product_summary["요청 PCS"].sum()) if "요청 PCS" in product_summary.columns and not product_summary.empty else 0.0
+    )
+    packing_pack = code_packing_pack or (
+        float(product_summary["포장 PACK"].sum()) if "포장 PACK" in product_summary.columns and not product_summary.empty else 0.0
+    )
     product_yongma_in_pack = (
         float(product_summary["용마입고 PACK"].sum())
         if "용마입고 PACK" in product_summary.columns and not product_summary.empty
@@ -3059,7 +3068,12 @@ def calc_operation_kpis(
         if "입고대기수량" in product_summary.columns and not product_summary.empty
         else max(0.0, packing_pack - yongma_in_pack)
     )
-    production_shortage_pcs = (
+    code_production_shortage_pcs = float(
+        pd.to_numeric(work.get("_allocated_production_shortage_qty", pd.Series(dtype=float)), errors="coerce")
+        .fillna(0.0)
+        .sum()
+    )
+    production_shortage_pcs = code_production_shortage_pcs or (
         float(product_summary["생산부족수량"].sum())
         if "생산부족수량" in product_summary.columns and not product_summary.empty
         else 0.0
@@ -3701,7 +3715,7 @@ def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataF
     if code_summary.empty:
         return pd.DataFrame(columns=columns)
 
-    work = with_operational_columns(code_summary)
+    work = add_allocated_production_basis(with_operational_columns(code_summary))
     work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
     work["_production_key"] = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
     fallback_key = work.get("sales_code_key", pd.Series("", index=work.index)).map(clean_str)
@@ -3774,7 +3788,7 @@ def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.
     if code_summary.empty:
         return pd.DataFrame(columns=columns)
 
-    work = with_operational_columns(code_summary)
+    work = add_allocated_production_basis(with_operational_columns(code_summary))
     if "base_product_name" in work.columns:
         work["_daily_base_product_name"] = work["base_product_name"].map(clean_str)
     else:
@@ -5108,7 +5122,7 @@ def build_sales_order_main_view(
                 "상태",
             ]
         )
-    work = add_allocated_production_basis(with_operational_columns(code_summary))
+    work = with_operational_columns(code_summary)
     pack_unit = pd.to_numeric(work.get("pack_unit", pd.Series(np.nan, index=work.index)), errors="coerce")
     request_pack = pd.to_numeric(work.get("request_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
     request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
@@ -8455,7 +8469,6 @@ def file_fingerprint(path: Path | None) -> tuple[str, int, int] | None:
     return (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
 
 
-@st.cache_data(show_spinner="엑셀 데이터를 읽고 대시보드 요약을 계산하는 중입니다.")
 def load_dashboard_data(
     request_fingerprint: tuple[str, int, int],
     packing_fingerprint: tuple[str, int, int],
