@@ -2562,13 +2562,22 @@ def metric_progress_tone(progress: float) -> str:
     return "muted"
 
 
-def render_metric_card_grid(items: list[tuple[str, str, str]]) -> None:
+def render_metric_card_grid(items: list[tuple[str, str, str] | tuple[str, str, str, str]]) -> None:
+    def card_html(item: tuple[str, str, str] | tuple[str, str, str, str]) -> str:
+        label, value, tone = item[:3]
+        note = item[3] if len(item) > 3 else ""
+        note_html = f"<div class='metric-note'>{escape(note)}</div>" if note else ""
+        return (
+            "<div class='mini-kpi-card'>"
+            f"<div class='metric-label'>{escape(label)}</div>"
+            f"<div class='metric-value {tone}'>{escape(value)}</div>"
+            f"{note_html}"
+            "</div>"
+        )
+
     cards = "".join(
-        "<div class='mini-kpi-card'>"
-        f"<div class='metric-label'>{escape(label)}</div>"
-        f"<div class='metric-value {tone}'>{escape(value)}</div>"
-        "</div>"
-        for label, value, tone in items
+        card_html(item)
+        for item in items
     )
     st.markdown(f"<div class='mini-kpi-grid'>{cards}</div>", unsafe_allow_html=True)
 
@@ -6515,6 +6524,12 @@ def render_style() -> None:
         .metric-value.muted {{
             color: {TEXT_TERTIARY};
         }}
+        .metric-note {{
+            color: {TEXT_TERTIARY};
+            font-size: 11px;
+            line-height: 1.2;
+            margin-top: 4px;
+        }}
         .mini-kpi-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -7455,15 +7470,17 @@ def render_daily_inventory_tab(
     request_out_count = int((response_view["대응상태"] == "요청외 긴급").sum())
     request_in_count = int(response_view["대응상태"].isin(["요청내 긴급", "요청내 재고부족"]).sum())
     shortage_qty = float(response_view["재고부족수량"].sum())
-    matched_count = int((response_view["요청 PACK"] > 0).sum())
     render_metric_card_grid(
         [
             ("긴급요청 품목", f"{urgent_count:,}", "warn" if urgent_count else "normal"),
-            ("재고 음수 품목", f"{negative_count:,}", "warn" if negative_count else "normal"),
             ("요청외 긴급", f"{request_out_count:,}", "warn" if request_out_count else "normal"),
             ("요청내 부족/긴급", f"{request_in_count:,}", "warn" if request_in_count else "normal"),
-            ("재고부족수량", format_int(shortage_qty), "warn" if shortage_qty > 0 else "normal"),
-            ("요청 매칭 품목", f"{matched_count:,}", "normal"),
+            (
+                "재고부족수량",
+                format_int(shortage_qty),
+                "warn" if shortage_qty > 0 else "normal",
+                f"음수 {negative_count:,}품목" if negative_count else "",
+            ),
         ]
     )
 
