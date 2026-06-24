@@ -49,6 +49,7 @@ UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
 DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
+PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
     "Clalen 1Day",
@@ -3173,35 +3174,35 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
 
 
 def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit_mode: str) -> list[str]:
-    if unit_mode == UNIT_PCS:
-        pack_pcs_labels = [pack_pcs_label(label) for label in pack_labels]
-        columns = [
-            "생산코드",
-            "대표 제품명",
-            "POWER",
-            *pack_pcs_labels,
-            "요청합계(PCS)",
-            "생산필요수량(PCS)",
-            "생산부족수량(PCS)",
-            "생산진도율",
-            "포장진도율",
-            "최소 납기일",
-            "상태",
-        ]
-    else:
-        columns = [
-            "생산코드",
-            "대표 제품명",
-            "POWER",
-            *pack_labels,
-            "요청합계(PACK)",
-            "포장부족(PACK)",
-            "생산부족수량(PCS)",
-            "포장진도율",
-            "생산진도율",
-            "최소 납기일",
-            "상태",
-        ]
+    columns = [
+        "생산코드",
+        "대표 제품명",
+        "PACK 구성",
+        "요청합계(PACK)",
+        "포장부족(PACK)",
+        "생산부족수량(PCS)",
+        "포장진도율",
+        "생산진도율",
+        "최소 납기일",
+        "상태",
+    ]
+    return visible_columns(df, columns)
+
+
+def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str]) -> list[str]:
+    columns = [
+        "생산코드 전체",
+        "대표 제품명",
+        "POWER",
+        *pack_labels,
+        "요청합계(PACK)",
+        "포장부족(PACK)",
+        "생산부족수량(PCS)",
+        "포장진도율",
+        "생산진도율",
+        "최소 납기일",
+        "상태",
+    ]
     return visible_columns(df, columns)
 
 
@@ -4613,34 +4614,57 @@ def status_from_progress(packing_pack: Any, packing_progress: Any) -> str:
     return classify_status(packing, progress)
 
 
+def production_code_prefix(value: Any) -> str:
+    text = clean_str(value)
+    if not text or text == "(생산코드 미기재)":
+        return "(생산코드 미기재)"
+    return text[:5]
+
+
+def pack_composition_text(row: pd.Series, pack_labels: list[str]) -> str:
+    parts: list[str] = []
+    for label in pack_labels:
+        qty = pd.to_numeric(row.get(label, 0.0), errors="coerce")
+        if pd.notna(qty) and float(qty) > 0:
+            parts.append(f"{label}: {format_int(float(qty))}")
+    return " / ".join(parts) if parts else "-"
+
+
 def build_production_power_main_view(
     rows: pd.DataFrame,
     pack_labels: list[str],
     shortage_only: bool = False,
 ) -> pd.DataFrame:
-    pack_pcs_labels = [pack_pcs_label(label) for label in pack_labels]
     visible_columns = [
         "생산코드",
         "대표 제품명",
-        "POWER",
-        *pack_labels,
-        *pack_pcs_labels,
+        "PACK 구성",
         "요청합계(PACK)",
-        "요청합계(PCS)",
-        "생산부족수량",
-        "포장부족수량",
-        "생산진도율",
+        "포장부족(PACK)",
+        "생산부족수량(PCS)",
         "포장진도율",
+        "생산진도율",
         "최소 납기일",
-        "병목 상태",
         "상태",
     ]
     if rows.empty:
-        return pd.DataFrame(columns=visible_columns + ["_min_due_date_sort", "_power_sort"])
+        return pd.DataFrame(
+            columns=visible_columns
+            + [
+                "요청합계(PCS)",
+                "생산부족수량",
+                "포장부족수량",
+                "병목 상태",
+                "_production_code_prefix",
+                "_min_due_date_sort",
+            ]
+        )
 
-    group_cols = ["production_code_display", "POWER", "_power_sort"]
+    work = rows.copy()
+    work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
+    group_cols = ["_production_code_prefix"]
     base = (
-        rows.groupby(group_cols, dropna=False)
+        work.groupby(group_cols, dropna=False)
         .agg(
             representative_product=("base_product_name", first_nonempty),
             request_pack=("request_pack", "sum"),
@@ -4654,12 +4678,12 @@ def build_production_power_main_view(
     )
 
     pack_pivot = (
-        rows.pivot_table(
+        work.pivot_table(
             index=group_cols,
             columns="_pack_label",
             values="request_pack",
             aggfunc="sum",
-            dropna=False,
+            dropna=True,
         )
         .fillna(0.0)
         .reset_index()
@@ -4669,27 +4693,10 @@ def build_production_power_main_view(
         if label not in pack_pivot.columns:
             pack_pivot[label] = 0.0
 
-    pack_pcs_pivot = (
-        rows.pivot_table(
-            index=group_cols,
-            columns="_pack_label",
-            values="request_pcs",
-            aggfunc="sum",
-            dropna=False,
-        )
-        .fillna(0.0)
-        .reset_index()
-        .rename_axis(None, axis=1)
-    )
-    for label in pack_labels:
-        if label not in pack_pcs_pivot.columns:
-            pack_pcs_pivot[label] = 0.0
-    pack_pcs_pivot = pack_pcs_pivot.rename(columns={label: pack_pcs_label(label) for label in pack_labels})
-
     grouped = base.merge(pack_pivot[group_cols + pack_labels], on=group_cols, how="left")
-    grouped = grouped.merge(pack_pcs_pivot[group_cols + pack_pcs_labels], on=group_cols, how="left")
-    for label in pack_pcs_labels:
+    for label in pack_labels:
         grouped[label] = grouped[label].fillna(0.0)
+    grouped["PACK 구성"] = [pack_composition_text(row, pack_labels) for _, row in grouped.iterrows()]
     grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
     grouped["포장진도율"] = np.where(
         grouped["request_pack"] > 0,
@@ -4710,7 +4717,7 @@ def build_production_power_main_view(
 
     out = grouped.rename(
         columns={
-            "production_code_display": "생산코드",
+            "_production_code_prefix": "생산코드",
             "representative_product": "대표 제품명",
             "request_pack": "요청합계(PACK)",
             "request_pcs": "요청합계(PCS)",
@@ -4718,9 +4725,9 @@ def build_production_power_main_view(
             "packing_shortage_pack": "포장부족수량",
         }
     )
-    out["생산필요수량(PCS)"] = out["생산부족수량"]
     out["생산부족수량(PCS)"] = out["생산부족수량"]
     out["포장부족(PACK)"] = out["포장부족수량"]
+    out["_production_code_prefix"] = out["생산코드"]
     if shortage_only:
         out = out[(out["생산부족수량"] > 0) | (out["포장부족수량"] > 0)].copy()
 
@@ -4733,7 +4740,136 @@ def build_production_power_main_view(
     return_columns = list(
         dict.fromkeys(
             visible_columns
-            + ["생산필요수량(PCS)", "생산부족수량(PCS)", "포장부족(PACK)", "_min_due_date_sort", "_power_sort"]
+            + [
+                "요청합계(PCS)",
+                "생산부족수량",
+                "포장부족수량",
+                "병목 상태",
+                "_production_code_prefix",
+                "_min_due_date_sort",
+            ]
+        )
+    )
+    return out[return_columns].copy()
+
+
+def build_production_power_detail_view(
+    rows: pd.DataFrame,
+    pack_labels: list[str],
+    production_prefix: str | None = None,
+) -> pd.DataFrame:
+    visible_columns = [
+        "생산코드 전체",
+        "대표 제품명",
+        "POWER",
+        *pack_labels,
+        "요청합계(PACK)",
+        "포장부족(PACK)",
+        "생산부족수량(PCS)",
+        "포장진도율",
+        "생산진도율",
+        "최소 납기일",
+        "상태",
+    ]
+    if rows.empty:
+        return pd.DataFrame(
+            columns=visible_columns
+            + [
+                "요청합계(PCS)",
+                "생산부족수량",
+                "포장부족수량",
+                "_production_code_prefix",
+                "_min_due_date_sort",
+                "_power_sort",
+            ]
+        )
+
+    work = rows.copy()
+    work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
+    if production_prefix is not None:
+        work = work[work["_production_code_prefix"] == production_prefix].copy()
+    if work.empty:
+        return pd.DataFrame(
+            columns=visible_columns
+            + ["요청합계(PCS)", "생산부족수량", "포장부족수량", "_production_code_prefix", "_min_due_date_sort", "_power_sort"]
+        )
+
+    group_cols = ["_production_code_prefix", "production_code_display", "POWER", "_power_sort"]
+    base = (
+        work.groupby(group_cols, dropna=False)
+        .agg(
+            representative_product=("base_product_name", first_nonempty),
+            request_pack=("request_pack", "sum"),
+            request_pcs=("request_pcs", "sum"),
+            packing_pack=("packing_pack", "sum"),
+            production_shortage_pcs=("_production_shortage_pcs", "sum"),
+            packing_shortage_pack=("_packing_shortage_pack", "sum"),
+            min_due_date=("request_due_date", min_datetime),
+        )
+        .reset_index()
+    )
+    pack_pivot = (
+        work.pivot_table(
+            index=group_cols,
+            columns="_pack_label",
+            values="request_pack",
+            aggfunc="sum",
+            dropna=True,
+        )
+        .fillna(0.0)
+        .reset_index()
+        .rename_axis(None, axis=1)
+    )
+    for label in pack_labels:
+        if label not in pack_pivot.columns:
+            pack_pivot[label] = 0.0
+
+    grouped = base.merge(pack_pivot[group_cols + pack_labels], on=group_cols, how="left")
+    for label in pack_labels:
+        grouped[label] = grouped[label].fillna(0.0)
+    grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
+    grouped["포장진도율"] = np.where(
+        grouped["request_pack"] > 0,
+        grouped["packing_pack"] / grouped["request_pack"] * 100.0,
+        0.0,
+    )
+    grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
+    grouped["상태"] = [
+        status_from_progress(packing, progress)
+        for packing, progress in zip(grouped["packing_pack"], grouped["포장진도율"])
+    ]
+    grouped["_min_due_date_sort"] = pd.to_datetime(grouped["min_due_date"], errors="coerce")
+    grouped["최소 납기일"] = grouped["min_due_date"].map(display_date_or_dash)
+
+    out = grouped.rename(
+        columns={
+            "production_code_display": "생산코드 전체",
+            "representative_product": "대표 제품명",
+            "request_pack": "요청합계(PACK)",
+            "request_pcs": "요청합계(PCS)",
+            "production_shortage_pcs": "생산부족수량",
+            "packing_shortage_pack": "포장부족수량",
+        }
+    )
+    out["생산부족수량(PCS)"] = out["생산부족수량"]
+    out["포장부족(PACK)"] = out["포장부족수량"]
+    out = out.sort_values(
+        ["_min_due_date_sort", "포장부족수량", "생산부족수량"],
+        ascending=[True, False, False],
+        na_position="last",
+        kind="stable",
+    )
+    return_columns = list(
+        dict.fromkeys(
+            visible_columns
+            + [
+                "요청합계(PCS)",
+                "생산부족수량",
+                "포장부족수량",
+                "_production_code_prefix",
+                "_min_due_date_sort",
+                "_power_sort",
+            ]
         )
     )
     return out[return_columns].copy()
@@ -7555,6 +7691,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "GAP": st.column_config.NumberColumn("GAP", format="%.1f"),
         "power_value": None,
         "_power_sort": None,
+        "_production_code_prefix": None,
         "_min_due_date_sort": None,
         "_priority_sort": None,
         "_request_due_date_sort": None,
@@ -7608,6 +7745,39 @@ def render_selectable_table(
     )
     st.markdown("</div>", unsafe_allow_html=True)
     return get_selected_row(event, df)
+
+
+def render_production_power_detail_dialog(
+    selected_row: pd.Series,
+    detail_view: pd.DataFrame,
+    pack_labels: list[str],
+    table_nonce_key: str,
+) -> None:
+    production_code = clean_str(selected_row.get("생산코드", ""))
+    product_name = clean_str(selected_row.get("대표 제품명", ""))
+    title = f"생산코드 {production_code} 상세 - {product_name}"
+
+    @st.dialog(title, width="large")
+    def _dialog() -> None:
+        st.caption(
+            f"{production_code}에 해당하는 POWER별 PACK 구성, 부족수량, 진도율, 납기 현황 | 표시 건수: {len(detail_view):,}"
+        )
+        if detail_view.empty:
+            st.warning("상세 데이터가 없습니다.")
+        else:
+            st.dataframe(
+                dataframe_for_streamlit(detail_view),
+                hide_index=True,
+                height=520,
+                width="stretch",
+                column_config=drilldown_column_config(),
+                column_order=production_power_detail_column_order(detail_view, pack_labels),
+            )
+        if st.button("닫기", key="close_production_power_detail_dialog", width="stretch"):
+            st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
+            st.rerun()
+
+    _dialog()
 
 
 def render_daily_inventory_tab(
@@ -7830,11 +8000,11 @@ def render_product_summary_tab(
 def render_production_code_tab(code_summary: pd.DataFrame) -> None:
     render_panel_title(
         "생산코드 상세",
-        "생산코드 + POWER 기준으로 부족과 납기 우선순위를 확인합니다.",
+        "생산코드 5자리 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
     )
     production_unit_mode = render_unit_selector("production_progress_unit_mode")
     pack_options = available_pack_options(code_summary)
-    pack_labels = pack_options[1:]
+    pack_labels = PRODUCTION_CODE_PACK_LABELS
     power_options = available_production_power_options(code_summary)
     group_options = available_product_group_options(code_summary)
 
@@ -7900,82 +8070,53 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
         pack_labels=pack_labels,
         shortage_only=shortage_only,
     )
+    production_detail_view = build_production_power_detail_view(
+        production_source,
+        pack_labels=pack_labels,
+    )
     render_production_power_kpis(production_view, unit_mode=production_unit_mode)
+    production_main_export = production_view[
+        production_progress_column_order(production_view, pack_labels, production_unit_mode)
+    ].copy()
+    production_detail_export = production_detail_view[
+        production_power_detail_column_order(production_detail_view, pack_labels)
+    ].copy()
     dl_col, _ = st.columns([1.2, 4.8], gap="small")
     with dl_col:
         render_excel_download(
             "엑셀 다운로드",
             "생산코드_상세",
-            {"생산코드 POWER": production_view},
+            {
+                "생산코드 집계": production_main_export,
+                "POWER 상세": production_detail_export,
+            },
             key="download_production_code_excel",
         )
 
+    table_nonce_key = "production_code_main_table_nonce"
+    table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_production_row = render_selectable_table(
-        "생산코드 + POWER 메인 테이블",
-        f"납기일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
+        "생산코드 메인 테이블",
+        f"생산코드 5자리 기준 집계 | 납기일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
         production_view,
-        key="production_code_main_table",
+        key=f"production_code_main_table_{table_nonce}",
         height=620,
         column_order=production_progress_column_order(production_view, pack_labels, production_unit_mode),
     )
     if selected_production_row is None:
         return
 
-    selected_production = str(selected_production_row["생산코드"])
-    selected_power_for_detail = str(selected_production_row["POWER"])
-    st.markdown(
-        "<div class='breadcrumb'>"
-        f"생산코드 <span>{escape(selected_production)}</span>"
-        f"<b>›</b> POWER <span>{escape(selected_power_for_detail)}</span>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    chart_col, progress_col = st.columns([1.4, 1.0], gap="small")
-    with chart_col:
-        render_pack_composition_chart(selected_production_row, pack_labels)
-    with progress_col:
-        render_production_progress_panel(selected_production_row)
-
-    sales_detail = build_production_sales_detail_view(
+    selected_production = clean_str(selected_production_row.get("_production_code_prefix", selected_production_row.get("생산코드", "")))
+    detail_view = build_production_power_detail_view(
         production_source,
-        production_code=selected_production,
-        power_label=selected_power_for_detail,
+        pack_labels=pack_labels,
+        production_prefix=selected_production,
     )
-    render_selectable_table(
-        "판매코드 상세",
-        f"{selected_production} / {selected_power_for_detail} 기준 판매코드 상세 | 표시 건수: {len(sales_detail):,}",
-        sales_detail,
-        key="production_sales_detail_table",
-        height=360,
-        column_order=visible_columns(
-            sales_detail,
-            [
-                "판매코드",
-                "제품명",
-                "PACK 단위",
-                "필요팩",
-                "요청PCS",
-                "포장완료PACK",
-                "포장부족PACK",
-                "생산부족수량(PCS)",
-                "생산진도율",
-                "포장진도율",
-                "납기일자",
-            ]
-            if production_unit_mode == UNIT_PACK
-            else [
-                "판매코드",
-                "제품명",
-                "PACK 단위",
-                "요청PCS",
-                "생산필요수량(PCS)",
-                "생산부족수량(PCS)",
-                "생산진도율",
-                "포장진도율",
-                "납기일자",
-            ],
-        ),
+    render_production_power_detail_dialog(
+        selected_production_row,
+        detail_view,
+        pack_labels,
+        table_nonce_key,
     )
 
 
