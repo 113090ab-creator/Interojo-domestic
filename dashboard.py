@@ -4183,16 +4183,22 @@ def build_daily_inventory_response_view(
     out["재고부족수량"] = (-out["재고수량"]).clip(lower=0.0).fillna(0.0)
     pack_units = out["PACK"].map(pack_unit_from_label)
     stock_shortage_pcs = (out["재고부족수량"] * pack_units).clip(lower=0.0)
+    stock_available_pcs = (out["재고수량"].clip(lower=0.0).fillna(0.0) * pack_units).clip(lower=0.0)
+    sample_available_pcs = pd.to_numeric(out["샘플신청가능수량"], errors="coerce").fillna(0.0)
+    fallback_available_stock_pcs = sample_available_pcs.where(
+        sample_available_pcs >= stock_available_pcs,
+        stock_available_pcs,
+    )
     has_supply_context = has_request | has_production_context
     out["포장부족(재고 PCS)"] = np.where(
         has_supply_context,
         (stock_shortage_pcs - available_stock_pcs).clip(lower=0.0),
-        out["샘플신청가능수량"],
+        (stock_shortage_pcs - fallback_available_stock_pcs).clip(lower=0.0),
     )
     out["포장가능재고(PCS)"] = np.where(
         has_supply_context,
         available_stock_pcs,
-        out["포장부족(재고 PCS)"],
+        fallback_available_stock_pcs,
     )
     out["포장가능재고(PCS)"] = pd.to_numeric(out["포장가능재고(PCS)"], errors="coerce").fillna(0.0).round(0)
     out["대응상태"] = out.apply(classify_daily_inventory_status, axis=1)
