@@ -5781,8 +5781,10 @@ def add_kpi_card(
     )
 
     receipt_progress = kpi.get("progress_pct", 0.0)
+    packing_progress = kpi.get("packing_progress_pct", 0.0)
     production_progress = kpi.get("production_progress_pct", 0.0)
     progress_width = max(0.0, min(1.0, to_report_float(receipt_progress) / 100.0)) * (width - 0.3)
+    packing_width = max(0.0, min(1.0, to_report_float(packing_progress) / 100.0)) * (width - 0.3)
     add_textbox(
         slide,
         format_report_value(receipt_progress, True),
@@ -5810,19 +5812,17 @@ def add_kpi_card(
         MSO_ANCHOR.MIDDLE,
     )
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.14, top + 0.83, width - 0.3, 0.06, REPORT_FAINT)
+    if packing_width > 0:
+        add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.14, top + 0.83, packing_width, 0.06, REPORT_ACCENT_SOFT, REPORT_ACCENT_SOFT)
     if progress_width > 0:
         add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.14, top + 0.83, progress_width, 0.06, dot_color, dot_color)
 
     metrics = [
         ("요청", format_report_value(kpi.get("request_pack", 0.0)), REPORT_HEADER, True),
-        ("입고", format_report_value(kpi.get("yongma_in_pack", 0.0)), REPORT_HEADER, False),
+        ("생산율", format_report_value(production_progress, True), REPORT_HEADER, True),
+        ("포장률", format_report_value(packing_progress, True), REPORT_HEADER, True),
+        ("입고율", format_report_value(receipt_progress, True), REPORT_HEADER, False),
         ("미입고", format_report_value(kpi.get("shortage_pack", 0.0)), REPORT_ACCENT, False),
-        (
-            "생산",
-            format_report_value(production_progress, True),
-            REPORT_HEADER,
-            True,
-        ),
     ]
     col_width = (width - 0.28) / len(metrics)
     for idx, (label, value, value_color, big) in enumerate(metrics):
@@ -6454,7 +6454,17 @@ def add_urgent_request_summary_panel(
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.36, REPORT_NAVY, REPORT_NAVY, 0.5)
 
     headers = ["S코드", "구분", "제품명", "SKU"]
-    col_widths = [0.58, 0.58, 2.12, 0.38]
+    content_width = max(0.0, width - 0.24)
+    if width >= 8.0:
+        col_widths = [1.0, 1.1, max(1.0, content_width - 2.85), 0.75]
+        product_max_chars = 68
+        body_font_size = 8.0
+        product_font_size = 7.8
+    else:
+        col_widths = [0.58, 0.58, 2.12, 0.38]
+        product_max_chars = 22
+        body_font_size = 6.5
+        product_font_size = 6.1
     col_lefts = [left + 0.12]
     for col_width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + col_width)
@@ -6503,7 +6513,7 @@ def add_urgent_request_summary_panel(
         values = [
             clean_str(row.get("S코드", "")),
             scope,
-            truncate_report_text(row.get("제품명", ""), 22),
+            truncate_report_text(row.get("제품명", ""), product_max_chars),
             format_report_value(row.get("SKU 수", 0.0)),
         ]
         colors = [COLOR_BLUE, scope_color, REPORT_HEADER, REPORT_ACCENT]
@@ -6517,7 +6527,7 @@ def add_urgent_request_summary_panel(
                 row_top + 0.01,
                 col_widths[col_idx],
                 row_height - 0.02,
-                6.5 if col_idx != 2 else 6.1,
+                body_font_size if col_idx != 2 else product_font_size,
                 bolds[col_idx],
                 colors[col_idx],
                 aligns[col_idx],
@@ -6745,7 +6755,6 @@ def build_ppt_report(
     work = add_allocated_production_basis(code_summary)
     work = code_summary_for_products(work, product_names)
     scope_kpis = build_scope_kpis(work)
-    priority_view = build_priority_report_view(product_view)
     urgent_summary_view = build_urgent_request_summary_view(
         daily_inventory_df,
         code_summary,
@@ -6821,6 +6830,7 @@ def build_ppt_report(
     kpi_map = {name: kpi for name, kpi in scope_kpis}
     total_kpi = kpi_map.get("전체", {})
     total_progress = to_report_float(total_kpi.get("progress_pct", 0.0))
+    total_packing_progress = to_report_float(total_kpi.get("packing_progress_pct", 0.0))
     total_shortage = to_report_float(total_kpi.get("shortage_pack", 0.0))
     exception_count = float(urgent_sku_count)
     if total_shortage > 0 or exception_count > 0:
@@ -6832,7 +6842,8 @@ def build_ppt_report(
         banner_color = COLOR_TEAL
         status_label = "정상"
     banner_text = (
-        f"[{status_label}] 용마입고율 {total_progress:.1f}%"
+        f"[{status_label}] 포장진도율 {total_packing_progress:.1f}%"
+        f" / 용마입고율 {total_progress:.1f}%"
         f" / 미입고 {format_report_value(total_shortage)} PACK"
         f" / 긴급 SKU {format_report_value(exception_count)}개"
     )
@@ -6870,11 +6881,9 @@ def build_ppt_report(
     add_kpi_card(slide, "본품 KPI", kpi_map.get("본품", {}), COLOR_TEAL, 4.68, 1.9, 4.0, 1.38)
     add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_AMBER, 8.9, 1.9, 4.0, 1.38)
 
-    add_textbox(slide, "우선 대응 TOP 6", 0.45, 3.38, 3.0, 0.22, 8.5, True, REPORT_HEADER)
-    add_textbox(slide, "요청 긴급 S코드 요약", 8.95, 3.34, 3.95, 0.22, 8.5, True, REPORT_HEADER)
+    add_textbox(slide, "요청 긴급 S코드 요약", 0.45, 3.34, 12.45, 0.22, 8.5, True, REPORT_HEADER)
 
-    add_priority_report_table(slide, priority_view)
-    add_urgent_request_summary_panel(slide, urgent_summary_view)
+    add_urgent_request_summary_panel(slide, urgent_summary_view, left=0.45, top=3.56, width=12.45)
     add_textbox(
         slide,
         "진도율은 생산요청 기준이며, 요청/긴급 대응 품목은 일일 재고표 기준으로 산출됩니다.",

@@ -1,2 +1,4 @@
 C:\Users\유현아\Documents\GitHub\Interojo-domestic\dashboard.py:5882: DeprecationWarning: is_datetime64tz_dtype is deprecated and will be removed in a future version. Check `isinstance(dtype, pd.DatetimeTZDtype)` instead.
   if pd.api.types.is_datetime64tz_dtype(out[col]):
+C:\Users\유현아\Documents\GitHub\Interojo-domestic\dashboard.py:5882: DeprecationWarning: is_datetime64tz_dtype is deprecated and will be removed in a future version. Check `isinstance(dtype, pd.DatetimeTZDtype)` instead.
+  if pd.api.types.is_datetime64tz_dtype(out[col]):
