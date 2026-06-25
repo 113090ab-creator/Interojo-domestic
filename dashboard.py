@@ -2668,6 +2668,32 @@ def render_status_board(
     priority_products = int(kpi.get("priority_products", 0.0))
     request_out_count = int(exception_kpis.get("request_out_count", 0.0))
 
+    # Guard the headline KPI against stale Streamlit/session state: the status
+    # board must always use the current code-level receipt aggregate when present.
+    direct_request_pack = (
+        float(pd.to_numeric(code_summary.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if code_summary is not None and not code_summary.empty
+        else 0.0
+    )
+    direct_packing_pack = (
+        float(pd.to_numeric(code_summary.get("packing_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if code_summary is not None and not code_summary.empty
+        else 0.0
+    )
+    direct_yongma_in_pack = (
+        float(pd.to_numeric(code_summary.get("yongma_in_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if code_summary is not None and not code_summary.empty
+        else 0.0
+    )
+    if direct_request_pack > 0:
+        request_pack = direct_request_pack
+    if direct_packing_pack > 0:
+        packing_progress = direct_packing_pack / request_pack * 100.0 if request_pack > 0 else 0.0
+    if direct_yongma_in_pack > 0:
+        yongma_in_pack = direct_yongma_in_pack
+        missing_pack = max(0.0, request_pack - yongma_in_pack)
+        receipt_progress = yongma_in_pack / request_pack * 100.0 if request_pack > 0 else 0.0
+
     receipt_width = max(0.0, min(100.0, receipt_progress))
     missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
     emergency_count = request_out_count
