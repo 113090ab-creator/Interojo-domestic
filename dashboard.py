@@ -8564,20 +8564,20 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "미입고 TOP10",
-        "미입고 PACK이 큰 제품의 생산·포장·입고 진도를 확인합니다.",
-    )
-    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
-    render_top_shortage_list(top_shortage_view)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
         "본품 분류별 진도현황",
         "제품군별 요청 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_family_progress_cards(family_view)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "미입고 TOP10",
+        "미입고 PACK이 큰 제품의 생산·포장·입고 진도를 확인합니다.",
+    )
+    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
+    render_top_shortage_list(top_shortage_view)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
