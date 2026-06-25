@@ -50,7 +50,7 @@ DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 8
+DATA_CACHE_VERSION = 9
 PRODUCTION_PROGRESS_DUE_MONTH = "2026-06"
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
@@ -176,6 +176,8 @@ PACKING_COLS = {
     "barcode_info": ["바코드정보", "바코드 정보", "barcode_info"],
     "packing_date": ["마킹일", "마킹시간", "포장일", "일자", "date"],
     "packing_qty": ["팩수량", "포장수량", "포장완료수량", "수량", "packing_qty"],
+    "packing_pcs": ["낱개수량", "낱개 수량", "PCS수량", "PCS 수량", "pcs_qty", "packing_pcs"],
+    "pack_unit": ["포장단위", "포장 단위", "입수", "pack_unit"],
 }
 
 YONGMA_COLS = {
@@ -598,10 +600,24 @@ def normalize_packing_frame(raw: pd.DataFrame, file_label: str) -> pd.DataFrame:
         required_keys=["sales_code", "packing_qty"],
         file_label=file_label,
     )
+    packing_pack = to_number(raw[cols["packing_qty"]])
+    if "packing_pcs" in cols:
+        packing_pcs = to_number(raw[cols["packing_pcs"]])
+        if "pack_unit" in cols:
+            pack_unit = to_number(raw[cols["pack_unit"]])
+        elif "product_name" in cols:
+            pack_unit = raw[cols["product_name"]].map(extract_pack_unit)
+        else:
+            pack_unit = pd.Series(0.0, index=raw.index)
+        pack_unit = pd.to_numeric(pack_unit, errors="coerce").fillna(0.0)
+        # Some exported pack counts are formatted as Excel dates; recover PACK from PCS when needed.
+        derived_pack = (packing_pcs / pack_unit.where(pack_unit > 0, np.nan)).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        packing_pack = packing_pack.where((packing_pack > 0) | (derived_pack <= 0), derived_pack)
+
     out = pd.DataFrame(
         {
             "sales_code": raw[cols["sales_code"]].map(clean_str),
-            "packing_pack": to_number(raw[cols["packing_qty"]]),
+            "packing_pack": packing_pack,
         }
     )
     out["sales_code_key"] = out["sales_code"].map(normalize_match_key)
