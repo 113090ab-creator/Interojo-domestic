@@ -6019,6 +6019,57 @@ def build_daily_exception_report_view(
     return kpis, detail[columns].copy()
 
 
+def build_urgent_request_summary_view(
+    daily_inventory_df: pd.DataFrame | None,
+    code_summary: pd.DataFrame,
+    sample_available_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    columns = ["S코드", "제품명", "SKU 수"]
+    if daily_inventory_df is None or daily_inventory_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    if view.empty or "긴급요청" not in view.columns:
+        return pd.DataFrame(columns=columns)
+
+    urgent = view[view["긴급요청"].fillna(False).astype(bool)].copy()
+    if urgent.empty:
+        return pd.DataFrame(columns=columns)
+
+    urgent["S코드"] = [
+        extract_sales_prefix(product_code) or extract_sales_prefix(item_code)
+        for product_code, item_code in zip(
+            urgent.get("제품코드", pd.Series("", index=urgent.index)),
+            urgent.get("품목코드", pd.Series("", index=urgent.index)),
+        )
+    ]
+    urgent = urgent[urgent["S코드"].map(lambda value: bool(re.fullmatch(r"S\d{3}", clean_str(value))))].copy()
+    if urgent.empty:
+        return pd.DataFrame(columns=columns)
+
+    urgent["_sku_key"] = [
+        clean_str(item_code)
+        or "|".join([clean_str(product_code), clean_str(pack), clean_str(power)])
+        for item_code, product_code, pack, power in zip(
+            urgent.get("품목코드", pd.Series("", index=urgent.index)),
+            urgent["S코드"],
+            urgent.get("PACK", pd.Series("", index=urgent.index)),
+            urgent.get("POWER", pd.Series("", index=urgent.index)),
+        )
+    ]
+    grouped = (
+        urgent.groupby("S코드", dropna=False)
+        .agg(
+            제품명=("제품명", join_unique),
+            sku_count=("_sku_key", "nunique"),
+        )
+        .reset_index()
+    )
+    grouped = grouped.rename(columns={"sku_count": "SKU 수"})
+    grouped["SKU 수"] = pd.to_numeric(grouped["SKU 수"], errors="coerce").fillna(0).astype(int)
+    return grouped.sort_values(["SKU 수", "S코드"], ascending=[False, True], kind="stable")[columns].copy()
+
+
 def classify_exception_response(available_pcs: Any, shortage_pcs: Any) -> str:
     available_num = pd.to_numeric(available_pcs, errors="coerce")
     shortage_num = pd.to_numeric(shortage_pcs, errors="coerce")
@@ -6065,6 +6116,37 @@ def render_exception_summary_table(exception_detail: pd.DataFrame) -> None:
         "<div class='table-wrap compact-table'>"
         "<table class='ops-table urgent-summary-table'>"
         f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
+    if summary_view.empty:
+        st.warning("긴급요청 품목이 없습니다.")
+        return
+
+    rows: list[str] = []
+    for _, row in summary_view.iterrows():
+        sku_num = pd.to_numeric(row.get("SKU 수", 0), errors="coerce")
+        sku_count = 0.0 if pd.isna(sku_num) else float(sku_num)
+        rows.append(
+            "<tr>"
+            f"<td class='left code-cell'>{escape(clean_str(row.get('S코드', '')))}</td>"
+            f"<td class='left'>{escape(clean_str(row.get('제품명', '')))}</td>"
+            f"<td class='num shortage'>{format_int(sku_count)}</td>"
+            "</tr>"
+        )
+    st.markdown(
+        "<div class='table-wrap compact-table'>"
+        "<table class='ops-table urgent-summary-table'>"
+        "<thead><tr>"
+        "<th class='left'>S코드</th>"
+        "<th class='left'>제품명</th>"
+        "<th class='num'>SKU 수</th>"
+        "</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table>"
         "</div>",
@@ -7300,6 +7382,11 @@ def render_style() -> None:
             color: {COLOR_ORANGE};
             font-weight: 700;
         }}
+        .ops-table td.code-cell {{
+            color: {COLOR_BLUE};
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }}
         .response-badge {{
             display: inline-flex;
             align-items: center;
@@ -8057,6 +8144,11 @@ def render_product_summary_tab(
         sample_available_df,
         max_rows=10,
     )
+    urgent_summary_view = build_urgent_request_summary_view(
+        daily_inventory_df,
+        code_summary,
+        sample_available_df,
+    )
 
     title_col, download_col = st.columns([4.8, 1.2], gap="small", vertical_alignment="center")
     with title_col:
@@ -8089,7 +8181,8 @@ def render_product_summary_tab(
                 "미입고 TOP10": top_shortage_view,
                 "본품 분류별 진도": family_view,
                 "생산완료 후 미입고 TOP10": gap_top_view,
-                "요청 긴급 요약": exception_detail,
+                "요청 긴급 요약": urgent_summary_view,
+                "요청 긴급 상세": exception_detail,
             },
             key="download_product_progress_excel",
         )
@@ -8131,12 +8224,17 @@ def render_product_summary_tab(
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    urgent_sku_count = int(
+        pd.to_numeric(urgent_summary_view.get("SKU 수", pd.Series(dtype=float)), errors="coerce")
+        .fillna(0)
+        .sum()
+    )
     render_panel_title(
         "요청 긴급 요약",
-        f"일일 재고표 기준 요청물량 외 대응 품목 {int(exception_kpis.get('request_out_count', 0)):,}건을 확인합니다.",
+        f"일일 재고표 기준 긴급요청 S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개를 확인합니다.",
     )
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
-    render_exception_summary_table(exception_detail)
+    render_urgent_request_summary_table(urgent_summary_view)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
