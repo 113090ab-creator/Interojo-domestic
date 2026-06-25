@@ -50,7 +50,7 @@ DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 5
+DATA_CACHE_VERSION = 7
 PRODUCTION_PROGRESS_DUE_MONTH = "2026-06"
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
@@ -1052,6 +1052,10 @@ def normalize_daily_inventory_file(path: Path | None) -> pd.DataFrame:
     if "_emergency_target" in merged.columns:
         merged["대상품목"] = merged["대상품목"].where(merged["대상품목"].map(clean_str) != "", merged["_emergency_target"])
 
+    negative_stock = pd.to_numeric(merged["재고수량"], errors="coerce") < 0
+    merged["긴급요청"] = merged["긴급요청"].apply(lambda value: bool(value) if not pd.isna(value) else False) | negative_stock
+    merged.loc[negative_stock & (merged["대상품목"].map(clean_str) == ""), "대상품목"] = "재고표 음수 재고"
+
     merged["재고증감"] = pd.to_numeric(merged["재고증감"], errors="coerce")
     missing_delta = merged["재고증감"].isna()
     merged.loc[missing_delta, "재고증감"] = (
@@ -1079,6 +1083,13 @@ def inventory_power_label_from_sales_code(value: Any) -> str:
 
 def pack_label_from_inventory_name(product_name: Any, product_spec: Any = "") -> str:
     product_text = clean_str(product_name)
+    inline_pack = re.search(
+        r"(?:^|[_\s])(\d+(?:\.\d+)?)\s*(?:P|팩)(?=$|[_\s])",
+        product_text,
+        flags=re.IGNORECASE,
+    )
+    if inline_pack:
+        return base_pack_label(float(inline_pack.group(1)))
     product_text = re.sub(r"[/\\]+$", "", product_text).strip()
     product_text = re.sub(r"[/_ -]*[+-]?\d{1,2}\.\d{2}$", "", product_text).strip("_-/ ")
     unit = extract_pack_unit(product_text)
@@ -1130,6 +1141,57 @@ def build_daily_wms_catalog(inventory_df: pd.DataFrame) -> tuple[pd.DataFrame, p
     return exact[exact_columns].copy(), prefix[prefix_columns].copy()
 
 
+def fill_daily_product_code_from_wms(out: pd.DataFrame, inventory_df: pd.DataFrame) -> pd.DataFrame:
+    if out.empty or inventory_df is None or inventory_df.empty:
+        return out
+
+    work = inventory_df.copy()
+    work["제품코드"] = work["sales_code"].map(extract_sales_prefix)
+    work["POWER"] = work["sales_code"].map(inventory_power_label_from_sales_code)
+    work["PACK"] = [
+        pack_label_from_inventory_name(product_name, product_spec)
+        for product_name, product_spec in zip(
+            work.get("inventory_product_name", pd.Series("", index=work.index)),
+            work.get("inventory_product_spec", pd.Series("", index=work.index)),
+        )
+    ]
+    work["_wms_product_name"] = work["inventory_product_name"].map(clean_inventory_product_name)
+    work = work[
+        (work["제품코드"].map(clean_str) != "")
+        & (work["POWER"].map(clean_str) != "")
+        & (work["PACK"].map(clean_str) != "")
+        & (work["_wms_product_name"].map(clean_str) != "")
+    ].copy()
+    if work.empty:
+        return out
+
+    catalog = (
+        work.groupby(["제품코드", "PACK", "POWER"], dropna=False)
+        .agg(_wms_product_name=("_wms_product_name", first_nonempty))
+        .reset_index()
+    )
+    filled = out.copy()
+    needs_code = filled["제품코드"].map(clean_str) == ""
+    for idx, row in filled[needs_code].iterrows():
+        pack = clean_str(row.get("PACK", ""))
+        power = clean_str(row.get("POWER", ""))
+        terms = expand_product_query_terms(row.get("제품명", ""))
+        if not pack or not power or not terms:
+            continue
+        candidates = catalog[(catalog["PACK"] == pack) & (catalog["POWER"] == power)].copy()
+        if candidates.empty:
+            continue
+        candidates = candidates[contains_any_query_term(candidates["_wms_product_name"], terms)]
+        product_codes = [code for code in candidates["제품코드"].dropna().astype(str).unique().tolist() if clean_str(code)]
+        if len(product_codes) != 1:
+            continue
+        filled.at[idx, "제품코드"] = product_codes[0]
+        product_name = first_nonempty(candidates["_wms_product_name"])
+        if product_name and clean_str(filled.at[idx, "제품명"]) == "":
+            filled.at[idx, "제품명"] = product_name
+    return filled
+
+
 def enrich_daily_inventory_from_wms(daily_inventory_df: pd.DataFrame, inventory_df: pd.DataFrame) -> pd.DataFrame:
     if daily_inventory_df is None or daily_inventory_df.empty or inventory_df is None or inventory_df.empty:
         return daily_inventory_df
@@ -1153,6 +1215,7 @@ def enrich_daily_inventory_from_wms(daily_inventory_df: pd.DataFrame, inventory_
         out["PACK"] = out["PACK"].where(out["PACK"].map(clean_str) != "", out["_wms_pack"])
         out = out.drop(columns=["_wms_product_name", "_wms_pack"], errors="ignore")
 
+    out = fill_daily_product_code_from_wms(out, inventory_df)
     return out[DAILY_INVENTORY_COLUMNS].copy()
 
 
