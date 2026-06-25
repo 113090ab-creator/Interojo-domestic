@@ -6142,8 +6142,8 @@ def add_priority_report_table(
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.38, REPORT_NAVY, REPORT_NAVY, 0.5)
 
     headers = ["순위", "제품명", "요청 PACK", "용마입고율", "미입고 PACK", "생산진도율"]
-    col_widths = [0.48, 3.32, 1.08, 1.14, 1.12, 1.08]
-    col_lefts = [left + 0.12]
+    col_widths = [0.58, 3.18, 1.08, 1.14, 1.12, 1.08]
+    col_lefts = [left + 0.16]
     for width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + width)
 
@@ -6155,10 +6155,10 @@ def add_priority_report_table(
             top + 0.04,
             col_widths[idx],
             0.3,
-            7.1,
+            8.2,
             True,
             "#FFFFFF",
-            PP_ALIGN.LEFT if idx == 1 else PP_ALIGN.RIGHT,
+            PP_ALIGN.LEFT if idx == 1 else PP_ALIGN.CENTER if idx == 0 else PP_ALIGN.RIGHT,
             MSO_ANCHOR.MIDDLE,
         )
 
@@ -6207,7 +6207,7 @@ def add_priority_report_table(
             REPORT_HEADER,
         ]
         bolds = [False, False, False, False, receipt_shortage > 0, False]
-        aligns = [PP_ALIGN.RIGHT, PP_ALIGN.LEFT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT]
+        aligns = [PP_ALIGN.CENTER, PP_ALIGN.LEFT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT, PP_ALIGN.RIGHT]
 
         for col_idx, value in enumerate(values):
             add_textbox(
@@ -6217,7 +6217,7 @@ def add_priority_report_table(
                 cell_top,
                 col_widths[col_idx],
                 cell_height,
-                7.6 if col_idx != 1 else 7.8,
+                8.6 if col_idx != 1 else 8.8,
                 bolds[col_idx],
                 colors[col_idx],
                 aligns[col_idx],
@@ -6231,9 +6231,9 @@ def add_daily_exception_report_panel(
     slide: Any,
     exception_kpis: dict[str, float],
     exception_view: pd.DataFrame,
-    left: float = 9.05,
+    left: float = 8.95,
     top: float = 3.62,
-    width: float = 3.85,
+    width: float = 3.95,
     height: float = 3.28,
 ) -> None:
     add_report_shape(
@@ -6249,9 +6249,9 @@ def add_daily_exception_report_panel(
     )
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.38, REPORT_NAVY, REPORT_NAVY, 0.5)
 
-    headers = ["품목", "제품명", "재고", "포장가능재고 PCS"]
-    col_widths = [0.64, 1.47, 0.54, 0.98]
-    col_lefts = [left + 0.1]
+    headers = ["품목", "제품명", "재고", "가용 PCS"]
+    col_widths = [0.72, 1.62, 0.56, 0.78]
+    col_lefts = [left + 0.12]
     for col_width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + col_width)
     for idx, header in enumerate(headers):
@@ -6262,7 +6262,7 @@ def add_daily_exception_report_panel(
             top + 0.04,
             col_widths[idx],
             0.3,
-            6.5,
+            7.8,
             True,
             "#FFFFFF",
             PP_ALIGN.LEFT if idx in {0, 1} else PP_ALIGN.RIGHT,
@@ -6297,7 +6297,7 @@ def add_daily_exception_report_panel(
             add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.03, row_top, width - 0.06, row_height, REPORT_ROW_ALT)
         values = [
             truncate_report_text(row.get("품목코드", ""), 12),
-            truncate_report_text(row.get("제품명", ""), 18),
+            truncate_report_text(row.get("제품명", ""), 20),
             stock_text,
             waiting_text,
         ]
@@ -6311,7 +6311,7 @@ def add_daily_exception_report_panel(
                 row_top + 0.03,
                 col_widths[col_idx],
                 row_height - 0.06,
-                6.4 if col_idx != 1 else 6.6,
+                7.7 if col_idx != 1 else 7.9,
                 col_idx == 2 and stock_color == REPORT_ACCENT,
                 colors[col_idx],
                 aligns[col_idx],
@@ -6476,7 +6476,7 @@ def build_ppt_report(
     add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_AMBER, 8.9, 1.9, 4.0, 1.38)
 
     add_textbox(slide, "우선 대응 TOP 6", 0.45, 3.38, 3.0, 0.22, 8.5, True, REPORT_HEADER)
-    add_textbox(slide, "일일 재고표 기준 예외 대응", 9.05, 3.38, 3.85, 0.22, 8.5, True, REPORT_HEADER)
+    add_textbox(slide, "일일 재고표 기준 예외 대응", 8.95, 3.38, 3.95, 0.22, 8.5, True, REPORT_HEADER)
 
     add_priority_report_table(slide, priority_view)
     add_daily_exception_report_panel(slide, exception_kpis, exception_view)
