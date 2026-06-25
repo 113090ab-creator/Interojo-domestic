@@ -6024,7 +6024,7 @@ def build_urgent_request_summary_view(
     code_summary: pd.DataFrame,
     sample_available_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    columns = ["S코드", "제품명", "SKU 수"]
+    columns = ["S코드", "요청구분", "제품명", "SKU 수"]
     if daily_inventory_df is None or daily_inventory_df.empty:
         return pd.DataFrame(columns=columns)
 
@@ -6057,15 +6057,42 @@ def build_urgent_request_summary_view(
             urgent.get("POWER", pd.Series("", index=urgent.index)),
         )
     ]
+    urgent["_request_pack"] = pd.to_numeric(
+        urgent.get("요청 PACK", pd.Series(0.0, index=urgent.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    urgent["_request_scope"] = np.where(urgent["_request_pack"] > 0, "요청내", "요청외")
+    urgent["_request_in_sku_key"] = urgent["_sku_key"].where(urgent["_request_scope"] == "요청내", "")
+    urgent["_request_out_sku_key"] = urgent["_sku_key"].where(urgent["_request_scope"] == "요청외", "")
     grouped = (
         urgent.groupby("S코드", dropna=False)
         .agg(
             제품명=("제품명", join_unique),
+            request_in_count=("_request_in_sku_key", lambda series: len({clean_str(value) for value in series if clean_str(value)})),
+            request_out_count=("_request_out_sku_key", lambda series: len({clean_str(value) for value in series if clean_str(value)})),
             sku_count=("_sku_key", "nunique"),
         )
         .reset_index()
     )
-    grouped = grouped.rename(columns={"sku_count": "SKU 수"})
+    grouped = grouped.rename(
+        columns={
+            "request_in_count": "요청내 SKU",
+            "request_out_count": "요청외 SKU",
+            "sku_count": "SKU 수",
+        }
+    )
+    for col in ["요청내 SKU", "요청외 SKU"]:
+        grouped[col] = pd.to_numeric(grouped[col], errors="coerce").fillna(0).astype(int)
+    grouped["요청구분"] = [
+        f"혼합(내 {in_count}/외 {out_count})"
+        if in_count > 0 and out_count > 0
+        else "요청내"
+        if in_count > 0
+        else "요청외"
+        if out_count > 0
+        else "-"
+        for in_count, out_count in zip(grouped["요청내 SKU"], grouped["요청외 SKU"])
+    ]
     grouped["SKU 수"] = pd.to_numeric(grouped["SKU 수"], errors="coerce").fillna(0).astype(int)
     return grouped.sort_values(["SKU 수", "S코드"], ascending=[False, True], kind="stable")[columns].copy()
 
@@ -6132,9 +6159,12 @@ def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
     for _, row in summary_view.iterrows():
         sku_num = pd.to_numeric(row.get("SKU 수", 0), errors="coerce")
         sku_count = 0.0 if pd.isna(sku_num) else float(sku_num)
+        scope = clean_str(row.get("요청구분", ""))
+        scope_class = "mixed" if scope.startswith("혼합") else "in" if scope == "요청내" else "out"
         rows.append(
             "<tr>"
             f"<td class='left code-cell'>{escape(clean_str(row.get('S코드', '')))}</td>"
+            f"<td class='left'><span class='request-scope-badge {scope_class}'>{escape(scope)}</span></td>"
             f"<td class='left'>{escape(clean_str(row.get('제품명', '')))}</td>"
             f"<td class='num shortage'>{format_int(sku_count)}</td>"
             "</tr>"
@@ -6144,6 +6174,7 @@ def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
         "<table class='ops-table urgent-summary-table'>"
         "<thead><tr>"
         "<th class='left'>S코드</th>"
+        "<th class='left'>요청구분</th>"
         "<th class='left'>제품명</th>"
         "<th class='num'>SKU 수</th>"
         "</tr></thead>"
@@ -7386,6 +7417,34 @@ def render_style() -> None:
             color: {COLOR_BLUE};
             font-weight: 700;
             font-variant-numeric: tabular-nums;
+        }}
+        .request-scope-badge {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            border: 0.5px solid {BORDER_DEFAULT};
+            background: {BG_SECTION};
+            color: {TEXT_SECONDARY};
+            white-space: nowrap;
+        }}
+        .request-scope-badge.in {{
+            color: {COLOR_TEAL};
+            background: #E8F5F0;
+            border-color: #B9E3D4;
+        }}
+        .request-scope-badge.out {{
+            color: {COLOR_ORANGE};
+            background: {COLOR_ALERT_BG};
+            border-color: {COLOR_ALERT_BD};
+        }}
+        .request-scope-badge.mixed {{
+            color: {COLOR_AMBER};
+            background: #F7EFE3;
+            border-color: #E4B968;
         }}
         .response-badge {{
             display: inline-flex;
