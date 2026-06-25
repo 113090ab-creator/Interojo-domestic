@@ -50,7 +50,7 @@ DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 7
+DATA_CACHE_VERSION = 8
 PRODUCTION_PROGRESS_DUE_MONTH = "2026-06"
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
@@ -1538,7 +1538,15 @@ def build_summaries(
     )
     packing_by_code = packing_df.groupby("sales_code", dropna=False)["packing_pack"].sum().reset_index()
     if yongma_df is None or yongma_df.empty:
-        yongma_by_key = pd.DataFrame(columns=["sales_code_key", "yongma_in_pack"])
+        if packing_df.empty or "sales_code_key" not in packing_df.columns:
+            yongma_by_key = pd.DataFrame(columns=["sales_code_key", "yongma_in_pack"])
+        else:
+            yongma_by_key = (
+                packing_df.groupby("sales_code_key", dropna=False)["packing_pack"]
+                .sum()
+                .reset_index()
+                .rename(columns={"packing_pack": "yongma_in_pack"})
+            )
     else:
         yongma_by_key = yongma_df.groupby("sales_code_key", dropna=False)["yongma_in_pack"].sum().reset_index()
 
