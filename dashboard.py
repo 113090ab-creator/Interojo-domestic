@@ -50,7 +50,8 @@ DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 4
+DATA_CACHE_VERSION = 5
+PRODUCTION_PROGRESS_DUE_MONTH = "2026-06"
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
     "Clalen 1Day",
@@ -1318,6 +1319,38 @@ def summarize_progress(progress_df: pd.DataFrame, group_cols: list[str]) -> pd.D
         "누수규격검사 생산수량": ("production_basis_qty", "sum"),
     }
     return progress_df.groupby(group_cols, dropna=False).agg(**agg_spec).reset_index()
+
+
+def filter_progress_for_production_month(
+    progress_df: pd.DataFrame,
+    target_month: str = PRODUCTION_PROGRESS_DUE_MONTH,
+) -> pd.DataFrame:
+    if progress_df.empty:
+        return progress_df.copy()
+
+    total_due_source = (
+        progress_df["total_due_date"]
+        if "total_due_date" in progress_df.columns
+        else pd.Series(pd.NaT, index=progress_df.index)
+    )
+    total_due = pd.to_datetime(
+        total_due_source,
+        errors="coerce",
+    )
+    inspection_step = next(step for step in PROCESS_STEPS if step["id"] == "80")
+    inspection_due_col = str(inspection_step["due_col"])
+    inspection_due_source = (
+        progress_df[inspection_due_col]
+        if inspection_due_col in progress_df.columns
+        else pd.Series(pd.NaT, index=progress_df.index)
+    )
+    inspection_due = pd.to_datetime(
+        inspection_due_source,
+        errors="coerce",
+    )
+    production_due = total_due.fillna(inspection_due)
+    target_period = pd.Period(target_month, freq="M")
+    return progress_df.loc[production_due.dt.to_period("M") == target_period].copy()
 
 
 def classify_status(packing_pack: float, packing_progress_pct: float) -> str:
@@ -8517,8 +8550,9 @@ def load_dashboard_data(
     product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
     code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
     progress_df, _progress_info = normalize_progress(progress_file, request_df)
-    product_summary = enrich_product_summary(product_summary, progress_df)
-    code_summary = attach_progress_to_code_summary(code_summary, progress_df)
+    production_progress_df = filter_progress_for_production_month(progress_df)
+    product_summary = enrich_product_summary(product_summary, production_progress_df)
+    code_summary = attach_progress_to_code_summary(code_summary, production_progress_df)
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
