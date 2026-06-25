@@ -6424,6 +6424,116 @@ def add_daily_exception_report_panel(
         add_report_rule(slide, left + 0.08, row_top + row_height, width - 0.16, REPORT_PANEL_LINE)
 
 
+def add_urgent_request_summary_panel(
+    slide: Any,
+    urgent_summary_view: pd.DataFrame,
+    left: float = 8.95,
+    top: float = 3.56,
+    width: float = 3.95,
+    height: float = 3.47,
+) -> None:
+    add_report_shape(
+        slide,
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        left,
+        top,
+        width,
+        height,
+        REPORT_PANEL,
+        REPORT_PANEL_LINE,
+        0.5,
+    )
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.36, REPORT_NAVY, REPORT_NAVY, 0.5)
+
+    headers = ["S코드", "구분", "제품명", "SKU"]
+    col_widths = [0.58, 0.58, 2.12, 0.38]
+    col_lefts = [left + 0.12]
+    for col_width in col_widths[:-1]:
+        col_lefts.append(col_lefts[-1] + col_width)
+
+    for idx, header in enumerate(headers):
+        add_textbox(
+            slide,
+            header,
+            col_lefts[idx],
+            top + 0.04,
+            col_widths[idx],
+            0.27,
+            7.2,
+            True,
+            "#FFFFFF",
+            PP_ALIGN.RIGHT if idx == 3 else PP_ALIGN.LEFT,
+            MSO_ANCHOR.MIDDLE,
+        )
+
+    if urgent_summary_view.empty:
+        add_textbox(
+            slide,
+            "긴급요청 품목이 없습니다.",
+            left + 0.18,
+            top + 0.7,
+            width - 0.36,
+            0.3,
+            8.0,
+            False,
+            REPORT_MUTED,
+            vertical_anchor=MSO_ANCHOR.MIDDLE,
+        )
+        return
+
+    max_rows = 11
+    rows = urgent_summary_view.head(max_rows).copy()
+    hidden_count = max(0, len(urgent_summary_view) - len(rows))
+    row_height = min(0.27, (height - 0.58) / max(len(rows), 1))
+    for row_idx, (_, row) in enumerate(rows.iterrows(), start=1):
+        row_top = top + 0.36 + (row_idx - 1) * row_height
+        if row_idx % 2 == 0:
+            add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.04, row_top, width - 0.08, row_height, REPORT_ROW_ALT)
+
+        scope = clean_str(row.get("요청구분", ""))
+        scope_color = REPORT_ACCENT if scope == "요청외" else COLOR_TEAL
+        values = [
+            clean_str(row.get("S코드", "")),
+            scope,
+            truncate_report_text(row.get("제품명", ""), 22),
+            format_report_value(row.get("SKU 수", 0.0)),
+        ]
+        colors = [COLOR_BLUE, scope_color, REPORT_HEADER, REPORT_ACCENT]
+        bolds = [True, True, False, True]
+        aligns = [PP_ALIGN.LEFT, PP_ALIGN.LEFT, PP_ALIGN.LEFT, PP_ALIGN.RIGHT]
+        for col_idx, value in enumerate(values):
+            add_textbox(
+                slide,
+                value,
+                col_lefts[col_idx],
+                row_top + 0.01,
+                col_widths[col_idx],
+                row_height - 0.02,
+                6.5 if col_idx != 2 else 6.1,
+                bolds[col_idx],
+                colors[col_idx],
+                aligns[col_idx],
+                MSO_ANCHOR.MIDDLE,
+            )
+        add_report_rule(slide, left + 0.08, row_top + row_height, width - 0.16, REPORT_FAINT)
+
+    note = "요청외 SKU 포함 시 S코드 전체 요청외"
+    if hidden_count:
+        note = f"{note} / 외 {hidden_count:,}개"
+    add_textbox(
+        slide,
+        note,
+        left + 0.12,
+        top + height - 0.19,
+        width - 0.24,
+        0.16,
+        5.9,
+        False,
+        REPORT_MUTED,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
+
+
 def add_urgent_request_summary_slide(
     prs: Presentation,
     urgent_summary_view: pd.DataFrame,
@@ -6628,11 +6738,6 @@ def build_ppt_report(
     work = code_summary_for_products(work, product_names)
     scope_kpis = build_scope_kpis(work)
     priority_view = build_priority_report_view(product_view)
-    exception_kpis, exception_view = build_daily_exception_report_view(
-        daily_inventory_df,
-        code_summary,
-        sample_available_df,
-    )
     urgent_summary_view = build_urgent_request_summary_view(
         daily_inventory_df,
         code_summary,
@@ -6758,10 +6863,10 @@ def build_ppt_report(
     add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_AMBER, 8.9, 1.9, 4.0, 1.38)
 
     add_textbox(slide, "우선 대응 TOP 6", 0.45, 3.38, 3.0, 0.22, 8.5, True, REPORT_HEADER)
-    add_textbox(slide, "일일 재고표 기준 예외 대응", 8.95, 3.38, 3.95, 0.22, 8.5, True, REPORT_HEADER)
+    add_textbox(slide, "요청 긴급 S코드 요약", 8.95, 3.34, 3.95, 0.22, 8.5, True, REPORT_HEADER)
 
     add_priority_report_table(slide, priority_view)
-    add_daily_exception_report_panel(slide, exception_kpis, exception_view)
+    add_urgent_request_summary_panel(slide, urgent_summary_view)
     add_textbox(
         slide,
         "진도율은 생산요청 기준이며, 요청/긴급 대응 품목은 일일 재고표 기준으로 산출됩니다.",
@@ -6774,9 +6879,6 @@ def build_ppt_report(
         REPORT_MUTED,
         vertical_anchor=MSO_ANCHOR.MIDDLE,
     )
-
-    if not urgent_summary_view.empty:
-        add_urgent_request_summary_slide(prs, urgent_summary_view, scope_label, generated_at)
 
     output = BytesIO()
     prs.save(output)
