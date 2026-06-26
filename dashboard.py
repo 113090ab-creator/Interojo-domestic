@@ -4194,6 +4194,30 @@ def complete_daily_response_mask(df: pd.DataFrame) -> pd.Series:
     return mask
 
 
+def daily_item_code_base(value: Any) -> str:
+    match = re.match(r"^(S\d{3})", clean_str(value).upper())
+    return match.group(1) if match else ""
+
+
+def daily_inventory_status_rank(value: Any) -> int:
+    ranks = {
+        "요청외 긴급": 0,
+        "요청내 긴급": 1,
+        "요청내 재고부족": 2,
+        "재고 음수": 3,
+        "요청내 재고확인": 4,
+        "재고 모니터링": 5,
+    }
+    return ranks.get(clean_str(value), 99)
+
+
+def first_daily_inventory_status(series: pd.Series) -> str:
+    values = [clean_str(value) for value in series if clean_str(value)]
+    if not values:
+        return ""
+    return min(values, key=daily_inventory_status_rank)
+
+
 def build_daily_inventory_response_view(
     daily_inventory_df: pd.DataFrame,
     code_summary: pd.DataFrame,
@@ -4423,6 +4447,138 @@ def build_daily_inventory_response_view(
         kind="stable",
     )
     return out[columns].copy()
+
+
+def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame:
+    visible_columns = [
+        "대응상태",
+        "품목코드",
+        "대표 제품명",
+        "상세 건수",
+        "긴급요청 수",
+        "재고수량",
+        "재고부족수량",
+        "요청 PACK",
+        "미입고 PACK",
+        "용마입고대기 PACK",
+        "포장가능재고(PCS)",
+        "생산부족 PCS",
+        "생산진도율",
+        "최소 납기",
+    ]
+    if response_view.empty:
+        return pd.DataFrame(columns=visible_columns + ["_daily_item_code_base", "_daily_min_due_date_sort"])
+
+    work = response_view.copy()
+    work["_daily_item_code_base"] = work["품목코드"].map(daily_item_code_base)
+    work = work[work["_daily_item_code_base"] != ""].copy()
+    if work.empty:
+        return pd.DataFrame(columns=visible_columns + ["_daily_item_code_base", "_daily_min_due_date_sort"])
+
+    numeric_cols = [
+        "재고수량",
+        "재고부족수량",
+        "요청 PACK",
+        "용마입고 PACK",
+        "미입고 PACK",
+        "포장 PACK",
+        "요청 PCS",
+        "생산부족 PCS",
+        "용마입고대기 PACK",
+        "포장가능재고(PCS)",
+    ]
+    for col in numeric_cols:
+        if col not in work.columns:
+            work[col] = 0.0
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
+    work["_min_due_date_sort"] = pd.to_datetime(work.get("최소 납기", pd.NaT), errors="coerce")
+
+    grouped = (
+        work.groupby("_daily_item_code_base", dropna=False)
+        .agg(
+            status=("대응상태", first_daily_inventory_status),
+            product_name=("제품명", first_nonempty),
+            detail_count=("품목코드", "count"),
+            urgent_count=("긴급요청", "sum"),
+            stock_qty=("재고수량", "sum"),
+            stock_shortage_qty=("재고부족수량", "sum"),
+            request_pack=("요청 PACK", "sum"),
+            yongma_missing_pack=("미입고 PACK", "sum"),
+            yongma_wait_pack=("용마입고대기 PACK", "sum"),
+            packable_stock_pcs=("포장가능재고(PCS)", "sum"),
+            production_shortage_pcs=("생산부족 PCS", "sum"),
+            request_pcs=("요청 PCS", "sum"),
+            min_due_date=("_min_due_date_sort", min_datetime),
+        )
+        .reset_index()
+    )
+    grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
+    grouped["_daily_status_sort"] = grouped["status"].map(daily_inventory_status_rank)
+    grouped["_daily_negative_sort"] = (grouped["stock_qty"] < 0).astype(int)
+    grouped["_daily_min_due_date_sort"] = pd.to_datetime(grouped["min_due_date"], errors="coerce")
+    grouped["최소 납기"] = grouped["min_due_date"].map(display_date_or_dash)
+
+    out = grouped.rename(
+        columns={
+            "_daily_item_code_base": "품목코드",
+            "status": "대응상태",
+            "product_name": "대표 제품명",
+            "detail_count": "상세 건수",
+            "urgent_count": "긴급요청 수",
+            "stock_qty": "재고수량",
+            "stock_shortage_qty": "재고부족수량",
+            "request_pack": "요청 PACK",
+            "yongma_missing_pack": "미입고 PACK",
+            "yongma_wait_pack": "용마입고대기 PACK",
+            "packable_stock_pcs": "포장가능재고(PCS)",
+            "production_shortage_pcs": "생산부족 PCS",
+        }
+    )
+    out["_daily_item_code_base"] = out["품목코드"]
+    out = out.sort_values(
+        [
+            "_daily_status_sort",
+            "_daily_negative_sort",
+            "재고부족수량",
+            "미입고 PACK",
+            "_daily_min_due_date_sort",
+            "품목코드",
+        ],
+        ascending=[True, False, False, False, True, True],
+        na_position="last",
+        kind="stable",
+    )
+    return out[
+        visible_columns
+        + [
+            "_daily_item_code_base",
+            "_daily_status_sort",
+            "_daily_negative_sort",
+            "_daily_min_due_date_sort",
+        ]
+    ].copy()
+
+
+def daily_inventory_detail_column_order(df: pd.DataFrame) -> list[str]:
+    columns = [
+        "대응상태",
+        "품목코드",
+        "제품명",
+        "제품코드",
+        "PACK",
+        "POWER",
+        "재고수량",
+        "긴급요청",
+        "요청 PACK",
+        "용마입고 PACK",
+        "미입고 PACK",
+        "용마입고대기 PACK",
+        "포장가능재고(PCS)",
+        "생산부족 PCS",
+        "생산진도율",
+        "최소 납기",
+    ]
+    return visible_columns(df, columns)
 
 
 def daily_inventory_search_variants(token: str) -> list[str]:
@@ -8240,6 +8396,8 @@ def drilldown_column_config() -> dict[str, Any]:
         "순위": st.column_config.NumberColumn("순위", format="%d", width="small"),
         "현재 재고수량": st.column_config.NumberColumn("현재 재고수량", format=numeric_format),
         "부족수량": st.column_config.NumberColumn("부족수량", format=numeric_format),
+        "상세 건수": st.column_config.NumberColumn("상세 건수", format=numeric_format),
+        "긴급요청 수": st.column_config.NumberColumn("긴급요청 수", format=numeric_format),
         "미입고(PACK)": st.column_config.NumberColumn("미입고(PACK)", format=numeric_format),
         "미입고수량": st.column_config.NumberColumn("미입고수량", format=numeric_format),
         "입고대기수량": st.column_config.NumberColumn("입고대기수량", format=numeric_format),
@@ -8292,6 +8450,10 @@ def drilldown_column_config() -> dict[str, Any]:
         "_priority_sort": None,
         "_request_due_date_sort": None,
         "_pack_sort": None,
+        "_daily_item_code_base": None,
+        "_daily_status_sort": None,
+        "_daily_negative_sort": None,
+        "_daily_min_due_date_sort": None,
     }
 
 
@@ -8376,6 +8538,36 @@ def render_production_power_detail_dialog(
     _dialog()
 
 
+def render_daily_inventory_detail_dialog(
+    selected_row: pd.Series,
+    detail_view: pd.DataFrame,
+    table_nonce_key: str,
+) -> None:
+    item_code = clean_str(selected_row.get("_daily_item_code_base", selected_row.get("품목코드", "")))
+    product_name = clean_str(selected_row.get("대표 제품명", selected_row.get("제품명", "")))
+    title = f"품목코드 {item_code} 상세 - {product_name}"
+
+    @st.dialog(title, width="large")
+    def _dialog() -> None:
+        st.caption(f"{item_code}에 해당하는 PACK/POWER별 재고 대응 상세 | 표시 건수: {len(detail_view):,}")
+        if detail_view.empty:
+            st.warning("상세 데이터가 없습니다.")
+        else:
+            st.dataframe(
+                dataframe_for_streamlit(detail_view),
+                hide_index=True,
+                height=520,
+                width="stretch",
+                column_config=drilldown_column_config(),
+                column_order=daily_inventory_detail_column_order(detail_view),
+            )
+        if st.button("닫기", key="close_daily_inventory_detail_dialog", width="stretch"):
+            st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
+            st.rerun()
+
+    _dialog()
+
+
 def render_daily_inventory_tab(
     daily_inventory_df: pd.DataFrame,
     code_summary: pd.DataFrame,
@@ -8450,7 +8642,8 @@ def render_daily_inventory_tab(
         "포장부족(재고 PCS)",
         "포장 PACK",
     ]
-    display_view = view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
+    detail_view = view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
+    main_view = build_daily_inventory_main_view(view)
     full_export_view = response_view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
 
     dl_col, _ = st.columns([1.2, 4.8], gap="small")
@@ -8459,29 +8652,30 @@ def render_daily_inventory_tab(
             "엑셀 다운로드",
             "일일_재고_대응",
             {
-                "일일 재고 대응": display_view,
+                "일일 재고 대응": main_view,
+                "일일 재고 상세": detail_view,
                 "일일 재고 전체": full_export_view,
             },
             key="download_daily_inventory_excel",
         )
 
-    render_selectable_table(
+    table_nonce_key = "daily_inventory_main_table_nonce"
+    table_nonce = int(st.session_state.get(table_nonce_key, 0))
+    selected_daily_row = render_selectable_table(
         "일일 재고 대응 테이블",
-        f"긴급요청 및 재고현황표 기준 | 표시 건수: {len(view):,}",
-        display_view,
-        key="daily_inventory_table",
-        height=650,
+        f"품목코드 S### 기준 집계 | 표시 건수: {len(main_view):,} | 상세 건수: {len(view):,}",
+        main_view,
+        key=f"daily_inventory_table_{table_nonce}",
+        height=560,
         column_order=[
             "대응상태",
             "품목코드",
-            "제품명",
-            "제품코드",
-            "PACK",
-            "POWER",
+            "대표 제품명",
+            "상세 건수",
+            "긴급요청 수",
             "재고수량",
-            "긴급요청",
+            "재고부족수량",
             "요청 PACK",
-            "용마입고 PACK",
             "미입고 PACK",
             "용마입고대기 PACK",
             "포장가능재고(PCS)",
@@ -8490,6 +8684,37 @@ def render_daily_inventory_tab(
             "최소 납기",
         ],
     )
+    if selected_daily_row is not None:
+        selected_item_code = clean_str(
+            selected_daily_row.get("_daily_item_code_base", selected_daily_row.get("품목코드", ""))
+        )
+        detail_scope = detail_view[
+            detail_view["품목코드"].map(daily_item_code_base) == selected_item_code
+        ].copy()
+        detail_scope["_daily_status_sort"] = detail_scope["대응상태"].map(daily_inventory_status_rank)
+        detail_scope["_daily_pack_sort"] = detail_scope["PACK"].map(pack_sort_key)
+        detail_scope["_daily_power_sort"] = pd.to_numeric(
+            detail_scope["POWER"].astype(str).str.replace("-00.00", "0", regex=False),
+            errors="coerce",
+        ).fillna(0.0)
+        detail_scope["_daily_stock_shortage_sort"] = pd.to_numeric(
+            detail_scope.get("재고수량", pd.Series(0.0, index=detail_scope.index)),
+            errors="coerce",
+        ).fillna(0.0)
+        detail_scope = detail_scope.sort_values(
+            ["_daily_status_sort", "_daily_stock_shortage_sort", "_daily_pack_sort", "_daily_power_sort"],
+            ascending=[True, True, True, True],
+            kind="stable",
+        ).drop(
+            columns=[
+                "_daily_status_sort",
+                "_daily_pack_sort",
+                "_daily_power_sort",
+                "_daily_stock_shortage_sort",
+            ],
+            errors="ignore",
+        )
+        render_daily_inventory_detail_dialog(selected_daily_row, detail_scope, table_nonce_key)
 
 
 def render_product_summary_tab(
