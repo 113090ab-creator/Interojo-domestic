@@ -4725,6 +4725,27 @@ def build_lot_receipt_status_view(
         yongma["sales_code_key"] = yongma["sales_code_key"].map(clean_str)
         yongma = yongma[yongma["sales_code_key"].isin(domestic_code_keys)].copy()
         yongma["yongma_lot_key"] = yongma["yongma_lot_key"].map(clean_str)
+        code_meta = code_summary.copy()
+        code_meta["sales_code_key"] = code_meta.get("sales_code_key", pd.Series("", index=code_meta.index)).map(clean_str)
+        code_sales_by_key = build_first_value_map(code_meta, "sales_code_key", "sales_code")
+        code_product_by_key = build_first_value_map(code_meta, "sales_code_key", "product_name")
+        receipt_only_rows: list[dict[str, Any]] = []
+
+        def add_receipt_to_indices(indices: list[int], qty: float) -> None:
+            remaining = float(qty)
+            for idx in indices:
+                if remaining <= 0:
+                    break
+                packed = pd.to_numeric(grouped.at[idx, "packing_pack"], errors="coerce")
+                received = pd.to_numeric(grouped.at[idx, "용마입고수량"], errors="coerce")
+                capacity = max(0.0, float(packed if not pd.isna(packed) else 0.0) - float(received if not pd.isna(received) else 0.0))
+                add_qty = min(remaining, capacity) if capacity > 0 else 0.0
+                if add_qty > 0:
+                    grouped.at[idx, "용마입고수량"] += add_qty
+                    remaining -= add_qty
+            if remaining > 0 and indices:
+                grouped.at[indices[0], "용마입고수량"] += remaining
+
         for _, receipt in yongma.iterrows():
             code_key = clean_str(receipt.get("sales_code_key", ""))
             lot_key = clean_str(receipt.get("yongma_lot_key", ""))
@@ -4735,6 +4756,21 @@ def build_lot_receipt_status_view(
 
             candidates = grouped[grouped["sales_code_key"] == code_key]
             if candidates.empty:
+                receipt_only_rows.append(
+                    {
+                        "sales_code_key": code_key,
+                        "sales_code": clean_str(receipt.get("sales_code", "")) or code_sales_by_key.get(code_key, ""),
+                        "packing_product_name": clean_str(receipt.get("yongma_product_name", ""))
+                        or code_product_by_key.get(code_key, ""),
+                        "packing_lot": clean_str(receipt.get("yongma_lot", "")) or "(용마 LOT 미기재)",
+                        "packing_lot_key": lot_key,
+                        "packing_barcode": "",
+                        "packing_barcode_key": "",
+                        "packing_pack": 0.0,
+                        "packing_date": pd.NaT,
+                        "용마입고수량": qty,
+                    }
+                )
                 continue
             exact = candidates[candidates["packing_lot_key"] == lot_key]
             target = exact
@@ -4744,14 +4780,48 @@ def build_lot_receipt_status_view(
                 ]
                 target = barcode_match
             if target.empty:
+                target = candidates.sort_values(["packing_date", "packing_lot"], na_position="last", kind="stable")
+                add_receipt_to_indices(target.index.tolist(), qty)
                 continue
-            grouped.loc[target.index[0], "용마입고수량"] += qty
+            add_receipt_to_indices(target.index.tolist(), qty)
+
+        if receipt_only_rows:
+            receipt_only = (
+                pd.DataFrame(receipt_only_rows)
+                .groupby(
+                    [
+                        "sales_code_key",
+                        "sales_code",
+                        "packing_product_name",
+                        "packing_lot",
+                        "packing_lot_key",
+                        "packing_barcode",
+                        "packing_barcode_key",
+                    ],
+                    dropna=False,
+                )
+                .agg(
+                    packing_pack=("packing_pack", "sum"),
+                    packing_date=("packing_date", min_datetime),
+                    용마입고수량=("용마입고수량", "sum"),
+                )
+                .reset_index()
+            )
+            grouped = pd.concat([grouped, receipt_only], ignore_index=True)
 
     grouped["포장실적수량"] = pd.to_numeric(grouped["packing_pack"], errors="coerce").fillna(0.0)
     grouped["용마입고수량"] = pd.to_numeric(grouped["용마입고수량"], errors="coerce").fillna(0.0)
     grouped["입고대기수량"] = (grouped["포장실적수량"] - grouped["용마입고수량"]).clip(lower=0.0)
-    grouped["상태"] = np.where(grouped["입고대기수량"] > 0, "입고대기", "입고완료")
-    grouped["_status_sort"] = np.where(grouped["상태"] == "입고대기", 0, 1)
+    grouped["상태"] = np.select(
+        [
+            (grouped["포장실적수량"] <= 0) & (grouped["용마입고수량"] > 0),
+            (grouped["입고대기수량"] > 0) & (grouped["용마입고수량"] > 0),
+            grouped["입고대기수량"] > 0,
+        ],
+        ["용마입고만", "부분입고", "입고대기"],
+        default="입고완료",
+    )
+    grouped["_status_sort"] = grouped["상태"].map({"입고대기": 0, "부분입고": 1, "용마입고만": 2}).fillna(3)
     grouped["포장일"] = grouped["packing_date"].map(display_date_or_dash)
     grouped = grouped.rename(
         columns={
