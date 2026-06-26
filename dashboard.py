@@ -4303,10 +4303,29 @@ def first_daily_inventory_status(series: pd.Series) -> str:
     return min(values, key=daily_inventory_status_rank)
 
 
+def build_daily_lot_wait_lookup(lot_status_df: pd.DataFrame | None) -> dict[str, float]:
+    if lot_status_df is None or lot_status_df.empty:
+        return {}
+    required_cols = ["제품코드", "입고대기수량"]
+    if any(col not in lot_status_df.columns for col in required_cols):
+        return {}
+
+    work = lot_status_df[required_cols].copy()
+    work["_lot_item_key"] = work["제품코드"].map(normalize_match_key)
+    work["입고대기수량"] = pd.to_numeric(work["입고대기수량"], errors="coerce").fillna(0.0)
+    work = work[work["_lot_item_key"] != ""].copy()
+    if work.empty:
+        return {}
+
+    grouped = work.groupby("_lot_item_key", dropna=False)["입고대기수량"].sum()
+    return {clean_str(key): float(value) for key, value in grouped.items() if clean_str(key)}
+
+
 def build_daily_inventory_response_view(
     daily_inventory_df: pd.DataFrame,
     code_summary: pd.DataFrame,
     sample_available_df: pd.DataFrame | None = None,
+    lot_status_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     columns = [
         "대응상태",
@@ -4474,10 +4493,14 @@ def build_daily_inventory_response_view(
         has_request | has_production_context,
         out["_추정샘플신청가능수량"],
     )
-    out["용마입고대기 PACK"] = out["용마입고대기 PACK"].where(
-        out["용마입고대기 PACK"] > 0,
-        (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0),
-    )
+    fallback_yongma_wait_pack = (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0)
+    lot_wait_lookup = build_daily_lot_wait_lookup(lot_status_df)
+    if lot_wait_lookup:
+        item_keys = out["품목코드"].map(normalize_match_key)
+        lot_wait_values = item_keys.map(lambda key: lot_wait_lookup.get(key, np.nan))
+        out["용마입고대기 PACK"] = lot_wait_values.where(lot_wait_values.notna(), fallback_yongma_wait_pack)
+    else:
+        out["용마입고대기 PACK"] = fallback_yongma_wait_pack
     out["생산부족 PCS"] = np.where(
         has_production_context,
         matched_production_shortage_pcs,
@@ -4544,7 +4567,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
         "재고수량",
         "재고부족수량",
         "요청 PACK",
-        "미입고 PACK",
+        "용마입고 PACK",
         "용마입고대기 PACK",
         "포장가능재고(PCS)",
         "생산부족 PCS",
@@ -4588,7 +4611,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
             stock_qty=("재고수량", "sum"),
             stock_shortage_qty=("재고부족수량", "sum"),
             request_pack=("요청 PACK", "sum"),
-            yongma_missing_pack=("미입고 PACK", "sum"),
+            yongma_in_pack=("용마입고 PACK", "sum"),
             yongma_wait_pack=("용마입고대기 PACK", "sum"),
             packable_stock_pcs=("포장가능재고(PCS)", "sum"),
             production_shortage_pcs=("생산부족 PCS", "sum"),
@@ -4613,7 +4636,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
             "stock_qty": "재고수량",
             "stock_shortage_qty": "재고부족수량",
             "request_pack": "요청 PACK",
-            "yongma_missing_pack": "미입고 PACK",
+            "yongma_in_pack": "용마입고 PACK",
             "yongma_wait_pack": "용마입고대기 PACK",
             "packable_stock_pcs": "포장가능재고(PCS)",
             "production_shortage_pcs": "생산부족 PCS",
@@ -4625,7 +4648,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
             "_daily_status_sort",
             "_daily_negative_sort",
             "재고부족수량",
-            "미입고 PACK",
+            "용마입고대기 PACK",
             "_daily_min_due_date_sort",
             "품목코드",
         ],
@@ -4656,7 +4679,6 @@ def daily_inventory_detail_column_order(df: pd.DataFrame) -> list[str]:
         "긴급요청",
         "요청 PACK",
         "용마입고 PACK",
-        "미입고 PACK",
         "용마입고대기 PACK",
         "포장가능재고(PCS)",
         "생산부족 PCS",
@@ -8727,6 +8749,7 @@ def render_daily_inventory_tab(
     daily_inventory_df: pd.DataFrame,
     code_summary: pd.DataFrame,
     sample_available_df: pd.DataFrame | None = None,
+    lot_status_df: pd.DataFrame | None = None,
 ) -> None:
     render_panel_title(
         "일일 재고 대응",
@@ -8736,7 +8759,7 @@ def render_daily_inventory_tab(
         st.warning("일일 재고현황표를 찾지 못했거나 처리할 데이터가 없습니다.")
         return
 
-    response_view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    response_view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df, lot_status_df)
     if response_view.empty:
         st.warning("표시할 일일 재고 대응 데이터가 없습니다.")
         return
@@ -8796,6 +8819,7 @@ def render_daily_inventory_tab(
         "대상품목",
         "포장부족(재고 PCS)",
         "포장 PACK",
+        "미입고 PACK",
     ]
     detail_view = view.drop(columns=hidden_daily_inventory_cols, errors="ignore")
     main_view = build_daily_inventory_main_view(view)
@@ -8831,7 +8855,7 @@ def render_daily_inventory_tab(
             "재고수량",
             "재고부족수량",
             "요청 PACK",
-            "미입고 PACK",
+            "용마입고 PACK",
             "용마입고대기 PACK",
             "포장가능재고(PCS)",
             "생산부족 PCS",
@@ -9528,7 +9552,7 @@ def main() -> None:
     if active_tab == "제품 진도 현황":
         render_product_summary_tab(product_summary, code_summary, daily_inventory_df, sample_available_df)
     elif active_tab == "일일 재고 대응":
-        render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df)
+        render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df)
     elif active_tab == "생산코드 상세":
         render_production_code_tab(code_summary)
     elif active_tab == "판매코드 상세":
