@@ -47,10 +47,12 @@ UNIT_PACK = "PACK 기준"
 UNIT_PCS = "PCS 기준"
 UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
 DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
+DAILY_INVENTORY_FILE_STANDARD = "클라렌사업본부 재고현황_YYMMDD.xlsx"
+DAILY_INVENTORY_FILE_KEYWORDS = ["클라렌사업본부 재고현황", "재고현황_"]
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 9
+DATA_CACHE_VERSION = 10
 PRODUCTION_PROGRESS_DUE_MONTH = "2026-06"
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
@@ -460,7 +462,7 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
     packing_file = pick_latest_by_name(files, ["포장설비투입현황", "포장설비투입", "포장실적", "포장"])
     progress_file = pick_latest_by_name(files, ["수요정보", "전공정"])
     inventory_file = pick_latest_by_name(files, ["용마WMS재고현황", "WMS재고현황", "WMS"])
-    daily_inventory_file = pick_latest_by_name(files, ["클라렌사업본부 재고현황", "재고현황_"])
+    daily_inventory_file = pick_latest_by_name(files, DAILY_INVENTORY_FILE_KEYWORDS)
 
     if request_file is None or packing_file is None:
         for file in files:
@@ -4493,14 +4495,12 @@ def build_daily_inventory_response_view(
         has_request | has_production_context,
         out["_추정샘플신청가능수량"],
     )
-    fallback_yongma_wait_pack = (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0)
     lot_wait_lookup = build_daily_lot_wait_lookup(lot_status_df)
     if lot_wait_lookup:
         item_keys = out["품목코드"].map(normalize_match_key)
-        lot_wait_values = item_keys.map(lambda key: lot_wait_lookup.get(key, np.nan))
-        out["용마입고대기 PACK"] = lot_wait_values.where(lot_wait_values.notna(), fallback_yongma_wait_pack)
+        out["용마입고대기 PACK"] = item_keys.map(lambda key: lot_wait_lookup.get(key, 0.0))
     else:
-        out["용마입고대기 PACK"] = fallback_yongma_wait_pack
+        out["용마입고대기 PACK"] = 0.0
     out["생산부족 PCS"] = np.where(
         has_production_context,
         matched_production_shortage_pcs,
