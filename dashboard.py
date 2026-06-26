@@ -1552,10 +1552,27 @@ def build_summaries(
         )
         .reset_index()
     )
-    packing_by_code = packing_df.groupby("sales_code", dropna=False)["packing_pack"].sum().reset_index()
+    if packing_df.empty:
+        packing_by_key = pd.DataFrame(
+            columns=["sales_code_key", "packing_sales_code", "packing_product_name", "packing_pack"]
+        )
+    else:
+        packing_by_key = (
+            packing_df.copy()
+            .assign(sales_code_key=lambda df: df["sales_code_key"].map(clean_str))
+            .groupby("sales_code_key", dropna=False)
+            .agg(
+                packing_sales_code=("sales_code", first_nonempty),
+                packing_product_name=("packing_product_name", first_nonempty),
+                packing_pack=("packing_pack", "sum"),
+            )
+            .reset_index()
+        )
     if yongma_df is None or yongma_df.empty:
         if packing_df.empty or "sales_code_key" not in packing_df.columns:
-            yongma_by_key = pd.DataFrame(columns=["sales_code_key", "yongma_in_pack"])
+            yongma_by_key = pd.DataFrame(
+                columns=["sales_code_key", "yongma_sales_code", "yongma_product_name", "yongma_in_pack"]
+            )
         else:
             yongma_by_key = (
                 packing_df.groupby("sales_code_key", dropna=False)["packing_pack"]
@@ -1563,17 +1580,85 @@ def build_summaries(
                 .reset_index()
                 .rename(columns={"packing_pack": "yongma_in_pack"})
             )
+            yongma_by_key["yongma_sales_code"] = ""
+            yongma_by_key["yongma_product_name"] = ""
     else:
-        yongma_by_key = yongma_df.groupby("sales_code_key", dropna=False)["yongma_in_pack"].sum().reset_index()
+        yongma_by_key = (
+            yongma_df.copy()
+            .assign(sales_code_key=lambda df: df["sales_code_key"].map(clean_str))
+            .groupby("sales_code_key", dropna=False)
+            .agg(
+                yongma_sales_code=("sales_code", first_nonempty),
+                yongma_product_name=("yongma_product_name", first_nonempty),
+                yongma_in_pack=("yongma_in_pack", "sum"),
+            )
+            .reset_index()
+        )
 
-    matched_code_summary = request_by_code.merge(packing_by_code, on="sales_code", how="left")
+    matched_code_summary = request_by_code.merge(
+        packing_by_key[["sales_code_key", "packing_pack"]],
+        on="sales_code_key",
+        how="left",
+    )
     matched_code_summary["packing_pack"] = matched_code_summary["packing_pack"].fillna(0.0)
-    matched_code_summary = matched_code_summary.merge(yongma_by_key, on="sales_code_key", how="left")
+    matched_code_summary = matched_code_summary.merge(
+        yongma_by_key[["sales_code_key", "yongma_in_pack"]],
+        on="sales_code_key",
+        how="left",
+    )
     matched_code_summary["yongma_in_pack"] = matched_code_summary["yongma_in_pack"].fillna(0.0)
 
-    request_codes = set(request_by_code["sales_code"].astype(str))
-    unmatched_pack = packing_by_code[~packing_by_code["sales_code"].astype(str).isin(request_codes)].copy()
-    unmatched_packing_total = float(unmatched_pack["packing_pack"].sum()) if not unmatched_pack.empty else 0.0
+    request_keys = set(request_by_code["sales_code_key"].map(clean_str)) - {""}
+    supply_by_key = packing_by_key.merge(yongma_by_key, on="sales_code_key", how="outer")
+    for col in ["packing_pack", "yongma_in_pack"]:
+        if col not in supply_by_key.columns:
+            supply_by_key[col] = 0.0
+        supply_by_key[col] = pd.to_numeric(supply_by_key[col], errors="coerce").fillna(0.0)
+    unmatched_supply = supply_by_key[
+        (supply_by_key["sales_code_key"].map(clean_str) != "")
+        & ~supply_by_key["sales_code_key"].map(clean_str).isin(request_keys)
+        & ((supply_by_key["packing_pack"] > 0) | (supply_by_key["yongma_in_pack"] > 0))
+    ].copy()
+    unmatched_packing_total = float(unmatched_supply["packing_pack"].sum()) if not unmatched_supply.empty else 0.0
+
+    if not unmatched_supply.empty:
+        unmatched_rows: list[dict[str, Any]] = []
+        for _, row in unmatched_supply.iterrows():
+            sales_code = clean_str(row.get("packing_sales_code", "")) or clean_str(row.get("yongma_sales_code", ""))
+            product_name = (
+                clean_str(row.get("packing_product_name", ""))
+                or clean_str(row.get("yongma_product_name", ""))
+                or sales_code
+            )
+            pack_unit = extract_pack_unit(product_name)
+            unmatched_rows.append(
+                {
+                    "sales_code": sales_code,
+                    "product_name": product_name,
+                    "product_name_code": product_name,
+                    "production_code": "",
+                    "p_code": "",
+                    "q_code": "",
+                    "r_code": "",
+                    "pack_unit": pack_unit,
+                    "pack_unit_label": format_pack_unit_label(pack_unit, product_name),
+                    "base_product_name": strip_pack_unit_suffix(product_name),
+                    "customer_name": "(포장실적)",
+                    "sales_code_key": clean_str(row.get("sales_code_key", "")),
+                    "product_name_key": normalize_match_key(product_name),
+                    "product_name_code_key": normalize_match_key(product_name),
+                    "production_code_key": "",
+                    "p_code_key": "",
+                    "q_code_key": "",
+                    "r_code_key": "",
+                    "request_pack": 0.0,
+                    "request_pcs": 0.0,
+                    "request_due_date": pd.NaT,
+                    "packing_pack": float(row.get("packing_pack", 0.0)),
+                    "yongma_in_pack": float(row.get("yongma_in_pack", 0.0)),
+                }
+            )
+        matched_code_summary = pd.concat([matched_code_summary, pd.DataFrame(unmatched_rows)], ignore_index=True)
 
     product_summary = (
         matched_code_summary.groupby("base_product_name", dropna=False)[
