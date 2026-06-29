@@ -52,6 +52,21 @@ DAILY_INVENTORY_FILE_STANDARD = "클라렌사업본부 재고현황_YYMMDD.xlsx"
 DAILY_INVENTORY_FILE_KEYWORDS = ["클라렌사업본부 재고현황", "재고현황_"]
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
+FACTORY_GROUP_ORDER = ["전체", "A관", "C관", "S관"]
+FACTORY_GROUP_BY_CATEGORY = {
+    "FRP_Sph": "A관",
+    "FRP_Toric": "A관",
+    "Si_FRP_Color_Sph": "A관",
+    "Si_FRP_Sph": "A관",
+    "Si_FRP_Toric": "A관",
+    "1-Day_Color_Sph": "C관",
+    "1-Day_Color_Toric": "C관",
+    "1-Day_Sph": "S관",
+    "Si_1-Day_Color_Sph": "S관",
+    "Si_1-Day_Color_Toric": "S관",
+    "Si_1-Day_Sph": "S관",
+    "Si_1-Day_Toric": "S관",
+}
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
 DATA_CACHE_VERSION = 12
 REQUEST_DUE_MONTH = "2026-07"
@@ -298,6 +313,13 @@ def clean_str(value: Any) -> str:
     if pd.isna(value):
         return ""
     return str(value).strip()
+
+
+def factory_group_from_category(value: Any) -> str:
+    text = clean_str(value)
+    if not text:
+        return "(미기재)"
+    return FACTORY_GROUP_BY_CATEGORY.get(text, "(미기재)")
 
 
 def normalize_match_key(value: Any) -> str:
@@ -685,6 +707,7 @@ def normalize_request(path: Path, product_master_path: Path | None = None) -> pd
 
     out = filter_request_for_due_month(out)
     out = enrich_request_from_product_master(out, normalize_product_code_master(product_master_path))
+    out["factory_group"] = out["category_summary"].map(factory_group_from_category)
 
     for col in ["sales_code", "product_name", "product_name_code", "production_code", "p_code", "q_code", "r_code"]:
         out[f"{col}_key"] = out[col].map(normalize_match_key)
@@ -1612,6 +1635,7 @@ def build_summaries(
         "base_product_name",
         "customer_name",
         "category_summary",
+        "factory_group",
         "sales_code_key",
         "product_name_key",
         "product_name_code_key",
@@ -1636,6 +1660,8 @@ def build_summaries(
                 request_work[col] = "(미기재)"
             elif col == "category_summary":
                 request_work[col] = "(미기재)"
+            elif col == "factory_group":
+                request_work[col] = request_work.get("category_summary", pd.Series("", index=request_work.index)).map(factory_group_from_category)
             else:
                 request_work[col] = ""
 
@@ -1652,6 +1678,7 @@ def build_summaries(
         "base_product_name",
         "customer_name",
         "category_summary",
+        "factory_group",
         "sales_code_key",
         "product_name_key",
         "product_name_code_key",
@@ -1762,6 +1789,7 @@ def build_summaries(
                     "base_product_name": strip_pack_unit_suffix(product_name),
                     "customer_name": "(포장실적)",
                     "category_summary": "(포장실적)",
+                    "factory_group": "(미기재)",
                     "sales_code_key": clean_str(row.get("sales_code_key", "")),
                     "product_name_key": normalize_match_key(product_name),
                     "product_name_code_key": normalize_match_key(product_name),
@@ -3299,6 +3327,11 @@ def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
     work["제품분류"] = work["base_product_name"].map(classify_product_group)
     work["본품분류"] = work["base_product_name"].map(classify_main_product_family)
     work["본품/샘플"] = np.where(work["base_product_name"].astype(str).map(is_sample_name), "샘플", "본품")
+    if "factory_group" not in work.columns:
+        category_source = work.get("category_summary", pd.Series("", index=work.index))
+        work["factory_group"] = category_source.map(factory_group_from_category)
+    work["factory_group"] = work["factory_group"].map(clean_str).replace("", "(미기재)").fillna("(미기재)")
+    work["공장구분"] = work["factory_group"]
     if "customer_name" not in work.columns:
         work["customer_name"] = "(미기재)"
     work["customer_name"] = work["customer_name"].replace("", "(미기재)").fillna("(미기재)")
@@ -3327,6 +3360,14 @@ def available_product_group_options(code_summary: pd.DataFrame) -> list[str]:
     return ["전체"] + ordered + remaining
 
 
+def available_factory_group_options(code_summary: pd.DataFrame) -> list[str]:
+    work = with_operational_columns(code_summary)
+    available = set(work["factory_group"].dropna().astype(str))
+    ordered = [value for value in FACTORY_GROUP_ORDER if value in available]
+    remaining = sorted(available - set(ordered) - {"전체"})
+    return ["전체"] + [value for value in ordered if value != "전체"] + remaining
+
+
 def available_power_options(code_summary: pd.DataFrame) -> list[str]:
     work = with_operational_columns(code_summary)
     source = work[work["power_value"].notna()][["POWER", "power_value"]].drop_duplicates()
@@ -3350,6 +3391,7 @@ def filter_operational_code_summary(
     sample_scope: str = "전체",
     power_label: str = "전체",
     customer_name: str = "전체",
+    factory_group: str = "전체",
 ) -> pd.DataFrame:
     out = with_operational_columns(code_summary)
     product_q = product_query.strip()
@@ -3375,6 +3417,8 @@ def filter_operational_code_summary(
         out = out[out["POWER"] == power_label]
     if customer_name != "전체":
         out = out[out["customer_name"] == customer_name]
+    if factory_group != "전체":
+        out = out[out["factory_group"] == factory_group]
     return out.copy()
 
 
@@ -5029,6 +5073,7 @@ def build_lot_receipt_status_view(
     code_summary: pd.DataFrame,
 ) -> pd.DataFrame:
     columns = [
+        "공장구분",
         "제품코드",
         "제품명",
         "LOTNO",
@@ -5090,6 +5135,9 @@ def build_lot_receipt_status_view(
         code_meta["sales_code_key"] = code_meta.get("sales_code_key", pd.Series("", index=code_meta.index)).map(clean_str)
         code_sales_by_key = build_first_value_map(code_meta, "sales_code_key", "sales_code")
         code_product_by_key = build_first_value_map(code_meta, "sales_code_key", "product_name")
+        if "factory_group" not in code_meta.columns:
+            code_meta["factory_group"] = "(미기재)"
+        code_factory_by_key = build_first_value_map(code_meta, "sales_code_key", "factory_group")
         receipt_only_rows: list[dict[str, Any]] = []
 
         def add_receipt_to_indices(indices: list[int], qty: float) -> None:
@@ -5123,6 +5171,7 @@ def build_lot_receipt_status_view(
                         "sales_code": clean_str(receipt.get("sales_code", "")) or code_sales_by_key.get(code_key, ""),
                         "packing_product_name": clean_str(receipt.get("yongma_product_name", ""))
                         or code_product_by_key.get(code_key, ""),
+                        "factory_group": code_factory_by_key.get(code_key, "(미기재)"),
                         "packing_lot": clean_str(receipt.get("yongma_lot", "")) or "(용마 LOT 미기재)",
                         "packing_lot_key": lot_key,
                         "packing_barcode": "",
@@ -5184,8 +5233,20 @@ def build_lot_receipt_status_view(
     )
     grouped["_status_sort"] = grouped["상태"].map({"입고대기": 0, "부분입고": 1, "용마입고만": 2}).fillna(3)
     grouped["포장일"] = grouped["packing_date"].map(display_date_or_dash)
+    code_factory = with_operational_columns(code_summary)[["sales_code_key", "factory_group"]].copy()
+    code_factory["sales_code_key"] = code_factory["sales_code_key"].map(clean_str)
+    code_factory = code_factory.drop_duplicates("sales_code_key", keep="first")
+    grouped = grouped.merge(code_factory, on="sales_code_key", how="left")
+    if "factory_group_x" in grouped.columns or "factory_group_y" in grouped.columns:
+        grouped["factory_group"] = grouped.get("factory_group_x", "").where(
+            grouped.get("factory_group_x", "").map(clean_str) != "",
+            grouped.get("factory_group_y", ""),
+        )
+        grouped = grouped.drop(columns=["factory_group_x", "factory_group_y"], errors="ignore")
+    grouped["factory_group"] = grouped["factory_group"].map(clean_str).replace("", "(미기재)").fillna("(미기재)")
     grouped = grouped.rename(
         columns={
+            "factory_group": "공장구분",
             "sales_code": "제품코드",
             "packing_product_name": "제품명",
             "packing_lot": "LOTNO",
@@ -5208,7 +5269,19 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
         st.warning("표시할 포장 LOT 데이터가 없습니다.")
         return
 
-    f1, f2 = st.columns([2.4, 1.2], gap="small")
+    factory_options = ["전체"] + [
+        value
+        for value in FACTORY_GROUP_ORDER
+        if value != "전체" and value in set(lot_status_df.get("공장구분", pd.Series(dtype=str)).dropna().astype(str))
+    ]
+    remaining_factories = sorted(
+        set(lot_status_df.get("공장구분", pd.Series(dtype=str)).dropna().astype(str))
+        - set(factory_options)
+        - {"전체"}
+    )
+    factory_options = factory_options + remaining_factories
+
+    f1, f2, f3 = st.columns([2.4, 1.2, 1.2], gap="small")
     with f1:
         query = st.text_input(
             "제품코드/제품명/LOTNO 검색",
@@ -5216,6 +5289,13 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
             key="packing_lot_query",
         )
     with f2:
+        selected_factory = st.selectbox(
+            "공장구분",
+            options=factory_options,
+            index=0,
+            key="packing_lot_factory_group",
+        )
+    with f3:
         statuses = st.multiselect(
             "상태 필터",
             ["입고대기", "입고완료"],
@@ -5224,6 +5304,8 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
         )
 
     view = lot_status_df.copy()
+    if selected_factory != "전체" and "공장구분" in view.columns:
+        view = view[view["공장구분"] == selected_factory].copy()
     if query.strip():
         q = query.strip()
         mask = (
@@ -5324,6 +5406,7 @@ def filter_production_power_rows(
     pack_label: str,
     sample_scope: str,
     product_group: str,
+    factory_group: str,
 ) -> pd.DataFrame:
     out = prepare_production_power_rows(code_summary)
     product_q = product_query.strip()
@@ -5344,6 +5427,8 @@ def filter_production_power_rows(
         out = out[out["본품/샘플"] == "샘플"]
     if product_group != "전체":
         out = out[out["제품분류"] == product_group]
+    if factory_group != "전체":
+        out = out[out["factory_group"] == factory_group]
     return out.copy()
 
 
@@ -9013,7 +9098,19 @@ def render_daily_inventory_tab(
         st.warning("일일 재고현황표를 찾지 못했거나 처리할 데이터가 없습니다.")
         return
 
-    response_view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df, lot_status_df)
+    factory_options = available_factory_group_options(code_summary)
+    selected_factory = st.selectbox(
+        "공장구분",
+        options=factory_options,
+        index=0,
+        key="daily_inventory_factory_group",
+    )
+    scoped_code_summary = filter_operational_code_summary(
+        code_summary,
+        factory_group=selected_factory,
+    )
+
+    response_view = build_daily_inventory_response_view(daily_inventory_df, scoped_code_summary, sample_available_df, lot_status_df)
     if response_view.empty:
         st.warning("표시할 일일 재고 대응 데이터가 없습니다.")
         return
@@ -9283,6 +9380,7 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
     pack_labels = PRODUCTION_CODE_PACK_LABELS
     power_options = available_production_power_options(code_summary)
     group_options = available_product_group_options(code_summary)
+    factory_options = available_factory_group_options(code_summary)
 
     pc1, pc2, pc3, pc4 = st.columns([1.9, 1.7, 1.2, 1.2], gap="small")
     with pc1:
@@ -9314,7 +9412,7 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
             key="tab_production_pack",
         )
 
-    pc5, pc6, pc7 = st.columns([1.2, 1.5, 1.2], gap="small")
+    pc5, pc6, pc7, pc8 = st.columns([1.2, 1.5, 1.2, 1.2], gap="small")
     with pc5:
         sample_scope = st.selectbox(
             "본품/샘플 선택",
@@ -9330,6 +9428,13 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
             key="tab_production_group",
         )
     with pc7:
+        selected_factory = st.selectbox(
+            "공장구분",
+            options=factory_options,
+            index=0,
+            key="tab_production_factory_group",
+        )
+    with pc8:
         shortage_only = st.checkbox("부족품만 보기", value=False, key="tab_production_shortage_only")
 
     production_source = filter_production_power_rows(
@@ -9340,6 +9445,7 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
         pack_label=selected_pack,
         sample_scope=sample_scope,
         product_group=selected_group,
+        factory_group=selected_factory,
     )
     production_view = build_production_power_main_view(
         production_source,
@@ -9404,8 +9510,9 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
     sales_unit_mode = render_unit_selector("sales_progress_unit_mode")
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
+    factory_options = available_factory_group_options(code_summary)
 
-    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
+    threshold_col, factory_col, _ = st.columns([1.2, 1.2, 3.6], gap="small")
     with threshold_col:
         stock_threshold_pack = st.number_input(
             "긴급 재고 기준(PACK)",
@@ -9414,9 +9521,20 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
             step=10,
             key="sales_inventory_stock_threshold_pack",
         )
+    with factory_col:
+        selected_factory = st.selectbox(
+            "공장구분",
+            options=factory_options,
+            index=0,
+            key="tab_sales_factory_group",
+        )
 
-    urgent_sales_base = build_sales_order_main_view(
+    factory_scoped_code_summary = filter_operational_code_summary(
         code_summary,
+        factory_group=selected_factory,
+    )
+    urgent_sales_base = build_sales_order_main_view(
+        factory_scoped_code_summary,
         stock_threshold_pack=float(stock_threshold_pack),
     )
     render_urgent_sales_packing_list(urgent_sales_base)
@@ -9456,6 +9574,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
         sales_query=sales_query,
         pack_label=selected_pack,
         power_label=selected_power,
+        factory_group=selected_factory,
     )
     sales_view = build_sales_order_main_view(
         sales_source,
@@ -9501,8 +9620,9 @@ def render_power_tab(code_summary: pd.DataFrame) -> None:
     )
     power_unit_mode = render_unit_selector("power_progress_unit_mode")
     power_options = available_power_options(code_summary)
+    factory_options = available_factory_group_options(code_summary)
 
-    pf1, pf2, pf3, pf4 = st.columns([2.0, 1.7, 1.7, 1.2], gap="small")
+    pf1, pf2, pf3, pf4, pf5 = st.columns([2.0, 1.7, 1.7, 1.2, 1.2], gap="small")
     with pf1:
         product_query = st.text_input("제품명", value="", placeholder="제품명/SKU 일부 입력", key="tab_power_product_query")
     with pf2:
@@ -9511,6 +9631,13 @@ def render_power_tab(code_summary: pd.DataFrame) -> None:
         sales_query = st.text_input("판매코드", value="", placeholder="예: S309", key="tab_power_sales_query")
     with pf4:
         selected_power = st.selectbox("POWER", options=power_options, index=0, key="tab_power_power")
+    with pf5:
+        selected_factory = st.selectbox(
+            "공장구분",
+            options=factory_options,
+            index=0,
+            key="tab_power_factory_group",
+        )
 
     power_source = filter_operational_code_summary(
         code_summary,
@@ -9518,6 +9645,7 @@ def render_power_tab(code_summary: pd.DataFrame) -> None:
         production_query=production_query,
         sales_query=sales_query,
         power_label=selected_power,
+        factory_group=selected_factory,
     )
     power_detail_for_heatmap = build_power_detail(power_source)
     heatmap = build_power_heatmap(power_detail_for_heatmap)
