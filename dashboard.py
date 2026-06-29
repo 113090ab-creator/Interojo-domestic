@@ -2180,6 +2180,7 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "제품분류",
+                "공장구분",
                 "제품명",
                 "POWER",
                 "요청수량",
@@ -2195,17 +2196,24 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
         )
 
     work["제품분류"] = work["product_name"].map(classify_product_group)
+    if "factory_group" not in work.columns:
+        work = with_operational_columns(work)
+    work["factory_group"] = work["factory_group"].map(clean_str).replace("", "(미기재)").fillna("(미기재)")
     work["POWER"] = work["power_value"].map(format_power)
 
     grouped = (
-        work.groupby(["제품분류", "product_name", "power_value", "POWER"], dropna=False)[
-            ["request_pack", "request_pcs", "packing_pack"]
-        ]
-        .sum()
+        work.groupby(["제품분류", "product_name", "power_value", "POWER"], dropna=False)
+        .agg(
+            factory_group=("factory_group", join_unique),
+            request_pack=("request_pack", "sum"),
+            request_pcs=("request_pcs", "sum"),
+            packing_pack=("packing_pack", "sum"),
+        )
         .reset_index()
         .rename(
             columns={
                 "product_name": "제품명",
+                "factory_group": "공장구분",
                 "request_pack": "요청수량",
                 "request_pcs": "요청PCS",
                 "packing_pack": "포장수량",
@@ -6115,6 +6123,7 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         "우선등급",
         "D-Day",
         "판매코드",
+        "공장구분",
         "제품명",
         "POWER",
         "PACK",
@@ -6292,6 +6301,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
         [
             "생산코드",
             "판매코드",
+            "공장구분",
             "제품명",
             "PACK",
             "요청합계(PACK)",
@@ -6307,7 +6317,9 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
 
 
 def empty_inventory_detail_view() -> pd.DataFrame:
-    return pd.DataFrame(columns=["판매코드", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"])
+    return pd.DataFrame(
+        columns=["판매코드", "공장구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]
+    )
 
 
 def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> pd.DataFrame:
@@ -6321,6 +6333,7 @@ def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> 
     grouped = (
         scope.groupby("sales_code", dropna=False)
         .agg(
+            factory_group=("factory_group", join_unique),
             inventory_product_name=("inventory_product_name", first_nonempty),
             available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
             inventory_total_stock_pack=("inventory_total_stock_pack", sum_numeric_or_nan),
@@ -6332,6 +6345,7 @@ def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> 
         .rename(
             columns={
                 "sales_code": "판매코드",
+                "factory_group": "공장구분",
                 "inventory_product_name": "WMS제품명",
                 "available_stock_pack": "용마창고재고 (PACK)",
                 "inventory_total_stock_pack": "총수량(PACK)",
@@ -6343,7 +6357,7 @@ def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> 
     )
     grouped["전송일자"] = grouped["전송일자"].map(display_date_or_dash)
     grouped["매칭여부"] = np.where(grouped["매칭여부"], "매칭", "미매칭")
-    return grouped[["판매코드", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]]
+    return grouped[["판매코드", "공장구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]]
 
 
 def ppt_rgb(hex_color: str) -> RGBColor:
