@@ -53,7 +53,13 @@ SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
 DATA_CACHE_VERSION = 10
-PRODUCTION_PROGRESS_DUE_MONTH = "2026-06"
+PRODUCTION_PROGRESS_DUE_MONTH = "2026-07"
+PRODUCTION_PROGRESS_DUE_MONTH_LABEL = "2026년 7월"
+PACKING_RECEIPT_BASE_DATE_LABEL = "2026년 6월 24일"
+DATA_BASIS_NOTE = (
+    f"수요정보 기준: {PRODUCTION_PROGRESS_DUE_MONTH_LABEL} 납기 / "
+    f"포장실적·용마입고량 기준: {PACKING_RECEIPT_BASE_DATE_LABEL}부터"
+)
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
     "Clalen 1Day",
@@ -9527,6 +9533,7 @@ def render_dashboard_nav() -> str:
 def main() -> None:
     render_style()
     st.title("국내 생산·포장 현황 대시보드")
+    st.caption(DATA_BASIS_NOTE)
 
     base_dir = Path.cwd()
     try:
