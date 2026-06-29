@@ -177,6 +177,7 @@ REQUEST_COLS = {
     "r_code": ["R코드(사출)", "R 코드(사출)", "R코드", "사출코드", "R 코드"],
     "market_type": ["국내/해외", "국내해외", "시장구분", "market_type"],
     "customer_name": ["거래처", "거래처명", "고객명", "고객 이름", "customer_name"],
+    "category_summary": ["신규분류요약", "분류요약", "분류 요약", "category_summary"],
 }
 
 PACKING_COLS = {
@@ -583,12 +584,13 @@ def normalize_request(path: Path) -> pd.DataFrame:
         "r_code": "r_code",
         "market_type": "market_type",
         "customer_name": "customer_name",
+        "category_summary": "category_summary",
     }
     for source_key, output_col in optional_text_cols.items():
         if source_key in cols:
             out[output_col] = raw[cols[source_key]].map(clean_str)
         else:
-            out[output_col] = "(미기재)" if output_col == "customer_name" else ""
+            out[output_col] = "(미기재)" if output_col in {"customer_name", "category_summary"} else ""
     if "due_date" in cols:
         out["request_due_date"] = pd.to_datetime(raw[cols["due_date"]], errors="coerce")
     else:
@@ -1525,6 +1527,7 @@ def build_summaries(
         "pack_unit_label",
         "base_product_name",
         "customer_name",
+        "category_summary",
         "sales_code_key",
         "product_name_key",
         "product_name_code_key",
@@ -1547,6 +1550,8 @@ def build_summaries(
                 request_work[col] = request_work["product_name"].map(strip_pack_unit_suffix)
             elif col == "customer_name":
                 request_work[col] = "(미기재)"
+            elif col == "category_summary":
+                request_work[col] = "(미기재)"
             else:
                 request_work[col] = ""
 
@@ -1562,6 +1567,7 @@ def build_summaries(
         "pack_unit_label",
         "base_product_name",
         "customer_name",
+        "category_summary",
         "sales_code_key",
         "product_name_key",
         "product_name_code_key",
@@ -1671,6 +1677,7 @@ def build_summaries(
                     "pack_unit_label": format_pack_unit_label(pack_unit, product_name),
                     "base_product_name": strip_pack_unit_suffix(product_name),
                     "customer_name": "(포장실적)",
+                    "category_summary": "(포장실적)",
                     "sales_code_key": clean_str(row.get("sales_code_key", "")),
                     "product_name_key": normalize_match_key(product_name),
                     "product_name_code_key": normalize_match_key(product_name),
@@ -2627,6 +2634,64 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
             "</section>"
         )
     st.markdown("".join(sections), unsafe_allow_html=True)
+
+
+def build_category_request_summary_view(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = ["신규분류요약", "요청 PACK", "요청 PCS"]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = code_summary.copy()
+    if "category_summary" not in work.columns:
+        work["category_summary"] = "(미기재)"
+    work["category_summary"] = work["category_summary"].map(clean_str).replace("", "(미기재)")
+    for col in ["request_pack", "request_pcs"]:
+        if col not in work.columns:
+            work[col] = 0.0
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
+    work = work[(work["request_pack"] > 0) | (work["request_pcs"] > 0)].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    grouped = (
+        work.groupby("category_summary", dropna=False)
+        .agg(
+            request_pack=("request_pack", "sum"),
+            request_pcs=("request_pcs", "sum"),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "category_summary": "신규분류요약",
+                "request_pack": "요청 PACK",
+                "request_pcs": "요청 PCS",
+            }
+        )
+        .sort_values(["요청 PACK", "요청 PCS"], ascending=[False, False], kind="stable")
+    )
+    total = pd.DataFrame(
+        [
+            {
+                "신규분류요약": "합계",
+                "요청 PACK": float(grouped["요청 PACK"].sum()),
+                "요청 PCS": float(grouped["요청 PCS"].sum()),
+            }
+        ]
+    )
+    return pd.concat([grouped, total], ignore_index=True)[columns]
+
+
+def render_category_request_summary_table(summary_view: pd.DataFrame) -> None:
+    if summary_view.empty:
+        st.warning("신규분류요약별 요청량을 표시할 데이터가 없습니다.")
+        return
+    st.dataframe(
+        summary_view,
+        hide_index=True,
+        height=min(360, 42 + 35 * len(summary_view)),
+        width="stretch",
+        column_config=drilldown_column_config(),
+    )
 
 
 def build_top_shortage_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -8931,6 +8996,7 @@ def render_product_summary_tab(
     stock_threshold_pack = float(INVENTORY_STOCK_THRESHOLD_DEFAULT)
 
     family_view = build_family_progress_view(main_products)
+    category_request_view = build_category_request_summary_view(code_summary)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
     gap_top_view = build_gap_top_view(product_summary, top_n=10)
     exception_kpis, exception_detail = build_daily_exception_report_view(
@@ -8973,6 +9039,7 @@ def render_product_summary_tab(
             "제품_진도_현황",
             {
                 "제품 요약": product_summary,
+                "신규분류요약별 요청량": category_request_view,
                 "미입고 TOP10": top_shortage_view,
                 "본품 분류별 진도": family_view,
                 "생산완료 후 미입고 TOP10": gap_top_view,
@@ -8990,6 +9057,15 @@ def render_product_summary_tab(
         stock_threshold_pack,
     )
     render_kpi_scope_panels(code_summary)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "신규분류요약별 요청량",
+        "생산요청등록 기준 신규분류요약별 요청 PACK과 요청 PCS를 집계합니다.",
+    )
+    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
+    render_category_request_summary_table(category_request_view)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
