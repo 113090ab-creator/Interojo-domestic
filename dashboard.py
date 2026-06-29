@@ -5516,6 +5516,7 @@ def build_production_power_main_view(
         work.groupby(group_cols, dropna=False)
         .agg(
             representative_product=("base_product_name", first_nonempty),
+            factory_group=("factory_group", join_unique),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_pack", "sum"),
@@ -5599,6 +5600,9 @@ def build_production_power_main_view(
             ]
         )
     )
+    for col in return_columns:
+        if col not in out.columns:
+            out[col] = ""
     return out[return_columns].copy()
 
 
@@ -5723,6 +5727,9 @@ def build_production_power_detail_view(
             ]
         )
     )
+    for col in return_columns:
+        if col not in out.columns:
+            out[col] = ""
     return out[return_columns].copy()
 
 
