@@ -9926,6 +9926,7 @@ def file_fingerprint(path: Path | None) -> tuple[str, int, int] | None:
     return (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
 
 
+@st.cache_data(show_spinner="데이터 파일을 읽는 중입니다. 잠시만 기다려 주세요.")
 def load_dashboard_data(
     request_fingerprint: tuple[str, int, int],
     packing_fingerprint: tuple[str, int, int],
@@ -9975,6 +9976,7 @@ def main() -> None:
     render_style()
     st.title("국내 생산·포장 현황 대시보드")
     st.caption(DATA_BASIS_NOTE)
+    active_tab = render_dashboard_nav()
 
     base_dir = Path.cwd()
     try:
@@ -9997,7 +9999,6 @@ def main() -> None:
         st.error(f"처리 중 오류가 발생했습니다: {exc}")
         st.stop()
 
-    active_tab = render_dashboard_nav()
     if active_tab == "제품 진도 현황":
         render_product_summary_tab(product_summary, code_summary, daily_inventory_df, sample_available_df)
     elif active_tab == "일일 재고 대응":
