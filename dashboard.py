@@ -76,7 +76,8 @@ PRODUCTION_PROGRESS_DUE_MONTH_LABEL = REQUEST_DUE_MONTH_LABEL
 PACKING_RECEIPT_BASE_DATE_LABEL = "2026년 6월 24일"
 DATA_BASIS_NOTE = (
     f"생산요청물량·수요정보 기준: {REQUEST_DUE_MONTH_LABEL} 납기 / "
-    f"포장실적·용마입고량 기준: {PACKING_RECEIPT_BASE_DATE_LABEL}부터"
+    f"포장실적·용마입고량 기준: {PACKING_RECEIPT_BASE_DATE_LABEL}부터 / "
+    "생산요청물량 및 수요정보 A관·S관 요청 물량 미반영"
 )
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
