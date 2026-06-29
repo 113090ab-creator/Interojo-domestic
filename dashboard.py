@@ -40,6 +40,7 @@ class SourceFiles:
     progress_file: Path | None = None
     inventory_file: Path | None = None
     daily_inventory_file: Path | None = None
+    product_master_file: Path | None = None
 
 
 STATUS_ORDER = ["미착수", "진행중", "완료"]
@@ -52,7 +53,7 @@ DAILY_INVENTORY_FILE_KEYWORDS = ["클라렌사업본부 재고현황", "재고�
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 11
+DATA_CACHE_VERSION = 12
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -178,6 +179,14 @@ REQUEST_COLS = {
     "market_type": ["국내/해외", "국내해외", "시장구분", "market_type"],
     "customer_name": ["거래처", "거래처명", "고객명", "고객 이름", "customer_name"],
     "category_summary": ["신규분류요약", "분류요약", "분류 요약", "category_summary"],
+}
+
+PRODUCT_CODE_MASTER_COLS = {
+    "sales_code": ["품목코드", "판매코드", "판매 코드", "sales_code"],
+    "p_code": ["P 코드", "P코드", "P코드(생산)", "P code"],
+    "production_code": ["제품코드", "제품 코드", "생산코드", "생산 코드", "production_code"],
+    "q_code": ["분리코드", "Q코드", "Q코드(분리)", "Q 코드"],
+    "r_code": ["사출코드", "R코드", "R코드(사출)", "R 코드"],
 }
 
 PACKING_COLS = {
@@ -472,6 +481,7 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
     progress_file = pick_latest_by_name(files, ["수요정보", "전공정"])
     inventory_file = pick_latest_by_name(files, ["용마WMS재고현황", "WMS재고현황", "WMS"])
     daily_inventory_file = pick_latest_by_name(files, DAILY_INVENTORY_FILE_KEYWORDS)
+    product_master_file = pick_latest_by_name(files, ["판매코드-제품코드 매칭 마스터", "제품코드 매칭 마스터", "매칭 마스터"])
 
     if request_file is None or packing_file is None:
         for file in files:
@@ -508,6 +518,7 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
         progress_file=progress_file,
         inventory_file=inventory_file,
         daily_inventory_file=daily_inventory_file,
+        product_master_file=product_master_file,
     )
 
 
@@ -545,7 +556,79 @@ def read_resolved_excel_sheet(
     return xl.parse(sheet_name=sheet_name, usecols=usecols)
 
 
-def normalize_request(path: Path) -> pd.DataFrame:
+def normalize_product_code_master(path: Path | None) -> pd.DataFrame:
+    columns = ["sales_code_key", "master_p_code", "master_production_code", "master_q_code", "master_r_code"]
+    if path is None:
+        return pd.DataFrame(columns=columns)
+
+    try:
+        raw = read_excel_preferred_sheet(path, "Sheet1")
+        cols = resolve_columns(
+            raw,
+            PRODUCT_CODE_MASTER_COLS,
+            required_keys=["sales_code", "p_code"],
+            file_label=path.name,
+        )
+    except Exception:
+        return pd.DataFrame(columns=columns)
+
+    out = pd.DataFrame(
+        {
+            "sales_code_key": raw[cols["sales_code"]].map(normalize_match_key),
+            "master_p_code": raw[cols["p_code"]].map(clean_str),
+            "master_production_code": raw[cols["production_code"]].map(clean_str)
+            if "production_code" in cols
+            else "",
+            "master_q_code": raw[cols["q_code"]].map(clean_str) if "q_code" in cols else "",
+            "master_r_code": raw[cols["r_code"]].map(clean_str) if "r_code" in cols else "",
+        }
+    )
+    out = out[(out["sales_code_key"] != "") & (out["master_p_code"].map(clean_str) != "")].copy()
+    if out.empty:
+        return pd.DataFrame(columns=columns)
+    return out.drop_duplicates("sales_code_key", keep="first")[columns].copy()
+
+
+def enrich_request_from_product_master(request_df: pd.DataFrame, product_master_df: pd.DataFrame) -> pd.DataFrame:
+    if request_df.empty or product_master_df.empty:
+        return request_df.copy()
+
+    out = request_df.copy()
+    out["_sales_code_key_for_master"] = out["sales_code"].map(normalize_match_key)
+    out = out.merge(
+        product_master_df,
+        left_on="_sales_code_key_for_master",
+        right_on="sales_code_key",
+        how="left",
+        suffixes=("", "_master"),
+    )
+    fill_pairs = [
+        ("p_code", "master_p_code"),
+        ("production_code", "master_production_code"),
+        ("q_code", "master_q_code"),
+        ("r_code", "master_r_code"),
+    ]
+    for target_col, master_col in fill_pairs:
+        if target_col not in out.columns:
+            out[target_col] = ""
+        if master_col not in out.columns:
+            out[master_col] = ""
+        target = out[target_col].map(clean_str)
+        out[target_col] = out[target_col].where(target != "", out[master_col].fillna(""))
+    return out.drop(
+        columns=[
+            "_sales_code_key_for_master",
+            "sales_code_key",
+            "master_p_code",
+            "master_production_code",
+            "master_q_code",
+            "master_r_code",
+        ],
+        errors="ignore",
+    )
+
+
+def normalize_request(path: Path, product_master_path: Path | None = None) -> pd.DataFrame:
     raw = pd.read_excel(path)
     cols = resolve_columns(
         raw,
@@ -601,6 +684,7 @@ def normalize_request(path: Path) -> pd.DataFrame:
         out = out[~overseas_mask].copy()
 
     out = filter_request_for_due_month(out)
+    out = enrich_request_from_product_master(out, normalize_product_code_master(product_master_path))
 
     for col in ["sales_code", "product_name", "product_name_code", "production_code", "p_code", "q_code", "r_code"]:
         out[f"{col}_key"] = out[col].map(normalize_match_key)
@@ -1792,9 +1876,44 @@ def enrich_product_summary(product_summary: pd.DataFrame, progress_df: pd.DataFr
     return out
 
 
+def enrich_product_summary_from_code_summary(product_summary: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
+    out = product_summary.copy()
+    out = out.drop(columns=["누수규격검사 생산수량", "생산부족수량", "생산진도율"], errors="ignore")
+    if code_summary.empty or "base_product_name" not in code_summary.columns:
+        out["누수규격검사 생산수량"] = 0.0
+        out["생산부족수량"] = 0.0
+        out["생산진도율"] = calc_production_progress_pct(out["요청 PCS"], out["생산부족수량"])
+        return out
+
+    work = code_summary.copy()
+    if "production_basis_qty" not in work.columns:
+        work["production_basis_qty"] = 0.0
+    work["production_basis_qty"] = pd.to_numeric(work["production_basis_qty"], errors="coerce").fillna(0.0)
+    progress_by_product = (
+        work.groupby("base_product_name", dropna=False)
+        .agg(production_basis_qty=("production_basis_qty", "sum"))
+        .reset_index()
+        .rename(
+            columns={
+                "base_product_name": "제품명",
+                "production_basis_qty": "누수규격검사 생산수량",
+            }
+        )
+    )
+    out = out.merge(progress_by_product, on="제품명", how="left")
+    out["누수규격검사 생산수량"] = pd.to_numeric(
+        out["누수규격검사 생산수량"],
+        errors="coerce",
+    ).fillna(0.0)
+    out["생산부족수량"] = out["누수규격검사 생산수량"].clip(lower=0.0)
+    out["생산진도율"] = calc_production_progress_pct(out["요청 PCS"], out["생산부족수량"])
+    return out
+
+
 def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.DataFrame) -> pd.DataFrame:
     if progress_df.empty:
         progress_by_code = pd.DataFrame(columns=["production_code_key", "production_basis_qty", "production_due_date"])
+        progress_by_p = pd.DataFrame(columns=["p_code_key", "p_production_basis_qty", "p_production_due_date"])
     else:
         progress_work = progress_df.copy()
         due_source = pd.to_datetime(progress_work.get("total_due_date", pd.NaT), errors="coerce")
@@ -1810,10 +1929,55 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
             .reset_index()
             .rename(columns={"product_code_key": "production_code_key"})
         )
+        progress_by_p = (
+            progress_work[progress_work["product_base_p_key"].map(clean_str) != ""]
+            .groupby("product_base_p_key", dropna=False)
+            .agg(
+                p_production_basis_qty=("production_basis_qty", "sum"),
+                p_production_due_date=("production_due_date", min_datetime),
+            )
+            .reset_index()
+            .rename(columns={"product_base_p_key": "p_code_key"})
+        )
     keep_cols = ["production_code_key", "production_basis_qty", "production_due_date"]
     out = code_summary.merge(progress_by_code[keep_cols], on="production_code_key", how="left")
     out["production_basis_qty"] = out["production_basis_qty"].fillna(0.0)
     out["production_due_date"] = pd.to_datetime(out["production_due_date"], errors="coerce")
+    production_key = out["production_code_key"].map(clean_str)
+    request_pcs = pd.to_numeric(out.get("request_pcs", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    request_pcs_by_production = request_pcs.groupby(production_key, dropna=False).transform("sum")
+    row_count_by_production = production_key.groupby(production_key, dropna=False).transform("size").replace(0, 1)
+    production_weight = np.where(
+        request_pcs_by_production > 0,
+        request_pcs / request_pcs_by_production,
+        1.0 / row_count_by_production,
+    )
+    exact_code_match = (production_key != "") & (out["production_basis_qty"] > 0)
+    out["production_basis_qty"] = np.where(
+        exact_code_match,
+        out["production_basis_qty"] * production_weight,
+        out["production_basis_qty"],
+    )
+    if "p_code_key" not in out.columns:
+        out["p_code_key"] = ""
+    out = out.merge(progress_by_p, on="p_code_key", how="left")
+    out["p_production_basis_qty"] = pd.to_numeric(out["p_production_basis_qty"], errors="coerce").fillna(0.0)
+    out["p_production_due_date"] = pd.to_datetime(out["p_production_due_date"], errors="coerce")
+    p_key = out["p_code_key"].map(clean_str)
+    p_row_count = p_key.groupby(p_key, dropna=False).transform("size").replace(0, 1)
+    p_only_match = (
+        (out["production_basis_qty"] <= 0)
+        & (production_key == "")
+        & (p_key != "")
+        & (p_row_count == 1)
+    )
+    out["production_basis_qty"] = out["production_basis_qty"].where(
+        ~p_only_match,
+        out["p_production_basis_qty"],
+    )
+    out["production_due_date"] = out["production_due_date"].fillna(out["p_production_due_date"])
+    out = out.drop(columns=["p_production_basis_qty", "p_production_due_date"], errors="ignore")
+
     out["production_shortage_qty"] = out["production_basis_qty"].clip(lower=0.0)
     out["production_progress_pct"] = calc_production_progress_pct(
         out["request_pcs"],
@@ -2324,7 +2488,7 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     work["_production_alloc_key"] = production_key.where(production_key != "", sales_key)
     work["_production_alloc_key"] = work["_production_alloc_key"].where(work["_production_alloc_key"] != "", fallback_key)
 
-    work["_allocated_production_shortage_qty"] = work["production_basis_qty"].clip(lower=0.0).round(0).astype("int64")
+    work["_allocated_production_shortage_qty"] = work["production_basis_qty"].clip(lower=0.0)
     work["_allocated_sample_available_pcs"] = work["sample_available_pcs"].clip(lower=0.0).round(0).astype("int64")
     return work
 
@@ -9588,6 +9752,7 @@ def load_dashboard_data(
     progress_fingerprint: tuple[str, int, int] | None,
     inventory_fingerprint: tuple[str, int, int] | None,
     daily_inventory_fingerprint: tuple[str, int, int] | None,
+    product_master_fingerprint: tuple[str, int, int] | None,
     cache_version: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
@@ -9595,8 +9760,9 @@ def load_dashboard_data(
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
     inventory_file = Path(inventory_fingerprint[0]) if inventory_fingerprint is not None else None
     daily_inventory_file = Path(daily_inventory_fingerprint[0]) if daily_inventory_fingerprint is not None else None
+    product_master_file = Path(product_master_fingerprint[0]) if product_master_fingerprint is not None else None
 
-    request_df = normalize_request(request_file)
+    request_df = normalize_request(request_file, product_master_file)
     packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
     inventory_df = normalize_inventory(inventory_file)
     daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
@@ -9605,8 +9771,8 @@ def load_dashboard_data(
     code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
     progress_df, _progress_info = normalize_progress(progress_file, request_df)
     production_progress_df = filter_progress_for_production_month(progress_df)
-    product_summary = enrich_product_summary(product_summary, production_progress_df)
     code_summary = attach_progress_to_code_summary(code_summary, production_progress_df)
+    product_summary = enrich_product_summary_from_code_summary(product_summary, code_summary)
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
@@ -9639,6 +9805,7 @@ def main() -> None:
             file_fingerprint(files.progress_file),
             file_fingerprint(files.inventory_file),
             file_fingerprint(files.daily_inventory_file),
+            file_fingerprint(files.product_master_file),
             DATA_CACHE_VERSION,
         )
     except DashboardConfigError as exc:
