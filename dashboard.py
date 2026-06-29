@@ -3361,12 +3361,18 @@ def available_product_group_options(code_summary: pd.DataFrame) -> list[str]:
     return ["전체"] + ordered + remaining
 
 
+def ordered_factory_group_options(values: Any) -> list[str]:
+    series = pd.Series(values, dtype="object") if values is not None else pd.Series(dtype="object")
+    available = {clean_str(value) for value in series.dropna().tolist()}
+    available = {value for value in available if value and value != "전체"}
+    ordered = [value for value in FACTORY_GROUP_ORDER if value != "전체" and value in available]
+    remaining = sorted(available - set(ordered))
+    return ["전체"] + ordered + remaining
+
+
 def available_factory_group_options(code_summary: pd.DataFrame) -> list[str]:
     work = add_allocated_production_basis(with_operational_columns(code_summary))
-    available = set(work["factory_group"].dropna().astype(str))
-    ordered = [value for value in FACTORY_GROUP_ORDER if value in available]
-    remaining = sorted(available - set(ordered) - {"전체"})
-    return ["전체"] + [value for value in ordered if value != "전체"] + remaining
+    return ordered_factory_group_options(work["factory_group"])
 
 
 def available_power_options(code_summary: pd.DataFrame) -> list[str]:
@@ -5287,17 +5293,7 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
         st.warning("표시할 포장 LOT 데이터가 없습니다.")
         return
 
-    factory_options = ["전체"] + [
-        value
-        for value in FACTORY_GROUP_ORDER
-        if value != "전체" and value in set(lot_status_df.get("공장구분", pd.Series(dtype=str)).dropna().astype(str))
-    ]
-    remaining_factories = sorted(
-        set(lot_status_df.get("공장구분", pd.Series(dtype=str)).dropna().astype(str))
-        - set(factory_options)
-        - {"전체"}
-    )
-    factory_options = factory_options + remaining_factories
+    factory_options = ordered_factory_group_options(lot_status_df.get("공장구분", pd.Series(dtype=str)))
 
     f1, f2, f3 = st.columns([2.4, 1.2, 1.2], gap="small")
     with f1:
@@ -9658,7 +9654,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
 
     selected_sales = str(selected_sales_row["판매코드"])
     st.markdown(f"<div class='breadcrumb'>판매코드 <span>{escape(selected_sales)}</span></div>", unsafe_allow_html=True)
-    inventory_view = build_inventory_detail_view(code_summary, selected_sales)
+    inventory_view = build_inventory_detail_view(sales_source, selected_sales)
     render_panel_title("WMS 재고 상세", "용마WMS재고현황 기준 판매코드별 PACK 재고")
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if inventory_view.empty or set(inventory_view["매칭여부"].astype(str)) == {"미매칭"}:
