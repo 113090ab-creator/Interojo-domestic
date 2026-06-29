@@ -3373,7 +3373,7 @@ def ordered_factory_group_options(values: Any) -> list[str]:
     series = pd.Series(values, dtype="object") if values is not None else pd.Series(dtype="object")
     available = {clean_str(value) for value in series.dropna().tolist()}
     available = {value for value in available if value and value != "전체"}
-    ordered = [value for value in FACTORY_GROUP_ORDER if value != "전체" and value in available]
+    ordered = [value for value in FACTORY_GROUP_ORDER if value != "전체"]
     remaining = sorted(available - set(ordered))
     return ["전체"] + ordered + remaining
 
@@ -5292,7 +5292,7 @@ def build_lot_receipt_status_view(
     )[columns].copy()
 
 
-def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
+def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_factory: str = "전체") -> None:
     render_panel_title(
         "세부 포장 진도 현황",
         "LOT 기준 포장실적과 용마입고수량을 비교합니다.",
@@ -5301,9 +5301,7 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
         st.warning("표시할 포장 LOT 데이터가 없습니다.")
         return
 
-    factory_options = ordered_factory_group_options(lot_status_df.get("공장구분", pd.Series(dtype=str)))
-
-    f1, f2, f3 = st.columns([2.4, 1.2, 1.2], gap="small")
+    f1, f2 = st.columns([2.4, 1.2], gap="small")
     with f1:
         query = st.text_input(
             "제품코드/제품명/LOTNO 검색",
@@ -5311,13 +5309,6 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame) -> None:
             key="packing_lot_query",
         )
     with f2:
-        selected_factory = st.selectbox(
-            "공장구분",
-            options=factory_options,
-            index=0,
-            key="packing_lot_factory_group",
-        )
-    with f3:
         statuses = st.multiselect(
             "상태 필터",
             ["입고대기", "입고완료"],
@@ -9434,7 +9425,7 @@ def render_product_summary_tab(
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_production_code_tab(code_summary: pd.DataFrame) -> None:
+def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str = "전체") -> None:
     render_panel_title(
         "생산코드 상세",
         "P로 시작하는 생산코드 5자리 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
@@ -9444,7 +9435,6 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
     pack_labels = PRODUCTION_CODE_PACK_LABELS
     power_options = available_production_power_options(code_summary)
     group_options = available_product_group_options(code_summary)
-    factory_options = available_factory_group_options(code_summary)
 
     pc1, pc2, pc3, pc4 = st.columns([1.9, 1.7, 1.2, 1.2], gap="small")
     with pc1:
@@ -9476,7 +9466,7 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
             key="tab_production_pack",
         )
 
-    pc5, pc6, pc7, pc8 = st.columns([1.2, 1.5, 1.2, 1.2], gap="small")
+    pc5, pc6, pc7 = st.columns([1.2, 1.5, 1.2], gap="small")
     with pc5:
         sample_scope = st.selectbox(
             "본품/샘플 선택",
@@ -9492,13 +9482,6 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
             key="tab_production_group",
         )
     with pc7:
-        selected_factory = st.selectbox(
-            "공장구분",
-            options=factory_options,
-            index=0,
-            key="tab_production_factory_group",
-        )
-    with pc8:
         shortage_only = st.checkbox("부족품만 보기", value=False, key="tab_production_shortage_only")
 
     production_source = filter_production_power_rows(
@@ -9566,7 +9549,7 @@ def render_production_code_tab(code_summary: pd.DataFrame) -> None:
     )
 
 
-def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
+def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "전체") -> None:
     render_panel_title(
         "판매코드 상세",
         "출고/오더 관점에서 판매코드별 생산·포장 진도와 납기 상태를 확인합니다.",
@@ -9574,9 +9557,8 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
     sales_unit_mode = render_unit_selector("sales_progress_unit_mode")
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
-    factory_options = available_factory_group_options(code_summary)
 
-    threshold_col, factory_col, _ = st.columns([1.2, 1.2, 3.6], gap="small")
+    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
     with threshold_col:
         stock_threshold_pack = st.number_input(
             "긴급 재고 기준(PACK)",
@@ -9584,13 +9566,6 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
             value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
             step=10,
             key="sales_inventory_stock_threshold_pack",
-        )
-    with factory_col:
-        selected_factory = st.selectbox(
-            "공장구분",
-            options=factory_options,
-            index=0,
-            key="tab_sales_factory_group",
         )
 
     factory_scoped_code_summary = filter_operational_code_summary(
@@ -9677,16 +9652,15 @@ def render_sales_code_tab(code_summary: pd.DataFrame) -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_power_tab(code_summary: pd.DataFrame) -> None:
+def render_power_tab(code_summary: pd.DataFrame, selected_factory: str = "전체") -> None:
     render_panel_title(
         "POWER 상세",
         "렌즈 POWER 기준 요청/생산/포장/부족 현황과 하위 생산·판매코드를 확인합니다.",
     )
     power_unit_mode = render_unit_selector("power_progress_unit_mode")
     power_options = available_power_options(code_summary)
-    factory_options = available_factory_group_options(code_summary)
 
-    pf1, pf2, pf3, pf4, pf5 = st.columns([2.0, 1.7, 1.7, 1.2, 1.2], gap="small")
+    pf1, pf2, pf3, pf4 = st.columns([2.0, 1.7, 1.7, 1.2], gap="small")
     with pf1:
         product_query = st.text_input("제품명", value="", placeholder="제품명/SKU 일부 입력", key="tab_power_product_query")
     with pf2:
@@ -9695,13 +9669,6 @@ def render_power_tab(code_summary: pd.DataFrame) -> None:
         sales_query = st.text_input("판매코드", value="", placeholder="예: S309", key="tab_power_sales_query")
     with pf4:
         selected_power = st.selectbox("POWER", options=power_options, index=0, key="tab_power_power")
-    with pf5:
-        selected_factory = st.selectbox(
-            "공장구분",
-            options=factory_options,
-            index=0,
-            key="tab_power_factory_group",
-        )
 
     power_source = filter_operational_code_summary(
         code_summary,
@@ -9986,6 +9953,37 @@ def render_dashboard_nav() -> str:
     return str(selected or DASHBOARD_TABS[0])
 
 
+def render_factory_group_filter(
+    active_tab: str,
+    code_summary: pd.DataFrame,
+    lot_status_df: pd.DataFrame,
+) -> str:
+    filter_tabs = {"생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"}
+    if active_tab not in filter_tabs:
+        return "전체"
+
+    if active_tab == "포장 LOT 상세":
+        factory_options = ordered_factory_group_options(lot_status_df.get("공장구분", pd.Series(dtype=str)))
+    else:
+        factory_options = available_factory_group_options(code_summary)
+
+    filter_key_by_tab = {
+        "생산코드 상세": "production_code",
+        "판매코드 상세": "sales_code",
+        "POWER 상세": "power",
+        "포장 LOT 상세": "packing_lot",
+    }
+    filter_col, _ = st.columns([1.2, 4.8], gap="small")
+    with filter_col:
+        selected = st.selectbox(
+            "공장구분 필터",
+            options=factory_options,
+            index=0,
+            key=f"{filter_key_by_tab[active_tab]}_factory_group_filter",
+        )
+    return str(selected or "전체")
+
+
 def main() -> None:
     render_style()
     st.title("국내 생산·포장 현황 대시보드")
@@ -10013,18 +10011,20 @@ def main() -> None:
         st.error(f"처리 중 오류가 발생했습니다: {exc}")
         st.stop()
 
+    selected_factory = render_factory_group_filter(active_tab, code_summary, lot_status_df)
+
     if active_tab == "제품 진도 현황":
         render_product_summary_tab(product_summary, code_summary, daily_inventory_df, sample_available_df)
     elif active_tab == "일일 재고 대응":
         render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df)
     elif active_tab == "생산코드 상세":
-        render_production_code_tab(code_summary)
+        render_production_code_tab(code_summary, selected_factory)
     elif active_tab == "판매코드 상세":
-        render_sales_code_tab(code_summary)
+        render_sales_code_tab(code_summary, selected_factory)
     elif active_tab == "POWER 상세":
-        render_power_tab(code_summary)
+        render_power_tab(code_summary, selected_factory)
     elif active_tab == "포장 LOT 상세":
-        render_packing_lot_tab(lot_status_df)
+        render_packing_lot_tab(lot_status_df, selected_factory)
 
 
 if __name__ == "__main__":
