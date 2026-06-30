@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 14
+DATA_CACHE_VERSION = 15
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -1725,6 +1725,7 @@ def build_summaries(
     request_df: pd.DataFrame,
     packing_df: pd.DataFrame,
     yongma_df: pd.DataFrame | None = None,
+    product_master_df: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, float, pd.DataFrame]:
     request_work = request_df.copy()
     optional_cols = [
@@ -1769,6 +1770,33 @@ def build_summaries(
                 request_work[col] = request_work.get("category_summary", pd.Series("", index=request_work.index)).map(factory_group_from_category)
             else:
                 request_work[col] = ""
+
+    request_work["_sales_prefix"] = request_work["sales_code"].map(extract_sales_prefix)
+    prefix_meta = (
+        request_work[request_work["_sales_prefix"].map(clean_str) != ""]
+        .groupby("_sales_prefix", dropna=False)
+        .agg(
+            product_name=("product_name", first_nonempty),
+            product_name_code=("product_name_code", first_nonempty),
+            p_code=("p_code", first_nonempty),
+            production_code=("production_code", first_nonempty),
+            q_code=("q_code", first_nonempty),
+            r_code=("r_code", first_nonempty),
+            category_summary=("category_summary", first_nonempty),
+            factory_group=("factory_group", join_factory_groups),
+            sales_code=("sales_code", first_nonempty),
+        )
+        .to_dict(orient="index")
+        if not request_work.empty
+        else {}
+    )
+    product_master_by_key: dict[str, dict[str, Any]] = {}
+    if product_master_df is not None and not product_master_df.empty and "sales_code_key" in product_master_df.columns:
+        product_master_by_key = (
+            product_master_df.drop_duplicates("sales_code_key", keep="first")
+            .set_index("sales_code_key")
+            .to_dict(orient="index")
+        )
 
     group_cols = [
         "sales_code",
@@ -1874,34 +1902,60 @@ def build_summaries(
         unmatched_rows: list[dict[str, Any]] = []
         for _, row in unmatched_supply.iterrows():
             sales_code = clean_str(row.get("packing_sales_code", "")) or clean_str(row.get("yongma_sales_code", ""))
+            sales_code_key = clean_str(row.get("sales_code_key", ""))
+            sales_prefix = extract_sales_prefix(sales_code)
+            prefix_values = prefix_meta.get(sales_prefix, {})
+            master_values = product_master_by_key.get(sales_code_key, {})
+            source_sales_code = clean_str(prefix_values.get("sales_code", ""))
+            target_power = format_power(parse_power_from_sales_code(sales_code))
+            source_power = format_power(parse_power_from_sales_code(source_sales_code))
             product_name = (
-                clean_str(row.get("packing_product_name", ""))
+                clean_str(master_values.get("master_product_name", ""))
+                or clean_str(prefix_values.get("product_name", ""))
+                or clean_str(row.get("packing_product_name", ""))
                 or clean_str(row.get("yongma_product_name", ""))
                 or sales_code
             )
+            production_code = clean_str(master_values.get("master_production_code", ""))
+            if not production_code:
+                production_code = replace_power_in_production_code(
+                    prefix_values.get("production_code", ""),
+                    source_power,
+                    target_power,
+                )
+            q_code = clean_str(master_values.get("master_q_code", ""))
+            if not q_code:
+                q_code = replace_power_in_production_code(prefix_values.get("q_code", ""), source_power, target_power)
+            r_code = clean_str(master_values.get("master_r_code", ""))
+            if not r_code:
+                r_code = replace_power_in_production_code(prefix_values.get("r_code", ""), source_power, target_power)
+            p_code = clean_str(master_values.get("master_p_code", "")) or clean_str(prefix_values.get("p_code", ""))
+            product_name_code = clean_str(prefix_values.get("product_name_code", "")) or product_name
+            category_summary = clean_str(prefix_values.get("category_summary", "")) or "(포장실적)"
+            factory_group = clean_factory_group_display(prefix_values.get("factory_group", ""))
             pack_unit = extract_pack_unit(product_name)
             unmatched_rows.append(
                 {
                     "sales_code": sales_code,
                     "product_name": product_name,
-                    "product_name_code": product_name,
-                    "production_code": "",
-                    "p_code": "",
-                    "q_code": "",
-                    "r_code": "",
+                    "product_name_code": product_name_code,
+                    "production_code": production_code,
+                    "p_code": p_code,
+                    "q_code": q_code,
+                    "r_code": r_code,
                     "pack_unit": pack_unit,
                     "pack_unit_label": format_pack_unit_label(pack_unit, product_name),
                     "base_product_name": strip_pack_unit_suffix(product_name),
                     "customer_name": "(포장실적)",
-                    "category_summary": "(포장실적)",
-                    "factory_group": "(미기재)",
-                    "sales_code_key": clean_str(row.get("sales_code_key", "")),
+                    "category_summary": category_summary,
+                    "factory_group": factory_group,
+                    "sales_code_key": sales_code_key,
                     "product_name_key": normalize_match_key(product_name),
-                    "product_name_code_key": normalize_match_key(product_name),
-                    "production_code_key": "",
-                    "p_code_key": "",
-                    "q_code_key": "",
-                    "r_code_key": "",
+                    "product_name_code_key": normalize_match_key(product_name_code),
+                    "production_code_key": normalize_match_key(production_code),
+                    "p_code_key": normalize_match_key(p_code),
+                    "q_code_key": normalize_match_key(q_code),
+                    "r_code_key": normalize_match_key(r_code),
                     "request_pack": 0.0,
                     "request_pcs": 0.0,
                     "request_due_date": pd.NaT,
@@ -10155,7 +10209,13 @@ def load_dashboard_data(
     inventory_df = normalize_inventory(inventory_file)
     daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
     daily_inventory_df = enrich_daily_inventory_from_wms(daily_inventory_df, inventory_df)
-    product_summary, _unmatched_packing_total, code_summary = build_summaries(request_df, packing_df, yongma_df)
+    product_master_df = normalize_product_code_master(product_master_file)
+    product_summary, _unmatched_packing_total, code_summary = build_summaries(
+        request_df,
+        packing_df,
+        yongma_df,
+        product_master_df,
+    )
     code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
     progress_df, _progress_info = normalize_progress(progress_file, request_df)
     production_progress_df = filter_progress_for_production_month(progress_df)
