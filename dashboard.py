@@ -67,8 +67,23 @@ FACTORY_GROUP_BY_CATEGORY = {
     "Si_1-Day_Sph": "S관",
     "Si_1-Day_Toric": "S관",
 }
+DAILY_ITEM_STANDARD = {
+    "S547": {"factory_group": "(미기재)", "product_name": "Clalen O2O2 M_2P"},
+    "S548": {"factory_group": "(미기재)", "product_name": "Clalen O2O2 M_6P"},
+    "S611": {"factory_group": "(미기재)", "product_name": "내츄럴 쇼콜라 2p"},
+    "S129": {"factory_group": "C관", "product_name": "Iris SoulBrown_40팩"},
+    "S172": {"factory_group": "C관", "product_name": "Iris Suzy Brown_30팩"},
+    "S309": {"factory_group": "S관", "product_name": "Clalen O2O2 D_Micelia_Mute Brown_10P"},
+    "S147": {"factory_group": "C관, (미기재)", "product_name": "Iris Toric Alicia Brown_30팩"},
+    "S318": {"factory_group": "A관", "product_name": "Clalen O2O2 M_Micelia_Deep Black_45%_2P"},
+    "S320": {"factory_group": "A관", "product_name": "Clalen O2O2 M_Micelia_Mute Brown_45%_2P"},
+    "S524": {"factory_group": "S관", "product_name": "Clalen O2O2 D Toric_Ash Brown EX_30P"},
+    "S154": {"factory_group": "C관", "product_name": "Iris Toric Halo Brown_30"},
+    "S159": {"factory_group": "C관, (미기재), C관", "product_name": "Iris Toric Halo Gray_30"},
+    "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
+}
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 12
+DATA_CACHE_VERSION = 13
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -554,6 +569,35 @@ def read_excel_preferred_sheet(path: Path, preferred_sheet: str) -> pd.DataFrame
     return xl.parse(sheet_name=sheet_name)
 
 
+def select_total_request_sheet(sheet_names: list[str]) -> str | None:
+    for sheet_name in sheet_names:
+        if "전체물량" in clean_str(sheet_name):
+            return sheet_name
+    for sheet_name in sheet_names:
+        name = clean_str(sheet_name)
+        if "생산지시" not in name:
+            return sheet_name
+    return sheet_names[0] if sheet_names else None
+
+
+def select_instruction_request_sheet(sheet_names: list[str]) -> str | None:
+    if not any("전체물량" in clean_str(sheet_name) for sheet_name in sheet_names):
+        return None
+    for sheet_name in sheet_names:
+        if "생산지시" in clean_str(sheet_name):
+            return sheet_name
+    return "Sheet1" if "Sheet1" in sheet_names else (sheet_names[0] if sheet_names else None)
+
+
+def read_request_workbook_sheet(path: Path, preferred_sheet: str | None = None) -> pd.DataFrame:
+    try:
+        xl = pd.ExcelFile(path)
+    except Exception:
+        return pd.read_excel(path)
+    sheet_name = preferred_sheet if preferred_sheet in xl.sheet_names else select_total_request_sheet(xl.sheet_names)
+    return xl.parse(sheet_name=sheet_name)
+
+
 def has_excel_sheet(path: Path, sheet_name: str) -> bool:
     try:
         return sheet_name in pd.ExcelFile(path).sheet_names
@@ -651,8 +695,12 @@ def enrich_request_from_product_master(request_df: pd.DataFrame, product_master_
     )
 
 
-def normalize_request(path: Path, product_master_path: Path | None = None) -> pd.DataFrame:
-    raw = pd.read_excel(path)
+def normalize_request(
+    path: Path,
+    product_master_path: Path | None = None,
+    preferred_sheet: str | None = None,
+) -> pd.DataFrame:
+    raw = read_request_workbook_sheet(path, preferred_sheet)
     cols = resolve_columns(
         raw,
         REQUEST_COLS,
@@ -713,6 +761,17 @@ def normalize_request(path: Path, product_master_path: Path | None = None) -> pd
     for col in ["sales_code", "product_name", "product_name_code", "production_code", "p_code", "q_code", "r_code"]:
         out[f"{col}_key"] = out[col].map(normalize_match_key)
     return out
+
+
+def normalize_instruction_request(path: Path, product_master_path: Path | None = None) -> pd.DataFrame:
+    try:
+        xl = pd.ExcelFile(path)
+    except Exception:
+        return pd.DataFrame()
+    sheet_name = select_instruction_request_sheet(xl.sheet_names)
+    if not sheet_name:
+        return pd.DataFrame()
+    return normalize_request(path, product_master_path, preferred_sheet=sheet_name)
 
 
 def filter_request_for_due_month(
@@ -2837,10 +2896,23 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
     st.markdown("".join(sections), unsafe_allow_html=True)
 
 
-def build_category_request_summary_view(code_summary: pd.DataFrame) -> pd.DataFrame:
-    columns = ["신규분류요약", "요청 PACK", "요청 PCS"]
+def build_category_request_summary_view(
+    code_summary: pd.DataFrame,
+    instruction_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    request_only_columns = ["신규분류요약", "요청 PACK", "요청 PCS"]
+    instruction_columns = [
+        "신규분류요약",
+        "요청 PACK",
+        "지시 PACK",
+        "PACK 지시율",
+        "요청 PCS",
+        "지시 PCS",
+        "PCS 지시율",
+        "미지시 PCS",
+    ]
     if code_summary.empty:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=instruction_columns if instruction_df is not None and not instruction_df.empty else request_only_columns)
 
     work = code_summary.copy()
     if "category_summary" not in work.columns:
@@ -2852,9 +2924,9 @@ def build_category_request_summary_view(code_summary: pd.DataFrame) -> pd.DataFr
         work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
     work = work[(work["request_pack"] > 0) | (work["request_pcs"] > 0)].copy()
     if work.empty:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=instruction_columns if instruction_df is not None and not instruction_df.empty else request_only_columns)
 
-    grouped = (
+    request_grouped = (
         work.groupby("category_summary", dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
@@ -2868,18 +2940,95 @@ def build_category_request_summary_view(code_summary: pd.DataFrame) -> pd.DataFr
                 "request_pcs": "요청 PCS",
             }
         )
-        .sort_values(["요청 PACK", "요청 PCS"], ascending=[False, False], kind="stable")
     )
+
+    if instruction_df is None or instruction_df.empty:
+        grouped = request_grouped.sort_values(["요청 PACK", "요청 PCS"], ascending=[False, False], kind="stable")
+        total = pd.DataFrame(
+            [
+                {
+                    "신규분류요약": "합계",
+                    "요청 PACK": float(grouped["요청 PACK"].sum()),
+                    "요청 PCS": float(grouped["요청 PCS"].sum()),
+                }
+            ]
+        )
+        return pd.concat([grouped, total], ignore_index=True)[request_only_columns]
+
+    instruction_work = instruction_df.copy()
+    if "category_summary" not in instruction_work.columns:
+        instruction_work["category_summary"] = "(미기재)"
+    instruction_work["category_summary"] = instruction_work["category_summary"].map(clean_str).replace("", "(미기재)")
+    for col in ["request_pack", "request_pcs"]:
+        if col not in instruction_work.columns:
+            instruction_work[col] = 0.0
+        instruction_work[col] = pd.to_numeric(instruction_work[col], errors="coerce").fillna(0.0)
+    instruction_grouped = (
+        instruction_work.groupby("category_summary", dropna=False)
+        .agg(
+            instruction_pack=("request_pack", "sum"),
+            instruction_pcs=("request_pcs", "sum"),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "category_summary": "신규분류요약",
+                "instruction_pack": "지시 PACK",
+                "instruction_pcs": "지시 PCS",
+            }
+        )
+    )
+    grouped = request_grouped.merge(instruction_grouped, on="신규분류요약", how="outer").fillna(0.0)
+    for col in ["요청 PACK", "요청 PCS", "지시 PACK", "지시 PCS"]:
+        grouped[col] = pd.to_numeric(grouped[col], errors="coerce").fillna(0.0)
+    grouped["PACK 지시율"] = np.where(grouped["요청 PACK"] > 0, grouped["지시 PACK"] / grouped["요청 PACK"] * 100.0, 0.0)
+    grouped["PCS 지시율"] = np.where(grouped["요청 PCS"] > 0, grouped["지시 PCS"] / grouped["요청 PCS"] * 100.0, 0.0)
+    grouped["미지시 PCS"] = (grouped["요청 PCS"] - grouped["지시 PCS"]).clip(lower=0.0)
+    grouped = grouped.sort_values(["요청 PCS", "요청 PACK"], ascending=[False, False], kind="stable")
     total = pd.DataFrame(
         [
             {
                 "신규분류요약": "합계",
                 "요청 PACK": float(grouped["요청 PACK"].sum()),
+                "지시 PACK": float(grouped["지시 PACK"].sum()),
+                "PACK 지시율": (
+                    float(grouped["지시 PACK"].sum()) / float(grouped["요청 PACK"].sum()) * 100.0
+                    if float(grouped["요청 PACK"].sum()) > 0
+                    else 0.0
+                ),
                 "요청 PCS": float(grouped["요청 PCS"].sum()),
+                "지시 PCS": float(grouped["지시 PCS"].sum()),
+                "PCS 지시율": (
+                    float(grouped["지시 PCS"].sum()) / float(grouped["요청 PCS"].sum()) * 100.0
+                    if float(grouped["요청 PCS"].sum()) > 0
+                    else 0.0
+                ),
+                "미지시 PCS": float(grouped["미지시 PCS"].sum()),
             }
         ]
     )
-    return pd.concat([grouped, total], ignore_index=True)[columns]
+    return pd.concat([grouped, total], ignore_index=True)[instruction_columns]
+
+
+def render_request_instruction_level_cards(summary_view: pd.DataFrame) -> None:
+    if summary_view.empty or "PCS 지시율" not in summary_view.columns:
+        return
+    total = summary_view[summary_view["신규분류요약"].map(clean_str) == "합계"]
+    if total.empty:
+        total = summary_view.tail(1)
+    row = total.iloc[0]
+    request_pcs = float(pd.to_numeric(pd.Series([row.get("요청 PCS", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    instruction_pcs = float(pd.to_numeric(pd.Series([row.get("지시 PCS", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    missing_pcs = float(pd.to_numeric(pd.Series([row.get("미지시 PCS", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    instruction_rate = (instruction_pcs / request_pcs * 100.0) if request_pcs > 0 else 0.0
+    render_metric_card_grid(
+        [
+            ("요청 PCS", format_int(request_pcs), "normal"),
+            ("지시 PCS", format_int(instruction_pcs), "normal"),
+            ("요청 대비 지시율", f"{instruction_rate:.1f}%", "warn" if instruction_rate < 90.0 else "normal"),
+            ("미지시 PCS", format_int(missing_pcs), "warn" if missing_pcs > 0 else "normal"),
+        ]
+    )
 
 
 def render_category_request_summary_table(summary_view: pd.DataFrame) -> None:
@@ -4608,6 +4757,22 @@ def daily_item_code_base(value: Any) -> str:
     return match.group(1) if match else ""
 
 
+def apply_daily_item_standard(view: pd.DataFrame, product_col: str = "대표 제품명") -> pd.DataFrame:
+    if view.empty or "품목코드" not in view.columns:
+        return view
+    out = view.copy()
+    item_codes = out["품목코드"].map(daily_item_code_base)
+    if "공장구분" in out.columns:
+        standard_factory = item_codes.map(lambda code: DAILY_ITEM_STANDARD.get(code, {}).get("factory_group", ""))
+        factory_mask = standard_factory.map(clean_str) != ""
+        out.loc[factory_mask, "공장구분"] = standard_factory[factory_mask]
+    if product_col in out.columns:
+        standard_product = item_codes.map(lambda code: DAILY_ITEM_STANDARD.get(code, {}).get("product_name", ""))
+        product_mask = standard_product.map(clean_str) != ""
+        out.loc[product_mask, product_col] = standard_product[product_mask]
+    return out
+
+
 def daily_inventory_status_rank(value: Any) -> int:
     ranks = {
         "요청외 긴급": 0,
@@ -4972,6 +5137,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
         }
     )
     out["_daily_item_code_base"] = out["품목코드"]
+    out = apply_daily_item_standard(out, product_col="대표 제품명")
     out = out.sort_values(
         [
             "_daily_status_sort",
@@ -9305,6 +9471,7 @@ def render_daily_inventory_tab(
 def render_product_summary_tab(
     product_summary: pd.DataFrame,
     code_summary: pd.DataFrame,
+    instruction_df: pd.DataFrame | None = None,
     daily_inventory_df: pd.DataFrame | None = None,
     sample_available_df: pd.DataFrame | None = None,
 ) -> None:
@@ -9312,7 +9479,7 @@ def render_product_summary_tab(
     stock_threshold_pack = float(INVENTORY_STOCK_THRESHOLD_DEFAULT)
 
     family_view = build_family_progress_view(main_products)
-    category_request_view = build_category_request_summary_view(code_summary)
+    category_request_view = build_category_request_summary_view(code_summary, instruction_df)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
     gap_top_view = build_gap_top_view(product_summary, top_n=10)
     exception_kpis, exception_detail = build_daily_exception_report_view(
@@ -9355,7 +9522,7 @@ def render_product_summary_tab(
             "제품_진도_현황",
             {
                 "제품 요약": product_summary,
-                "신규분류요약별 요청량": category_request_view,
+                "신규분류요약별 요청지시율": category_request_view,
                 "미입고 TOP10": top_shortage_view,
                 "본품 분류별 진도": family_view,
                 "생산완료 후 미입고 TOP10": gap_top_view,
@@ -9376,9 +9543,10 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "신규분류요약별 요청량",
-        "생산요청등록 기준 신규분류요약별 요청 PACK과 요청 PCS를 집계합니다.",
+        "신규분류요약별 요청 대비 지시 수준",
+        "3Q전체물량은 요청량, 생산지시리스트는 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.",
     )
+    render_request_instruction_level_cards(category_request_view)
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     render_category_request_summary_table(category_request_view)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -9916,7 +10084,7 @@ def load_dashboard_data(
     daily_inventory_fingerprint: tuple[str, int, int] | None,
     product_master_fingerprint: tuple[str, int, int] | None,
     cache_version: int,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
@@ -9925,6 +10093,7 @@ def load_dashboard_data(
     product_master_file = Path(product_master_fingerprint[0]) if product_master_fingerprint is not None else None
 
     request_df = normalize_request(request_file, product_master_file)
+    instruction_df = normalize_instruction_request(request_file, product_master_file)
     packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
     inventory_df = normalize_inventory(inventory_file)
     daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
@@ -9938,7 +10107,7 @@ def load_dashboard_data(
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
-    return product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df
+    return product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df
 
 
 def render_dashboard_nav() -> str:
@@ -9993,7 +10162,7 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df = load_dashboard_data(
+        product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df = load_dashboard_data(
             file_fingerprint(files.request_file),
             file_fingerprint(files.packing_file),
             file_fingerprint(files.progress_file),
@@ -10014,7 +10183,7 @@ def main() -> None:
     selected_factory = render_factory_group_filter(active_tab, code_summary, lot_status_df)
 
     if active_tab == "제품 진도 현황":
-        render_product_summary_tab(product_summary, code_summary, daily_inventory_df, sample_available_df)
+        render_product_summary_tab(product_summary, code_summary, instruction_df, daily_inventory_df, sample_available_df)
     elif active_tab == "일일 재고 대응":
         render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df)
     elif active_tab == "생산코드 상세":
