@@ -9165,6 +9165,8 @@ def drilldown_column_config() -> dict[str, Any]:
         "포장수량": st.column_config.NumberColumn("포장수량", format=numeric_format),
         "부족수량": st.column_config.NumberColumn("부족수량", format=numeric_format),
         "포장진도율": st.column_config.ProgressColumn("포장진도율", min_value=0, max_value=100, format="%.1f%%"),
+        "PACK 지시율": st.column_config.NumberColumn("PACK 지시율", format="%.1f%%"),
+        "PCS 지시율": st.column_config.NumberColumn("PCS 지시율", format="%.1f%%"),
         "GAP": st.column_config.NumberColumn("GAP", format="%.1f"),
         "power_value": None,
         "_power_sort": None,
@@ -9542,14 +9544,12 @@ def render_product_summary_tab(
     render_kpi_scope_panels(code_summary)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
-        "신규분류요약별 요청 대비 지시 수준",
-        "3Q전체물량은 요청량, 생산지시리스트는 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.",
-    )
-    render_request_instruction_level_cards(category_request_view)
-    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
-    render_category_request_summary_table(category_request_view)
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
+        st.caption("3Q전체물량은 요청량, 생산지시리스트는 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.")
+        render_request_instruction_level_cards(category_request_view)
+        st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
+        render_category_request_summary_table(category_request_view)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
