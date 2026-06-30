@@ -68,22 +68,22 @@ FACTORY_GROUP_BY_CATEGORY = {
     "Si_1-Day_Toric": "S관",
 }
 DAILY_ITEM_STANDARD = {
-    "S547": {"factory_group": "(미기재)", "product_name": "Clalen O2O2 M_2P"},
-    "S548": {"factory_group": "(미기재)", "product_name": "Clalen O2O2 M_6P"},
-    "S611": {"factory_group": "(미기재)", "product_name": "내츄럴 쇼콜라 2p"},
+    "S547": {"factory_group": "A관", "product_name": "Clalen O2O2 M_2P"},
+    "S548": {"factory_group": "A관", "product_name": "Clalen O2O2 M_6P"},
+    "S611": {"factory_group": "A관", "product_name": "Clalen O2O2 M_Natural Chocolat EX_2P"},
     "S129": {"factory_group": "C관", "product_name": "Iris SoulBrown_40팩"},
     "S172": {"factory_group": "C관", "product_name": "Iris Suzy Brown_30팩"},
     "S309": {"factory_group": "S관", "product_name": "Clalen O2O2 D_Micelia_Mute Brown_10P"},
-    "S147": {"factory_group": "C관, (미기재)", "product_name": "Iris Toric Alicia Brown_30팩"},
+    "S147": {"factory_group": "C관", "product_name": "Iris Toric Alicia Brown_30팩"},
     "S318": {"factory_group": "A관", "product_name": "Clalen O2O2 M_Micelia_Deep Black_45%_2P"},
     "S320": {"factory_group": "A관", "product_name": "Clalen O2O2 M_Micelia_Mute Brown_45%_2P"},
     "S524": {"factory_group": "S관", "product_name": "Clalen O2O2 D Toric_Ash Brown EX_30P"},
     "S154": {"factory_group": "C관", "product_name": "Iris Toric Halo Brown_30"},
-    "S159": {"factory_group": "C관, (미기재), C관", "product_name": "Iris Toric Halo Gray_30"},
+    "S159": {"factory_group": "C관", "product_name": "Iris Toric Halo Gray_30"},
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 13
+DATA_CACHE_VERSION = 14
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -214,6 +214,7 @@ REQUEST_COLS = {
 
 PRODUCT_CODE_MASTER_COLS = {
     "sales_code": ["품목코드", "판매코드", "판매 코드", "sales_code"],
+    "product_name": ["품명", "제품명", "제품 명", "product_name"],
     "p_code": ["P 코드", "P코드", "P코드(생산)", "P code"],
     "production_code": ["제품코드", "제품 코드", "생산코드", "생산 코드", "production_code"],
     "q_code": ["분리코드", "Q코드", "Q코드(분리)", "Q 코드"],
@@ -432,6 +433,35 @@ def join_unique(series: pd.Series, limit: int = 3) -> str:
     return f"{', '.join(unique[:limit])} 외 {len(unique) - limit}"
 
 
+def factory_group_values(value: Any) -> list[str]:
+    values = []
+    for part in clean_str(value).split(","):
+        text = clean_str(part)
+        if text and text != "(미기재)":
+            values.append(text)
+    return values
+
+
+def has_factory_group(value: Any) -> bool:
+    return bool(factory_group_values(value))
+
+
+def clean_factory_group_display(value: Any) -> str:
+    return ", ".join(dict.fromkeys(factory_group_values(value)))
+
+
+def join_factory_groups(series: pd.Series, limit: int = 3) -> str:
+    values: list[str] = []
+    for value in series:
+        values.extend(factory_group_values(value))
+    unique = list(dict.fromkeys(values))
+    if not unique:
+        return ""
+    if len(unique) <= limit:
+        return ", ".join(unique)
+    return f"{', '.join(unique[:limit])} 외 {len(unique) - limit}"
+
+
 def to_number(series: pd.Series) -> pd.Series:
     cleaned = (
         series.astype(str)
@@ -624,7 +654,14 @@ def read_resolved_excel_sheet(
 
 
 def normalize_product_code_master(path: Path | None) -> pd.DataFrame:
-    columns = ["sales_code_key", "master_p_code", "master_production_code", "master_q_code", "master_r_code"]
+    columns = [
+        "sales_code_key",
+        "master_product_name",
+        "master_p_code",
+        "master_production_code",
+        "master_q_code",
+        "master_r_code",
+    ]
     if path is None:
         return pd.DataFrame(columns=columns)
 
@@ -642,6 +679,9 @@ def normalize_product_code_master(path: Path | None) -> pd.DataFrame:
     out = pd.DataFrame(
         {
             "sales_code_key": raw[cols["sales_code"]].map(normalize_match_key),
+            "master_product_name": raw[cols["product_name"]].map(clean_str)
+            if "product_name" in cols
+            else "",
             "master_p_code": raw[cols["p_code"]].map(clean_str),
             "master_production_code": raw[cols["production_code"]].map(clean_str)
             if "production_code" in cols
@@ -682,10 +722,14 @@ def enrich_request_from_product_master(request_df: pd.DataFrame, product_master_
             out[master_col] = ""
         target = out[target_col].map(clean_str)
         out[target_col] = out[target_col].where(target != "", out[master_col].fillna(""))
+    if "master_product_name" in out.columns:
+        master_product = out["master_product_name"].map(clean_str)
+        out["product_name"] = out["master_product_name"].where(master_product != "", out["product_name"])
     return out.drop(
         columns=[
             "_sales_code_key_for_master",
             "sales_code_key",
+            "master_product_name",
             "master_p_code",
             "master_production_code",
             "master_q_code",
@@ -756,6 +800,7 @@ def normalize_request(
 
     out = filter_request_for_due_month(out)
     out = enrich_request_from_product_master(out, normalize_product_code_master(product_master_path))
+    out["base_product_name"] = out["product_name"].map(strip_pack_unit_suffix)
     out["factory_group"] = out["category_summary"].map(factory_group_from_category)
 
     for col in ["sales_code", "product_name", "product_name_code", "production_code", "p_code", "q_code", "r_code"]:
@@ -4374,12 +4419,12 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             request_pack=("request_pack", "sum"),
             packing_pack=("packing_pack", "sum"),
             yongma_in_pack=("yongma_in_pack", "sum"),
-            factory_group=("factory_group", join_unique),
+            factory_group=("factory_group", join_factory_groups),
             request_pcs=("request_pcs", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
             sample_available_pcs=("_allocated_sample_available_pcs", "sum"),
             request_due_date=("request_due_date", min_datetime),
-            product_name=("product_name", join_unique),
+            product_name=("product_name", first_nonempty),
             sales_code_count=("sales_code", "nunique"),
         )
         .reset_index()
@@ -4605,7 +4650,7 @@ def build_sample_available_lookup(sample_available_df: pd.DataFrame | None) -> d
 
 
 def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
-    columns = ["제품코드", "PACK", "마스터제품명", "생산코드템플릿", "생산코드POWER"]
+    columns = ["제품코드", "PACK", "마스터제품명", "마스터공장구분", "생산코드템플릿", "생산코드POWER"]
     if code_summary.empty:
         return pd.DataFrame(columns=columns)
 
@@ -4618,7 +4663,8 @@ def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
     grouped = (
         work.groupby(["_sales_prefix", "_pack_label"], dropna=False)
         .agg(
-            product_name=("product_name", join_unique),
+            product_name=("product_name", first_nonempty),
+            factory_group=("factory_group", join_factory_groups),
             production_code=("production_code", first_nonempty),
             power=("POWER", first_nonempty),
         )
@@ -4628,6 +4674,7 @@ def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
                 "_sales_prefix": "제품코드",
                 "_pack_label": "PACK",
                 "product_name": "마스터제품명",
+                "factory_group": "마스터공장구분",
                 "production_code": "생산코드템플릿",
                 "power": "생산코드POWER",
             }
@@ -4764,11 +4811,15 @@ def apply_daily_item_standard(view: pd.DataFrame, product_col: str = "대표 제
     item_codes = out["품목코드"].map(daily_item_code_base)
     if "공장구분" in out.columns:
         standard_factory = item_codes.map(lambda code: DAILY_ITEM_STANDARD.get(code, {}).get("factory_group", ""))
-        factory_mask = standard_factory.map(clean_str) != ""
+        current_factory = out["공장구분"].map(clean_factory_group_display)
+        standard_factory = standard_factory.map(clean_factory_group_display)
+        factory_mask = (standard_factory != "") & ~current_factory.map(has_factory_group)
+        out["공장구분"] = current_factory
         out.loc[factory_mask, "공장구분"] = standard_factory[factory_mask]
     if product_col in out.columns:
         standard_product = item_codes.map(lambda code: DAILY_ITEM_STANDARD.get(code, {}).get("product_name", ""))
-        product_mask = standard_product.map(clean_str) != ""
+        current_product = out[product_col].map(clean_str)
+        product_mask = (standard_product.map(clean_str) != "") & (current_product == "")
         out.loc[product_mask, product_col] = standard_product[product_mask]
     return out
 
@@ -4878,12 +4929,18 @@ def build_daily_inventory_response_view(
     ]
     out["제품명"] = out["요청제품명"].where(out["요청제품명"].map(clean_str) != "", out["마스터제품명"])
     out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["재고표 제품명"])
-    for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "재고표 제품명", "품목코드"]:
+    for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "마스터공장구분", "재고표 제품명", "품목코드"]:
         if col in out.columns:
             out[col] = out[col].fillna("")
     if "공장구분" not in out.columns:
         out["공장구분"] = ""
-    out["공장구분"] = out["공장구분"].map(clean_str).replace("", "(미기재)").fillna("(미기재)")
+    out["공장구분"] = out["공장구분"].map(clean_factory_group_display)
+    if "마스터공장구분" in out.columns:
+        out["마스터공장구분"] = out["마스터공장구분"].map(clean_factory_group_display)
+        out["공장구분"] = out["공장구분"].where(
+            out["공장구분"].map(has_factory_group),
+            out["마스터공장구분"],
+        )
     out = out[complete_daily_response_mask(out)].copy()
     if out.empty:
         return pd.DataFrame(columns=columns)
@@ -5097,7 +5154,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
         work.groupby("_daily_item_code_base", dropna=False)
         .agg(
             status=("대응상태", first_daily_inventory_status),
-            factory_group=("공장구분", join_unique),
+            factory_group=("공장구분", join_factory_groups),
             product_name=("제품명", first_nonempty),
             detail_count=("품목코드", "count"),
             urgent_count=("긴급요청", "sum"),
