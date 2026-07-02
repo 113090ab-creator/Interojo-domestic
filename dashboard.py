@@ -245,9 +245,12 @@ SAMPLE_AVAILABLE_COLS = {
         "샘플 신청 가능 수량",
         "샘플신청가능수량",
         "샘플 신청가능수량",
+        "샘플 신청 가능 수량 (당월)",
+        "샘플신청가능수량(당월)",
         "sample_available_qty",
     ],
 }
+SAMPLE_AVAILABLE_QTY_COLUMN_INDEX = 9  # J열
 
 INVENTORY_STOCK_THRESHOLD_DEFAULT = 100
 
@@ -959,9 +962,15 @@ def normalize_sample_available_frame(raw: pd.DataFrame, file_label: str) -> pd.D
     cols = resolve_columns(
         raw,
         SAMPLE_AVAILABLE_COLS,
-        required_keys=["product_code", "sample_available_qty"],
+        required_keys=["product_code"],
         file_label=file_label,
     )
+    if len(raw.columns) > SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
+        cols["sample_available_qty"] = raw.columns[SAMPLE_AVAILABLE_QTY_COLUMN_INDEX]
+    elif "sample_available_qty" not in cols:
+        raise DashboardConfigError(
+            [f"[{file_label}] 샘플신청가능수량 J열을 찾지 못했습니다."]
+        )
     out = pd.DataFrame(
         {
             "product_code": raw[cols["product_code"]].map(clean_str),
@@ -979,13 +988,7 @@ def normalize_sample_available(path: Path) -> pd.DataFrame:
 
     try:
         xl = pd.ExcelFile(path)
-        raw = read_resolved_excel_sheet(
-            xl,
-            sheet_name,
-            SAMPLE_AVAILABLE_COLS,
-            required_keys=["product_code", "sample_available_qty"],
-            file_label=f"{path.name}:{sheet_name}",
-        )
+        raw = xl.parse(sheet_name=sheet_name)
     except DashboardConfigError:
         raise
     except Exception:
@@ -1028,13 +1031,7 @@ def normalize_packing_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, 
 
     sample_sheet = "샘플신청가능수량"
     if sample_sheet in xl.sheet_names:
-        sample_raw = read_resolved_excel_sheet(
-            xl,
-            sample_sheet,
-            SAMPLE_AVAILABLE_COLS,
-            required_keys=["product_code", "sample_available_qty"],
-            file_label=f"{path.name}:{sample_sheet}",
-        )
+        sample_raw = xl.parse(sheet_name=sample_sheet)
         sample_available_df = normalize_sample_available_frame(sample_raw, f"{path.name}:{sample_sheet}")
     else:
         sample_available_df = empty_sample_available_df()
