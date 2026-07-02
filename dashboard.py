@@ -4035,10 +4035,9 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     if unit_mode == UNIT_PCS:
         columns = [
             "우선등급",
-            "D-Day",
+            "공장구분",
             "판매코드",
             "생산코드",
-            "공장구분",
             "제품명",
             "POWER",
             "PACK",
@@ -4055,10 +4054,9 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     else:
         columns = [
             "우선등급",
-            "D-Day",
+            "공장구분",
             "판매코드",
             "생산코드",
-            "공장구분",
             "제품명",
             "POWER",
             "PACK",
@@ -6401,9 +6399,8 @@ def build_sales_order_main_view(
 def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20) -> pd.DataFrame:
     columns = [
         "우선등급",
-        "D-Day",
-        "판매코드",
         "공장구분",
+        "판매코드",
         "제품명",
         "POWER",
         "PACK",
