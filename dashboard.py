@@ -3176,7 +3176,15 @@ def render_top_shortage_list(top_df: pd.DataFrame) -> None:
         )
     st.markdown(
         "<div class='table-wrap compact-table'>"
-        "<table class='ops-table progress-summary-table'>"
+        "<table class='ops-table progress-summary-table main-summary-table top-shortage-summary-table'>"
+        "<colgroup>"
+        "<col class='summary-rank-col'>"
+        "<col class='summary-product-col'>"
+        "<col class='summary-number-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-progress-col'>"
+        "</colgroup>"
         "<thead><tr>"
         "<th class='num'>순위</th>"
         "<th class='left'>제품명</th>"
@@ -3242,7 +3250,14 @@ def render_gap_top_list(gap_df: pd.DataFrame) -> None:
         )
     st.markdown(
         "<div class='table-wrap compact-table'>"
-        "<table class='ops-table progress-summary-table'>"
+        "<table class='ops-table progress-summary-table main-summary-table gap-summary-table'>"
+        "<colgroup>"
+        "<col class='summary-rank-col'>"
+        "<col class='summary-product-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-number-col'>"
+        "</colgroup>"
         "<thead><tr>"
         "<th class='num'>순위</th>"
         "<th class='left'>제품명</th>"
@@ -7173,7 +7188,13 @@ def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
         )
     st.markdown(
         "<div class='table-wrap compact-table'>"
-        "<table class='ops-table urgent-summary-table'>"
+        "<table class='ops-table urgent-summary-table main-summary-table urgent-request-summary-table'>"
+        "<colgroup>"
+        "<col class='summary-code-col'>"
+        "<col class='summary-scope-col'>"
+        "<col class='summary-product-col'>"
+        "<col class='summary-number-col'>"
+        "</colgroup>"
         "<thead><tr>"
         "<th class='left'>S코드</th>"
         "<th class='left'>요청구분</th>"
@@ -8660,6 +8681,43 @@ def render_style() -> None:
         }}
         .compact-table {{
             max-height: 360px;
+        }}
+        .main-summary-table {{
+            width: 100%;
+            min-width: 980px;
+        }}
+        .main-summary-table .summary-rank-col {{
+            width: 6%;
+        }}
+        .main-summary-table .summary-product-col {{
+            width: 30%;
+        }}
+        .main-summary-table .summary-number-col {{
+            width: 13%;
+        }}
+        .main-summary-table .summary-progress-col {{
+            width: 17%;
+        }}
+        .gap-summary-table .summary-product-col {{
+            width: 35%;
+        }}
+        .gap-summary-table .summary-progress-col {{
+            width: 22%;
+        }}
+        .gap-summary-table .summary-number-col {{
+            width: 15%;
+        }}
+        .urgent-request-summary-table .summary-code-col {{
+            width: 12%;
+        }}
+        .urgent-request-summary-table .summary-scope-col {{
+            width: 14%;
+        }}
+        .urgent-request-summary-table .summary-product-col {{
+            width: 60%;
+        }}
+        .urgent-request-summary-table .summary-number-col {{
+            width: 14%;
         }}
         .ops-table {{
             width: 100%;
