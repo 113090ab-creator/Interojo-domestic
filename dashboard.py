@@ -83,16 +83,16 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 15
+DATA_CACHE_VERSION = 16
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
 PRODUCTION_PROGRESS_DUE_MONTH_LABEL = REQUEST_DUE_MONTH_LABEL
 PACKING_RECEIPT_BASE_DATE_LABEL = "2026년 6월 24일"
 DATA_BASIS_NOTE = (
-    f"생산요청물량·수요정보 기준: {REQUEST_DUE_MONTH_LABEL} 납기 / "
+    f"진도 기준: 생산지시물량 {REQUEST_DUE_MONTH_LABEL} 납기 / "
     f"포장실적·용마입고량 기준: {PACKING_RECEIPT_BASE_DATE_LABEL}부터 / "
-    "생산요청물량 및 수요정보 A관·S관 요청 물량 미반영"
+    "요청 대비 지시 수준은 3Q전체물량과 생산지시물량 비교"
 )
 MAIN_PRODUCT_FAMILY_ORDER = [
     "전체",
@@ -611,11 +611,11 @@ def select_total_request_sheet(sheet_names: list[str]) -> str | None:
 
 
 def select_instruction_request_sheet(sheet_names: list[str]) -> str | None:
-    if not any("전체물량" in clean_str(sheet_name) for sheet_name in sheet_names):
-        return None
     for sheet_name in sheet_names:
         if "생산지시" in clean_str(sheet_name):
             return sheet_name
+    if not any("전체물량" in clean_str(sheet_name) for sheet_name in sheet_names):
+        return None
     return "Sheet1" if "Sheet1" in sheet_names else (sheet_names[0] if sheet_names else None)
 
 
@@ -9584,6 +9584,7 @@ def render_daily_inventory_tab(
 def render_product_summary_tab(
     product_summary: pd.DataFrame,
     code_summary: pd.DataFrame,
+    request_df: pd.DataFrame | None = None,
     instruction_df: pd.DataFrame | None = None,
     daily_inventory_df: pd.DataFrame | None = None,
     sample_available_df: pd.DataFrame | None = None,
@@ -9592,7 +9593,8 @@ def render_product_summary_tab(
     stock_threshold_pack = float(INVENTORY_STOCK_THRESHOLD_DEFAULT)
 
     family_view = build_family_progress_view(main_products)
-    category_request_view = build_category_request_summary_view(code_summary, instruction_df)
+    request_level_source = request_df if request_df is not None and not request_df.empty else code_summary
+    category_request_view = build_category_request_summary_view(request_level_source, instruction_df)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
     gap_top_view = build_gap_top_view(product_summary, top_n=10)
     exception_kpis, exception_detail = build_daily_exception_report_view(
@@ -9611,7 +9613,7 @@ def render_product_summary_tab(
     with title_col:
         render_panel_title(
             "제품 진도 현황",
-            "국내 요청 물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.",
+            "생산지시물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.",
         )
     with download_col:
         ppt_bytes = build_ppt_report(
@@ -9656,7 +9658,7 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
-        st.caption("3Q전체물량은 요청량, 생산지시리스트는 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.")
+        st.caption("3Q전체물량은 요청량, 생산지시물량은 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.")
         render_request_instruction_level_cards(category_request_view)
         st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
         render_category_request_summary_table(category_request_view)
@@ -9665,7 +9667,7 @@ def render_product_summary_tab(
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
         "본품 분류별 진도현황",
-        "제품군별 요청 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
+        "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_family_progress_cards(family_view)
@@ -10195,7 +10197,7 @@ def load_dashboard_data(
     daily_inventory_fingerprint: tuple[str, int, int] | None,
     product_master_fingerprint: tuple[str, int, int] | None,
     cache_version: int,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
@@ -10205,26 +10207,27 @@ def load_dashboard_data(
 
     request_df = normalize_request(request_file, product_master_file)
     instruction_df = normalize_instruction_request(request_file, product_master_file)
+    progress_basis_df = instruction_df if not instruction_df.empty else request_df
     packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
     inventory_df = normalize_inventory(inventory_file)
     daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
     daily_inventory_df = enrich_daily_inventory_from_wms(daily_inventory_df, inventory_df)
     product_master_df = normalize_product_code_master(product_master_file)
     product_summary, _unmatched_packing_total, code_summary = build_summaries(
-        request_df,
+        progress_basis_df,
         packing_df,
         yongma_df,
         product_master_df,
     )
     code_summary = attach_inventory_to_code_summary(code_summary, inventory_df)
-    progress_df, _progress_info = normalize_progress(progress_file, request_df)
+    progress_df, _progress_info = normalize_progress(progress_file, progress_basis_df)
     production_progress_df = filter_progress_for_production_month(progress_df)
     code_summary = attach_progress_to_code_summary(code_summary, production_progress_df)
     product_summary = enrich_product_summary_from_code_summary(product_summary, code_summary)
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
     lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
-    return product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df
+    return product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df, request_df
 
 
 def render_dashboard_nav() -> str:
@@ -10279,7 +10282,7 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df = load_dashboard_data(
+        product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df, request_df = load_dashboard_data(
             file_fingerprint(files.request_file),
             file_fingerprint(files.packing_file),
             file_fingerprint(files.progress_file),
@@ -10300,7 +10303,14 @@ def main() -> None:
     selected_factory = render_factory_group_filter(active_tab, code_summary, lot_status_df)
 
     if active_tab == "제품 진도 현황":
-        render_product_summary_tab(product_summary, code_summary, instruction_df, daily_inventory_df, sample_available_df)
+        render_product_summary_tab(
+            product_summary,
+            code_summary,
+            request_df,
+            instruction_df,
+            daily_inventory_df,
+            sample_available_df,
+        )
     elif active_tab == "일일 재고 대응":
         render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df)
     elif active_tab == "생산코드 상세":
