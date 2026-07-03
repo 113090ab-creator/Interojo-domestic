@@ -3227,20 +3227,23 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
             "production_progress_pct": 0.0,
         }
 
-    request_pack = float(code_summary["request_pack"].sum())
-    packing_pack = float(code_summary["packing_pack"].sum())
-    yongma_in_pack = (
-        float(code_summary["yongma_in_pack"].sum()) if "yongma_in_pack" in code_summary.columns else packing_pack
+    work = add_code_level_supply_basis(code_summary)
+    request_pack = float(pd.to_numeric(work.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+    packing_pack = float(
+        pd.to_numeric(work.get("packing_recognized_pack", work.get("packing_pack", pd.Series(dtype=float))), errors="coerce")
+        .fillna(0.0)
+        .sum()
+    )
+    yongma_in_pack = float(
+        pd.to_numeric(work.get("yongma_recognized_pack", work.get("yongma_in_pack", pd.Series(dtype=float))), errors="coerce")
+        .fillna(0.0)
+        .sum()
     )
     shortage_pack = max(0.0, request_pack - yongma_in_pack)
     receipt_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
 
-    work = (
-        code_summary.copy()
-        if "_allocated_production_shortage_qty" in code_summary.columns
-        else add_allocated_production_basis(code_summary)
-    )
+    work = add_allocated_production_basis(work)
     request_pcs = float(work["request_pcs"].sum())
     shortage_pcs = float(work["_allocated_production_shortage_qty"].sum())
     packable_pcs = max(0.0, request_pcs - shortage_pcs)
