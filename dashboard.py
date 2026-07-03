@@ -10824,12 +10824,31 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
         "판매코드 상세",
         "출고/오더 관점에서 판매코드별 생산·포장 진도와 납기 상태를 확인합니다.",
     )
-    sales_unit_mode = render_unit_selector("sales_progress_unit_mode")
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
+    factory_options = available_factory_group_options(code_summary)
 
-    threshold_col, _ = st.columns([1.2, 4.8], gap="small")
-    with threshold_col:
+    fc1, fc2, fc3, _ = st.columns([1.45, 1.55, 1.25, 2.75], gap="small")
+    with fc1:
+        selected_factory = st.selectbox(
+            "공장구분 필터",
+            options=factory_options,
+            index=factory_options.index(selected_factory) if selected_factory in factory_options else 0,
+            key="sales_code_factory_group_filter",
+        )
+    with fc2:
+        sales_unit_mode = st.radio(
+            "조회 단위 선택",
+            UNIT_OPTIONS,
+            index=0,
+            horizontal=True,
+            key="sales_progress_unit_mode",
+        )
+        if sales_unit_mode == UNIT_PCS:
+            st.caption("포장가능재고·생산부족 기준 조회")
+        else:
+            st.caption("용마입고·포장부족 기준 조회")
+    with fc3:
         stock_threshold_pack = st.number_input(
             "긴급 재고 기준(PACK)",
             min_value=0,
@@ -11260,7 +11279,7 @@ def render_factory_group_filter(
     code_summary: pd.DataFrame,
     lot_status_df: pd.DataFrame,
 ) -> str:
-    filter_tabs = {"생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"}
+    filter_tabs = {"생산코드 상세", "POWER 상세", "포장 LOT 상세"}
     if active_tab not in filter_tabs:
         return "전체"
 
