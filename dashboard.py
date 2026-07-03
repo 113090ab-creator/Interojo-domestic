@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 27
+DATA_CACHE_VERSION = 28
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -2036,6 +2036,40 @@ def finalize_summary(summary: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_code_level_supply_basis(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    index = out.index
+    request = pd.to_numeric(out.get("request_pack", pd.Series(0.0, index=index)), errors="coerce").fillna(0.0)
+    packing = pd.to_numeric(out.get("packing_pack", pd.Series(0.0, index=index)), errors="coerce").fillna(0.0)
+    yongma = pd.to_numeric(out.get("yongma_in_pack", pd.Series(0.0, index=index)), errors="coerce").fillna(0.0)
+
+    request = request.clip(lower=0.0)
+    packing = packing.clip(lower=0.0)
+    yongma = yongma.clip(lower=0.0)
+    has_request = request > 0
+
+    out["packing_recognized_pack"] = np.where(has_request, np.minimum(packing, request), 0.0)
+    out["yongma_recognized_pack"] = np.where(has_request, np.minimum(yongma, request), 0.0)
+    out["packing_over_pack"] = np.where(has_request, np.maximum(packing - request, 0.0), packing)
+    out["yongma_over_pack"] = np.where(has_request, np.maximum(yongma - request, 0.0), yongma)
+    out["code_packing_shortage_pack"] = np.where(
+        has_request,
+        np.maximum(request - out["packing_recognized_pack"], 0.0),
+        0.0,
+    )
+    out["code_receipt_shortage_pack"] = np.where(
+        has_request,
+        np.maximum(request - out["yongma_recognized_pack"], 0.0),
+        0.0,
+    )
+    out["code_receipt_wait_pack"] = np.maximum(
+        pd.to_numeric(out["packing_recognized_pack"], errors="coerce").fillna(0.0)
+        - pd.to_numeric(out["yongma_recognized_pack"], errors="coerce").fillna(0.0),
+        0.0,
+    )
+    return out
+
+
 def calc_production_progress_pct(request_qty: Any, production_shortage_qty: Any) -> Any:
     request = pd.to_numeric(request_qty, errors="coerce").fillna(0.0)
     shortage = pd.to_numeric(production_shortage_qty, errors="coerce").fillna(0.0)
@@ -2293,10 +2327,11 @@ def build_summaries(
         matched_code_summary = pd.concat([matched_code_summary, pd.DataFrame(unmatched_rows)], ignore_index=True)
 
     matched_code_summary = align_base_product_names_by_production_family(matched_code_summary)
+    matched_code_summary = add_code_level_supply_basis(matched_code_summary)
 
     product_summary = (
         matched_code_summary.groupby("base_product_name", dropna=False)[
-            ["request_pack", "request_pcs", "packing_pack", "yongma_in_pack"]
+            ["request_pack", "request_pcs", "packing_recognized_pack", "yongma_recognized_pack"]
         ]
         .sum()
         .reset_index()
@@ -2305,8 +2340,8 @@ def build_summaries(
                 "base_product_name": "제품명",
                 "request_pack": "요청 PACK",
                 "request_pcs": "요청 PCS",
-                "packing_pack": "포장 PACK",
-                "yongma_in_pack": "용마입고 PACK",
+                "packing_recognized_pack": "포장 PACK",
+                "yongma_recognized_pack": "용마입고 PACK",
             }
         )
     )
@@ -2632,7 +2667,7 @@ def attach_sample_available_to_code_summary(code_summary: pd.DataFrame, sample_a
 
 
 def build_production_code_view(code_summary: pd.DataFrame) -> pd.DataFrame:
-    work = code_summary.copy()
+    work = add_code_level_supply_basis(code_summary)
     work["production_code"] = work["production_code"].replace("", "(생산코드 미기재)")
     if "production_shortage_qty" not in work.columns:
         work["production_shortage_qty"] = work.get("production_basis_qty", 0.0)
@@ -2643,7 +2678,7 @@ def build_production_code_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             product_name=("product_name", join_unique),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
             production_basis_qty=("production_basis_qty", "max"),
             production_shortage_qty=("production_shortage_qty", "sum"),
             request_due_date=("request_due_date", min_datetime),
@@ -2772,8 +2807,7 @@ def classify_main_product_family(product_name: str) -> str:
 
 
 def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
-    work = code_summary.copy()
-    work["power_value"] = work["sales_code"].map(parse_power_from_sales_code)
+    work = with_operational_columns(code_summary)
     work = work[work["power_value"].notna()].copy()
     if work.empty:
         return pd.DataFrame(
@@ -2806,7 +2840,7 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
             factory_group=("factory_group", join_unique),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
         )
         .reset_index()
         .rename(
@@ -3885,19 +3919,32 @@ def render_status_board(
 
     # Guard the headline KPI against stale Streamlit/session state: the status
     # board must always use the current code-level receipt aggregate when present.
-    direct_request_pack = (
-        float(pd.to_numeric(code_summary.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+    direct_code_summary = (
+        add_code_level_supply_basis(code_summary)
         if code_summary is not None and not code_summary.empty
+        else pd.DataFrame()
+    )
+    direct_request_pack = (
+        float(pd.to_numeric(direct_code_summary.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if not direct_code_summary.empty
         else 0.0
     )
     direct_packing_pack = (
-        float(pd.to_numeric(code_summary.get("packing_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-        if code_summary is not None and not code_summary.empty
+        float(
+            pd.to_numeric(direct_code_summary.get("packing_recognized_pack", pd.Series(dtype=float)), errors="coerce")
+            .fillna(0.0)
+            .sum()
+        )
+        if not direct_code_summary.empty
         else 0.0
     )
     direct_yongma_in_pack = (
-        float(pd.to_numeric(code_summary.get("yongma_in_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-        if code_summary is not None and not code_summary.empty
+        float(
+            pd.to_numeric(direct_code_summary.get("yongma_recognized_pack", pd.Series(dtype=float)), errors="coerce")
+            .fillna(0.0)
+            .sum()
+        )
+        if not direct_code_summary.empty
         else 0.0
     )
     if direct_request_pack > 0:
@@ -4039,7 +4086,7 @@ def pack_pcs_label(label: Any) -> str:
 
 
 def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
-    work = code_summary.copy()
+    work = add_code_level_supply_basis(code_summary)
     if "base_product_name" not in work.columns:
         work["base_product_name"] = work["product_name"].map(strip_pack_unit_suffix)
     if "pack_unit" not in work.columns:
@@ -4296,8 +4343,14 @@ def calc_operation_kpis(
         work["available_stock_pack"] = np.nan
     if "yongma_in_pack" not in work.columns:
         work["yongma_in_pack"] = work["packing_pack"]
-    work["_packing_shortage_pack"] = (work["request_pack"] - work["packing_pack"]).clip(lower=0.0)
-    work["_receipt_shortage_pack"] = (work["request_pack"] - work["yongma_in_pack"]).clip(lower=0.0)
+    work["_packing_shortage_pack"] = pd.to_numeric(
+        work.get("code_packing_shortage_pack", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    work["_receipt_shortage_pack"] = pd.to_numeric(
+        work.get("code_receipt_shortage_pack", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
     product_priority = (
         work.groupby("base_product_name", dropna=False)
         .agg(
@@ -4322,7 +4375,9 @@ def calc_operation_kpis(
     priority_mask = product_priority["우선등급"].isin(["A 긴급", "B 주의"])
     code_request_pack = float(pd.to_numeric(work.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
     code_request_pcs = float(pd.to_numeric(work.get("request_pcs", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-    code_packing_pack = float(pd.to_numeric(work.get("packing_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+    code_packing_pack = float(
+        pd.to_numeric(work.get("packing_recognized_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()
+    )
     request_pack = code_request_pack or (
         float(product_summary["요청 PACK"].sum()) if "요청 PACK" in product_summary.columns and not product_summary.empty else 0.0
     )
@@ -4337,15 +4392,24 @@ def calc_operation_kpis(
         if "용마입고 PACK" in product_summary.columns and not product_summary.empty
         else 0.0
     )
-    code_yongma_in_pack = float(pd.to_numeric(work["yongma_in_pack"], errors="coerce").fillna(0.0).sum()) if not work.empty else 0.0
+    code_yongma_in_pack = (
+        float(pd.to_numeric(work["yongma_recognized_pack"], errors="coerce").fillna(0.0).sum())
+        if not work.empty and "yongma_recognized_pack" in work.columns
+        else 0.0
+    )
     yongma_in_pack = code_yongma_in_pack if code_yongma_in_pack > 0 else product_yongma_in_pack
-    packing_shortage_pack = (
+    code_packing_shortage_pack = float(pd.to_numeric(work["_packing_shortage_pack"], errors="coerce").fillna(0.0).sum())
+    code_receipt_shortage_pack = float(pd.to_numeric(work["_receipt_shortage_pack"], errors="coerce").fillna(0.0).sum())
+    code_receipt_wait_pack = float(
+        pd.to_numeric(work.get("code_receipt_wait_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()
+    )
+    packing_shortage_pack = code_packing_shortage_pack or (
         float(product_summary["포장부족수량"].sum())
         if "포장부족수량" in product_summary.columns and not product_summary.empty
         else max(0.0, request_pack - packing_pack)
     )
-    receipt_shortage_pack = max(0.0, request_pack - yongma_in_pack)
-    receipt_wait_pack = (
+    receipt_shortage_pack = code_receipt_shortage_pack or max(0.0, request_pack - yongma_in_pack)
+    receipt_wait_pack = code_receipt_wait_pack or (
         float(product_summary["입고대기수량"].sum())
         if "입고대기수량" in product_summary.columns and not product_summary.empty
         else max(0.0, packing_pack - yongma_in_pack)
@@ -4643,8 +4707,8 @@ def build_product_sku_detail_view(code_summary: pd.DataFrame, product_name: str)
         .agg(
             sales_code_count=("sales_code", "nunique"),
             request_pack=("request_pack", "sum"),
-            packing_pack=("packing_pack", "sum"),
-            yongma_in_pack=("yongma_in_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
+            yongma_in_pack=("yongma_recognized_pack", "sum"),
         )
         .reset_index()
         .rename(
@@ -4792,8 +4856,8 @@ def build_product_pack_power_quick_view(
         .agg(
             sales_code_count=("sales_code", "nunique"),
             request_pack=("request_pack", "sum"),
-            packing_pack=("packing_pack", "sum"),
-            yongma_in_pack=("yongma_in_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
+            yongma_in_pack=("yongma_recognized_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
             request_due_date=("request_due_date", min_datetime),
@@ -4953,8 +5017,8 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         work.groupby(["_sales_prefix", "_pack_label", "POWER"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
-            packing_pack=("packing_pack", "sum"),
-            yongma_in_pack=("yongma_in_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
+            yongma_in_pack=("yongma_recognized_pack", "sum"),
             factory_group=("factory_group", join_factory_groups),
             request_pcs=("request_pcs", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
@@ -5844,8 +5908,8 @@ def build_sales_pack_detail_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         work.groupby(["sales_code", "_pack_label"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
-            packing_pack=("packing_pack", "sum"),
-            yongma_in_pack=("yongma_in_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
+            yongma_in_pack=("yongma_recognized_pack", "sum"),
             request_due_date=("request_due_date", min_datetime),
         )
         .reset_index()
@@ -6169,7 +6233,10 @@ def prepare_production_power_rows(code_summary: pd.DataFrame) -> pd.DataFrame:
         work["_allocated_production_shortage_qty"],
         errors="coerce",
     ).fillna(0.0)
-    work["_packing_shortage_pack"] = (work["request_pack"] - work["packing_pack"]).clip(lower=0.0)
+    work["_packing_shortage_pack"] = pd.to_numeric(
+        work.get("code_packing_shortage_pack", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
     work["_power_sort"] = pd.to_numeric(work["power_value"], errors="coerce").fillna(999999.0)
     return work
 
@@ -6284,7 +6351,7 @@ def build_production_power_main_view(
             factory_group=("factory_group", join_unique),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
             min_due_date=("request_due_date", min_datetime),
@@ -6420,7 +6487,7 @@ def build_production_power_detail_view(
             factory_group=("factory_group", join_unique),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
             min_due_date=("request_due_date", min_datetime),
@@ -6648,7 +6715,7 @@ def build_production_sales_detail_view(rows: pd.DataFrame, production_code: str,
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             request_due_date=("request_due_date", min_datetime),
         )
@@ -6749,8 +6816,14 @@ def build_sales_order_main_view(
     pcs_per_pack = pack_unit.where(pack_unit > 0, implied_unit)
     pcs_per_pack = pd.Series(pcs_per_pack, index=work.index).replace([np.inf, -np.inf], np.nan).fillna(1.0)
     pcs_per_pack = pcs_per_pack.where(pcs_per_pack > 0, 1.0)
-    yongma_in_pack = pd.to_numeric(work.get("yongma_in_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
-    packing_pack = pd.to_numeric(work.get("packing_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    yongma_in_pack = pd.to_numeric(
+        work.get("yongma_recognized_pack", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    packing_pack = pd.to_numeric(
+        work.get("packing_recognized_pack", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
     work["_yongma_in_pcs"] = (yongma_in_pack * pcs_per_pack).clip(lower=0.0)
     work["_yongma_wait_pcs"] = ((packing_pack - yongma_in_pack).clip(lower=0.0) * pcs_per_pack).clip(lower=0.0)
     work["_packing_shortage_pcs"] = ((request_pack - yongma_in_pack).clip(lower=0.0) * pcs_per_pack).clip(lower=0.0)
@@ -6765,8 +6838,8 @@ def build_sales_order_main_view(
             power_value=("power_value", "min"),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
-            yongma_in_pack=("yongma_in_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
+            yongma_in_pack=("yongma_recognized_pack", "sum"),
             yongma_in_pcs=("_yongma_in_pcs", "sum"),
             yongma_wait_pcs=("_yongma_wait_pcs", "sum"),
             packing_shortage_pcs=("_packing_shortage_pcs", "sum"),
@@ -7000,7 +7073,7 @@ def build_power_summary_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             factory_group=("factory_group", join_unique),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
         )
         .reset_index()
@@ -7064,7 +7137,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            packing_pack=("packing_pack", "sum"),
+            packing_pack=("packing_recognized_pack", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
             request_due_date=("request_due_date", min_datetime),
         )
