@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 22
+DATA_CACHE_VERSION = 23
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -401,6 +401,16 @@ def format_pack_unit_label(unit: Any, product_name: Any = "") -> str:
 def extract_base_p_code_key(value: Any) -> str:
     match = BASE_P_CODE_RE.match(normalize_match_key(value))
     return match.group(1) if match else ""
+
+
+def extract_code_measure_key(value: Any) -> str:
+    text = clean_str(value).upper()
+    if not text:
+        return ""
+    values = re.findall(r"[+-]?\d{1,2}\.\d{2}", text)
+    if not values:
+        return ""
+    return "|".join(values[:2])
 
 
 def build_first_value_map(df: pd.DataFrame, key_col: str, value_col: str) -> dict[str, str]:
@@ -2227,73 +2237,180 @@ def enrich_product_summary_from_code_summary(product_summary: pd.DataFrame, code
     return out
 
 
+def refine_progress_candidates_by_name(candidates: pd.DataFrame, progress_row: pd.Series) -> pd.DataFrame:
+    if candidates.empty or len(candidates) <= 1:
+        return candidates
+
+    progress_measure_key = extract_code_measure_key(progress_row.get("product_code", ""))
+    if progress_measure_key and "_code_measure_key" in candidates.columns:
+        narrowed_by_code = candidates[candidates["_code_measure_key"] == progress_measure_key].copy()
+        if not narrowed_by_code.empty:
+            candidates = narrowed_by_code
+            if len(candidates) <= 1:
+                return candidates
+
+    demand_name = clean_str(progress_row.get("demand_product_name", ""))
+    demand_keys = [
+        clean_str(progress_row.get("demand_product_name_key", "")),
+        normalize_match_key(strip_pack_unit_suffix(demand_name)),
+    ]
+    demand_keys = [key for key in dict.fromkeys(demand_keys) if key]
+    if not demand_keys:
+        return candidates
+
+    name_cols = [col for col in ["product_name_key", "base_product_name_key", "product_name_code_key"] if col in candidates.columns]
+    if not name_cols:
+        return candidates
+
+    mask = pd.Series(False, index=candidates.index)
+    for col in name_cols:
+        mask = mask | candidates[col].map(clean_str).isin(demand_keys)
+    narrowed = candidates[mask].copy()
+    return narrowed if not narrowed.empty else candidates
+
+
+def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.DataFrame) -> pd.DataFrame:
+    columns = ["sales_code_key", "production_basis_qty", "production_due_date", "production_match_source"]
+    if code_summary.empty or progress_work.empty:
+        return pd.DataFrame(columns=columns)
+
+    candidates = code_summary.copy()
+    required_cols = ["sales_code_key", "production_code_key", "p_code_key", "product_name_key", "product_name_code_key"]
+    for col in required_cols:
+        if col not in candidates.columns:
+            candidates[col] = ""
+        candidates[col] = candidates[col].map(clean_str)
+    if "base_product_name" not in candidates.columns:
+        candidates["base_product_name"] = candidates.get("product_name", pd.Series("", index=candidates.index)).map(
+            strip_pack_unit_suffix
+        )
+    candidates["base_product_name_key"] = candidates["base_product_name"].map(normalize_match_key)
+    candidates["_code_measure_key"] = [
+        first_nonempty(
+            [
+                extract_code_measure_key(production_code),
+                extract_code_measure_key(sales_code),
+            ]
+        )
+        for production_code, sales_code in zip(
+            candidates.get("production_code", pd.Series("", index=candidates.index)),
+            candidates.get("sales_code", pd.Series("", index=candidates.index)),
+        )
+    ]
+    if "request_pcs" not in candidates.columns:
+        candidates["request_pcs"] = 0.0
+    candidates["request_pcs"] = pd.to_numeric(candidates["request_pcs"], errors="coerce").fillna(0.0)
+    candidates = candidates[(candidates["sales_code_key"] != "") & (candidates["request_pcs"] > 0)].copy()
+    if candidates.empty:
+        return pd.DataFrame(columns=columns)
+
+    by_production_code = {
+        key: group.copy()
+        for key, group in candidates[candidates["production_code_key"] != ""].groupby("production_code_key", dropna=False)
+    }
+    by_sales_code = {
+        key: group.copy()
+        for key, group in candidates[candidates["sales_code_key"] != ""].groupby("sales_code_key", dropna=False)
+    }
+    by_p_code = {
+        key: group.copy()
+        for key, group in candidates[candidates["p_code_key"] != ""].groupby("p_code_key", dropna=False)
+    }
+    by_product_name = {
+        key: group.copy()
+        for key, group in candidates[candidates["product_name_key"] != ""].groupby("product_name_key", dropna=False)
+    }
+
+    records: list[dict[str, Any]] = []
+    for _, progress_row in progress_work.iterrows():
+        product_code_key = clean_str(progress_row.get("product_code_key", ""))
+        product_base_p_key = clean_str(progress_row.get("product_base_p_key", ""))
+        demand_product_name_key = clean_str(progress_row.get("demand_product_name_key", ""))
+
+        matched = by_sales_code.get(product_code_key, pd.DataFrame())
+        match_source = "품목코드"
+        if matched.empty:
+            matched = by_production_code.get(product_code_key, pd.DataFrame())
+            match_source = "생산코드"
+        if matched.empty and product_code_key in by_p_code:
+            matched = by_p_code[product_code_key]
+            match_source = "P코드"
+        if matched.empty and product_base_p_key in by_p_code:
+            matched = by_p_code[product_base_p_key]
+            match_source = "P대표코드"
+        if matched.empty and demand_product_name_key in by_product_name:
+            matched = by_product_name[demand_product_name_key]
+            match_source = "제품명"
+        if matched.empty:
+            continue
+
+        candidate_count_before_refine = len(matched)
+        matched = refine_progress_candidates_by_name(matched, progress_row)
+        progress_measure_key = extract_code_measure_key(progress_row.get("product_code", ""))
+        if (
+            progress_measure_key
+            and candidate_count_before_refine > len(matched)
+            and match_source == "제품명"
+        ):
+            match_source = "규격코드"
+        qty = to_number_value(progress_row.get("production_basis_qty", 0.0))
+        if qty <= 0:
+            continue
+        if len(matched) == 1:
+            weights = pd.Series(1.0, index=matched.index)
+        else:
+            request_weights = pd.to_numeric(matched["request_pcs"], errors="coerce").fillna(0.0)
+            total_request = float(request_weights.sum())
+            if total_request > 0:
+                weights = request_weights / total_request
+            else:
+                weights = pd.Series(1.0 / len(matched), index=matched.index)
+
+        for idx, candidate_row in matched.iterrows():
+            records.append(
+                {
+                    "sales_code_key": clean_str(candidate_row.get("sales_code_key", "")),
+                    "production_basis_qty": qty * float(weights.loc[idx]),
+                    "production_due_date": progress_row.get("production_due_date", pd.NaT),
+                    "production_match_source": match_source,
+                }
+            )
+
+    if not records:
+        return pd.DataFrame(columns=columns)
+
+    return (
+        pd.DataFrame(records)
+        .groupby("sales_code_key", dropna=False)
+        .agg(
+            production_basis_qty=("production_basis_qty", "sum"),
+            production_due_date=("production_due_date", min_datetime),
+            production_match_source=("production_match_source", join_unique),
+        )
+        .reset_index()[columns]
+    )
+
+
 def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.DataFrame) -> pd.DataFrame:
     if progress_df.empty:
-        progress_by_code = pd.DataFrame(columns=["production_code_key", "production_basis_qty", "production_due_date"])
-        progress_by_p = pd.DataFrame(columns=["p_code_key", "p_production_basis_qty", "p_production_due_date"])
+        progress_by_sales_code = pd.DataFrame(
+            columns=["sales_code_key", "production_basis_qty", "production_due_date", "production_match_source"]
+        )
     else:
         progress_work = progress_df.copy()
         due_source = pd.to_datetime(progress_work.get("total_due_date", pd.NaT), errors="coerce")
         inspection_step = next(step for step in PROCESS_STEPS if step["id"] == "80")
         inspection_due = pd.to_datetime(progress_work.get(str(inspection_step["due_col"]), pd.NaT), errors="coerce")
         progress_work["production_due_date"] = due_source.fillna(inspection_due)
-        progress_by_code = (
-            progress_work.groupby("product_code_key", dropna=False)
-            .agg(
-                production_basis_qty=("production_basis_qty", "sum"),
-                production_due_date=("production_due_date", min_datetime),
-            )
-            .reset_index()
-            .rename(columns={"product_code_key": "production_code_key"})
-        )
-        progress_by_p = (
-            progress_work[progress_work["product_base_p_key"].map(clean_str) != ""]
-            .groupby("product_base_p_key", dropna=False)
-            .agg(
-                p_production_basis_qty=("production_basis_qty", "sum"),
-                p_production_due_date=("production_due_date", min_datetime),
-            )
-            .reset_index()
-            .rename(columns={"product_base_p_key": "p_code_key"})
-        )
-    keep_cols = ["production_code_key", "production_basis_qty", "production_due_date"]
-    out = code_summary.merge(progress_by_code[keep_cols], on="production_code_key", how="left")
+        progress_by_sales_code = build_progress_by_sales_code(code_summary, progress_work)
+
+    out = code_summary.merge(progress_by_sales_code, on="sales_code_key", how="left")
     out["production_basis_qty"] = out["production_basis_qty"].fillna(0.0)
     out["production_due_date"] = pd.to_datetime(out["production_due_date"], errors="coerce")
-    production_key = out["production_code_key"].map(clean_str)
     request_pcs = pd.to_numeric(out.get("request_pcs", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    request_pcs_by_production = request_pcs.groupby(production_key, dropna=False).transform("sum")
-    row_count_by_production = production_key.groupby(production_key, dropna=False).transform("size").replace(0, 1)
-    production_weight = np.where(
-        request_pcs_by_production > 0,
-        request_pcs / request_pcs_by_production,
-        1.0 / row_count_by_production,
-    )
-    exact_code_match = (production_key != "") & (out["production_basis_qty"] > 0)
-    out["production_basis_qty"] = np.where(
-        exact_code_match,
-        out["production_basis_qty"] * production_weight,
-        out["production_basis_qty"],
-    )
-    if "p_code_key" not in out.columns:
-        out["p_code_key"] = ""
-    out = out.merge(progress_by_p, on="p_code_key", how="left")
-    out["p_production_basis_qty"] = pd.to_numeric(out["p_production_basis_qty"], errors="coerce").fillna(0.0)
-    out["p_production_due_date"] = pd.to_datetime(out["p_production_due_date"], errors="coerce")
-    p_key = out["p_code_key"].map(clean_str)
-    p_row_count = p_key.groupby(p_key, dropna=False).transform("size").replace(0, 1)
-    p_only_match = (
-        (out["production_basis_qty"] <= 0)
-        & (production_key == "")
-        & (p_key != "")
-        & (p_row_count == 1)
-    )
-    out["production_basis_qty"] = out["production_basis_qty"].where(
-        ~p_only_match,
-        out["p_production_basis_qty"],
-    )
-    out["production_due_date"] = out["production_due_date"].fillna(out["p_production_due_date"])
-    out = out.drop(columns=["p_production_basis_qty", "p_production_due_date"], errors="ignore")
+    if "production_match_source" not in out.columns:
+        out["production_match_source"] = ""
+    out["production_match_source"] = out["production_match_source"].map(clean_str)
 
     out["production_shortage_qty"] = out["production_basis_qty"].clip(lower=0.0)
     out["production_progress_pct"] = calc_production_progress_pct(request_pcs, out["production_shortage_qty"])
