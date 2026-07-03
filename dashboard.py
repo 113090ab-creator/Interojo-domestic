@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 26
+DATA_CACHE_VERSION = 27
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -1208,9 +1208,11 @@ def normalize_sample_available_frame(
     )
     if sample_available_col is not None and sample_available_col in raw.columns:
         cols["sample_available_qty"] = sample_available_col
+    elif "sample_available_qty" in cols:
+        pass
     elif len(raw.columns) > SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
         cols["sample_available_qty"] = raw.columns[SAMPLE_AVAILABLE_QTY_COLUMN_INDEX]
-    elif "sample_available_qty" not in cols:
+    else:
         raise DashboardConfigError(
             [f"[{file_label}] 샘플신청가능수량 J열을 찾지 못했습니다."]
         )
@@ -1249,13 +1251,21 @@ def read_sample_available_sheet(xl: pd.ExcelFile, sheet_name: str, file_label: s
         raise DashboardConfigError(
             [f"[{file_label}] 필수 컬럼 누락: product_code (후보: {', '.join(SAMPLE_AVAILABLE_COLS['product_code'])})"]
         )
-    if len(header_values) <= SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
-        raise DashboardConfigError([f"[{file_label}] 샘플신청가능수량 J열을 찾지 못했습니다."])
+    sample_col_idx = None
+    for alias in SAMPLE_AVAILABLE_COLS["sample_available_qty"]:
+        idx = normalized_headers.get(normalize_col(alias))
+        if idx is not None:
+            sample_col_idx = idx
+            break
+    if sample_col_idx is None:
+        if len(header_values) <= SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
+            raise DashboardConfigError([f"[{file_label}] 샘플신청가능수량 J열을 찾지 못했습니다."])
+        sample_col_idx = SAMPLE_AVAILABLE_QTY_COLUMN_INDEX
 
-    min_col_idx = min(product_col_idx, SAMPLE_AVAILABLE_QTY_COLUMN_INDEX)
-    max_col_idx = max(product_col_idx, SAMPLE_AVAILABLE_QTY_COLUMN_INDEX)
+    min_col_idx = min(product_col_idx, sample_col_idx)
+    max_col_idx = max(product_col_idx, sample_col_idx)
     product_offset = product_col_idx - min_col_idx
-    sample_offset = SAMPLE_AVAILABLE_QTY_COLUMN_INDEX - min_col_idx
+    sample_offset = sample_col_idx - min_col_idx
     sample_by_key: dict[str, float] = {}
     product_by_key: dict[str, str] = {}
     for row in worksheet.iter_rows(
