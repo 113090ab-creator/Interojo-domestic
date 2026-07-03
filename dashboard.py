@@ -10822,20 +10822,20 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str
     power_options = available_production_power_options(code_summary)
     group_options = available_product_group_options(code_summary)
 
-    pc1, pc2, pc3, pc4 = st.columns([1.9, 1.7, 1.2, 1.2], gap="small")
+    pc1, pc2, pc3, _ = st.columns([3.8, 1.2, 1.2, 1.8], gap="small")
     with pc1:
-        product_query = st.text_input(
-            "제품명 검색",
+        integrated_query = st.text_input(
+            "통합검색",
             value="",
-            placeholder="제품명/SKU 일부 입력",
-            key="tab_production_product_query",
+            placeholder="예: 소울브라운, S145, P0019, C관",
+            key="tab_production_integrated_query",
         )
     with pc2:
-        production_query = st.text_input(
-            "생산코드 검색",
-            value="",
-            placeholder="예: P3015",
-            key="tab_production_code_query",
+        selected_pack = st.selectbox(
+            "PACK 선택",
+            options=pack_options,
+            index=0,
+            key="tab_production_pack",
         )
     with pc3:
         selected_power = st.selectbox(
@@ -10843,13 +10843,6 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str
             options=power_options,
             index=0,
             key="tab_production_power",
-        )
-    with pc4:
-        selected_pack = st.selectbox(
-            "PACK 선택",
-            options=pack_options,
-            index=0,
-            key="tab_production_pack",
         )
 
     pc5, pc6, pc7 = st.columns([1.2, 1.5, 1.2], gap="small")
@@ -10872,13 +10865,29 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str
 
     production_source = filter_production_power_rows(
         code_summary,
-        product_query=product_query,
-        production_query=production_query,
+        product_query="",
+        production_query="",
         power_label=selected_power,
         pack_label=selected_pack,
         sample_scope=sample_scope,
         product_group=selected_group,
         factory_group=selected_factory,
+    )
+    production_source = filter_dataframe_by_terms(
+        production_source,
+        integrated_query,
+        columns=[
+            "factory_group",
+            "production_code_display",
+            "sales_code",
+            "product_name",
+            "base_product_name",
+            "product_name_code",
+            "POWER",
+            "_pack_label",
+            "제품분류",
+            "본품/샘플",
+        ],
     )
     production_view = build_production_power_main_view(
         production_source,
