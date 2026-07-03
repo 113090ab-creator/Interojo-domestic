@@ -125,17 +125,59 @@ FAMILY_CARD_1DAY_NAMES = {
 FAMILY_CARD_MISC_NAMES = {"PIA 1Day", "PIA Monthly"}
 STANDARD_PACK_BUCKETS = ["5P", "10P", "30P", "80P", "90P"]
 PRODUCT_QUERY_ALIASES = {
+    "아이리스": ["Iris"],
+    "클라렌": ["Clalen"],
+    "오투오투": ["O2O2"],
+    "원데이": ["1Day", "1-Day", "1D"],
+    "토릭": ["Toric"],
     "딥블랙": ["Deep Black"],
     "레이크그레이": ["Lake Gray"],
     "뮤트브라운": ["Mute Brown"],
     "페일초코": ["Pale Choco"],
-    "소울브라운": ["SoulBrown", "Soul Brown"],
+    "소울브라운": ["SoulBrown", "Soul Brown", "Iris SoulBrown", "Iris Soul Brown"],
     "수지그레이": ["Suzy Gray"],
     "수지브라운": ["Suzy Brown"],
     "알리샤브라운": ["Alicia Brown"],
     "페즈브라운": ["Fez Brown"],
     "블루문": ["Blue Moon", "Bluemoon"],
     "미셀리아": ["Micelia"],
+    "재즈블랙": ["JazzBlack", "Jazz Black"],
+    "랩소디": ["Rhapsody"],
+    "라틴": ["Latin"],
+    "헤일로브라운": ["Halo Brown"],
+    "헤일로그레이": ["Halo Gray"],
+    "모카블랙": ["Mocha Black"],
+    "퓨어초코": ["Pure Choco"],
+    "로지브라운": ["Rosy Brown"],
+    "샤이니브라운": ["Shiny Brown"],
+    "세피아초코": ["Sepia Choco"],
+    "애쉬브라운": ["Ash Brown"],
+    "애쉬그레이": ["Ash Gray"],
+    "블렌딩헤이즐": ["Blending Hazel"],
+    "내추럴초콜릿": ["Natural Chocolat", "Natural Chocolate"],
+    "클리어": ["Clear"],
+    "프리덤": ["Freedom"],
+    "스타플레어베이지": ["Starflare Beige"],
+    "스타플레어그레이": ["Starflare Gray"],
+    "데이글로우브라운": ["Dayglow Brown"],
+    "데이글로우그레이": ["Dayglow Gray"],
+    "아이코닉브라운": ["Iconic Brown"],
+    "아포가토": ["Affogato"],
+    "브륄레펄": ["Brulee Pearl"],
+    "브릴레펄": ["Brulee Pearl"],
+    "카푸치노": ["Cappuccino"],
+    "체스트넛": ["Chestnut"],
+    "커피젤리": ["Coffee Jelly"],
+    "에스프레소": ["Espresso"],
+    "우롱티": ["Oolong Tea"],
+    "사쿠라무스": ["Sakura Mousse"],
+    "쉬어블랙": ["Sheer Black"],
+    "쉬어브라운": ["Sheer Brown"],
+    "타르트타탱": ["Tarte Tatin"],
+    "티라미수링": ["Tiramisu Ring"],
+    "튤브라운": ["Tulle Brown"],
+    "클린핏": ["CleanFit", "Clean Fit"],
+    "리얼썸": ["Realsome", "Real Some"],
 }
 POWER_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*$")
 CODE_KEY_RE = re.compile(r"[^0-9A-Za-z가-힣]+")
@@ -4771,14 +4813,18 @@ def compact_query_text(value: Any) -> str:
     return re.sub(r"\s+", "", clean_str(value)).lower()
 
 
+def compact_search_text(value: Any) -> str:
+    return re.sub(r"[\W_]+", "", clean_str(value), flags=re.UNICODE).lower()
+
+
 def expand_product_query_terms(query: str) -> list[str]:
     text = clean_str(query)
     if not text:
         return []
     terms = [text]
-    compact = compact_query_text(text)
+    compact = compact_search_text(text)
     for alias, values in PRODUCT_QUERY_ALIASES.items():
-        alias_compact = compact_query_text(alias)
+        alias_compact = compact_search_text(alias)
         if alias_compact and (alias_compact in compact or compact in alias_compact):
             terms.extend(values)
     return list(dict.fromkeys([term for term in terms if clean_str(term)]))
@@ -4787,10 +4833,16 @@ def expand_product_query_terms(query: str) -> list[str]:
 def contains_any_query_term(series: pd.Series, terms: list[str]) -> pd.Series:
     if not terms:
         return pd.Series(False, index=series.index)
-    text = series.astype(str)
+    text = series.astype(str).str.lower()
+    compact_text = series.astype(str).map(compact_search_text)
     mask = pd.Series(False, index=series.index)
     for term in terms:
-        mask = mask | text.str.contains(term, case=False, na=False, regex=False)
+        raw_term = clean_str(term).lower()
+        compact_term = compact_search_text(term)
+        if raw_term:
+            mask = mask | text.str.contains(raw_term, na=False, regex=False)
+        if compact_term:
+            mask = mask | compact_text.str.contains(compact_term, na=False, regex=False)
     return mask
 
 
@@ -7197,6 +7249,71 @@ def filter_sales_order_view(
     if power_label != "전체" and "POWER" in out.columns:
         out = out[out["POWER"] == power_label]
     return out.copy()
+
+
+def split_search_terms(query: str) -> list[str]:
+    text = clean_str(query)
+    if not text:
+        return []
+    return [term for term in [clean_str(part) for part in text.split(",")] if term]
+
+
+def matching_product_alias_groups(term: str) -> list[list[str]]:
+    compact = compact_search_text(term)
+    if not compact:
+        return []
+
+    groups: list[list[str]] = []
+    for alias, values in PRODUCT_QUERY_ALIASES.items():
+        alias_compact = compact_search_text(alias)
+        if alias_compact and (alias_compact in compact or compact in alias_compact):
+            candidates = [alias, *values]
+            groups.append(list(dict.fromkeys([candidate for candidate in candidates if clean_str(candidate)])))
+    return groups
+
+
+def search_candidate_mask(raw_haystack: pd.Series, compact_haystack: pd.Series, candidate: str) -> pd.Series:
+    raw_term = clean_str(candidate).lower()
+    compact_term = compact_search_text(candidate)
+    mask = pd.Series(False, index=raw_haystack.index)
+    if raw_term:
+        mask = mask | raw_haystack.str.contains(raw_term, regex=False, na=False)
+    if compact_term:
+        mask = mask | compact_haystack.str.contains(compact_term, regex=False, na=False)
+    return mask
+
+
+def filter_dataframe_by_terms(
+    df: pd.DataFrame,
+    query: str,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
+    terms = split_search_terms(query)
+    if df.empty or not terms:
+        return df.copy()
+
+    searchable_columns = [col for col in (columns or list(df.columns)) if col in df.columns]
+    searchable_columns = [col for col in searchable_columns if not str(col).startswith("_")]
+    if not searchable_columns:
+        return df.copy()
+
+    source = df[searchable_columns].fillna("").astype(str)
+    raw_haystack = source.apply(lambda row: " ".join(row.values.tolist()).lower(), axis=1)
+    compact_haystack = raw_haystack.map(compact_search_text)
+    mask = pd.Series(False, index=df.index)
+    for term in terms:
+        term_mask = search_candidate_mask(raw_haystack, compact_haystack, term)
+        alias_groups = matching_product_alias_groups(term)
+        if alias_groups:
+            alias_mask = pd.Series(True, index=df.index)
+            for group in alias_groups:
+                group_mask = pd.Series(False, index=df.index)
+                for candidate in group:
+                    group_mask = group_mask | search_candidate_mask(raw_haystack, compact_haystack, candidate)
+                alias_mask = alias_mask & group_mask
+            term_mask = term_mask | alias_mask
+        mask = mask | term_mask
+    return df[mask].copy()
 
 
 def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
@@ -10869,45 +10986,49 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
     render_urgent_sales_packing_list(sales_base)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    sf1, sf2, sf3, sf4, sf5 = st.columns([1.9, 1.6, 1.6, 1.2, 1.2], gap="small")
+    sf1, sf2, sf3, _ = st.columns([3.8, 1.2, 1.2, 1.8], gap="small")
     with sf1:
-        product_query = st.text_input(
-            "제품명 검색",
+        integrated_query = st.text_input(
+            "통합검색",
             value="",
-            placeholder="제품명/SKU 일부 입력",
-            key="tab_sales_product_query",
+            placeholder="예: 소울브라운, S145, P0019, C관",
+            key="tab_sales_integrated_query",
         )
     with sf2:
-        sales_query = st.text_input(
-            "판매코드 검색",
-            value="",
-            placeholder="예: S309",
-            key="tab_sales_code_query",
-        )
-    with sf3:
-        production_query = st.text_input(
-            "생산코드 검색",
-            value="",
-            placeholder="예: P3015",
-            key="tab_sales_production_query",
-        )
-    with sf4:
         selected_pack = st.selectbox("PACK 선택", options=pack_options, index=0, key="tab_sales_pack")
-    with sf5:
+    with sf3:
         selected_power = st.selectbox("POWER 선택", options=power_options, index=0, key="tab_sales_power")
 
     sales_detail_view = filter_sales_order_view(
         sales_base,
-        product_query=product_query,
-        production_query=production_query,
-        sales_query=sales_query,
         pack_label=selected_pack,
         power_label=selected_power,
     )
-    sales_main_view = build_sales_code_group_main_view(
+    sales_main_unfiltered = build_sales_code_group_main_view(
         sales_detail_view,
         stock_threshold_pack=float(stock_threshold_pack),
     )
+    sales_search_columns = list(
+        dict.fromkeys(
+            sales_group_column_order(sales_main_unfiltered, sales_unit_mode)
+            + ["생산코드", "생산요청물량(PCS)", "용마입고수량(PCS)", "포장부족(PCS)"]
+        )
+    )
+    sales_main_view = filter_dataframe_by_terms(
+        sales_main_unfiltered,
+        integrated_query,
+        columns=sales_search_columns,
+    )
+    visible_sales_codes = set(sales_main_view.get("_sales_code_base", sales_main_view.get("판매코드", pd.Series(dtype=str))).map(clean_str))
+    if integrated_query.strip():
+        if visible_sales_codes:
+            sales_detail_export_view = sales_detail_view[
+                sales_detail_view["판매코드"].map(sales_code_base).isin(visible_sales_codes)
+            ].copy()
+        else:
+            sales_detail_export_view = sales_detail_view.iloc[0:0].copy()
+    else:
+        sales_detail_export_view = sales_detail_view
     dl_col, _ = st.columns([1.2, 4.8], gap="small")
     with dl_col:
         render_excel_download(
@@ -10916,7 +11037,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
             {
                 "긴급 포장 리스트": build_urgent_sales_packing_view(sales_base),
                 "판매코드 집계": sales_main_view,
-                "POWER 상세": sales_detail_view,
+                "POWER 상세": sales_detail_export_view,
             },
             key="download_sales_code_excel",
         )
@@ -10924,7 +11045,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_sales_row = render_selectable_table(
         "판매코드",
-        f"판매코드 S### 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_view):,}",
+        f"판매코드 S### 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_export_view):,}",
         sales_main_view,
         key=f"sales_code_main_table_{table_nonce}",
         height=620,
@@ -10949,9 +11070,6 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
     ).drop(columns=["_pack_sort"], errors="ignore")
     inventory_source = filter_operational_code_summary(
         factory_scoped_code_summary,
-        product_query=product_query,
-        production_query=production_query,
-        sales_query=sales_query,
         pack_label=selected_pack,
         power_label=selected_power,
     )
