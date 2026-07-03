@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 23
+DATA_CACHE_VERSION = 25
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -404,13 +404,185 @@ def extract_base_p_code_key(value: Any) -> str:
 
 
 def extract_code_measure_key(value: Any) -> str:
-    text = clean_str(value).upper()
-    if not text:
-        return ""
-    values = re.findall(r"[+-]?\d{1,2}\.\d{2}", text)
+    values = extract_code_measure_values(value)
     if not values:
         return ""
     return "|".join(values[:2])
+
+
+def extract_code_measure_values(value: Any) -> list[str]:
+    text = clean_str(value).upper()
+    if not text:
+        return []
+    return re.findall(r"[+-]?\d{1,2}\.\d{2}", text)
+
+
+def normalize_measure_code(value: Any) -> str:
+    return normalize_match_key(value)
+
+
+def extract_production_family_key(value: Any) -> str:
+    text = clean_str(value).upper()
+    if not text:
+        return ""
+    base_p_code = extract_base_p_code_key(text)
+    if not base_p_code:
+        return ""
+    without_measures = re.sub(r"[+-]?\d{1,2}\.\d{2}", "", text)
+    key = normalize_match_key(without_measures)
+    if re.fullmatch(r"P\d+[A-Z]?", key):
+        return ""
+    return key if key.startswith(base_p_code) else ""
+
+
+def extract_production_code_template_parts(value: Any) -> dict[str, Any] | None:
+    text = clean_str(value).upper()
+    if not text:
+        return None
+    start = re.match(r"^P(\d+)([A-Z]?)", text)
+    if not start:
+        return None
+    measures = list(re.finditer(r"[+-]?\d{1,2}\.\d{2}", text))
+    if len(measures) < 2:
+        return None
+    tail = normalize_match_key(text[measures[1].end() :])
+    if not tail:
+        return None
+    return {
+        "number": int(start.group(1)),
+        "width": len(start.group(1)),
+        "letter": start.group(2),
+        "tail": tail,
+    }
+
+
+def toric_cylinder_p_code_offset(value: Any) -> int | None:
+    try:
+        cylinder = abs(float(clean_str(value)))
+    except ValueError:
+        return None
+    if np.isclose(cylinder, 0.75):
+        return 0
+    if np.isclose(cylinder, 1.25):
+        return 1
+    if np.isclose(cylinder, 1.75):
+        return 2
+    return None
+
+
+def build_toric_progress_code_template_map(candidates: pd.DataFrame) -> dict[tuple[str, str], dict[str, Any]]:
+    templates: dict[tuple[str, str], dict[str, Any]] = {}
+    if candidates.empty:
+        return templates
+    for _, row in candidates.iterrows():
+        sales_prefix = extract_sales_prefix(row.get("sales_code", ""))
+        p_code_key = clean_str(row.get("p_code_key", ""))
+        if not sales_prefix or not p_code_key:
+            continue
+        parts = extract_production_code_template_parts(row.get("production_code", ""))
+        if not parts:
+            continue
+        templates.setdefault((sales_prefix, p_code_key), parts)
+    return templates
+
+
+def derive_toric_progress_code_key(row: pd.Series, templates: dict[tuple[str, str], dict[str, Any]]) -> str:
+    sales_prefix = extract_sales_prefix(row.get("sales_code", ""))
+    p_code_key = clean_str(row.get("p_code_key", ""))
+    if not sales_prefix or not p_code_key:
+        return ""
+    template = templates.get((sales_prefix, p_code_key))
+    if not template:
+        return ""
+    measures = extract_code_measure_values(row.get("sales_code", ""))
+    if len(measures) < 2:
+        return ""
+    offset = toric_cylinder_p_code_offset(measures[1])
+    if offset is None:
+        return ""
+    base_match = re.match(r"^P(\d+)$", p_code_key)
+    if not base_match:
+        return ""
+    base_number = int(base_match.group(1))
+    variant_number = base_number + offset
+    return (
+        f"P{variant_number:0{int(template['width'])}d}"
+        f"{template['letter']}"
+        f"{normalize_measure_code(measures[0])}"
+        f"{normalize_measure_code(measures[1])}"
+        f"{template['tail']}"
+    )
+
+
+def code_summary_production_family_keys(code_summary: pd.DataFrame) -> pd.Series:
+    if code_summary.empty:
+        return pd.Series(dtype=str)
+
+    def column_values(col: str) -> pd.Series:
+        if col in code_summary.columns:
+            return code_summary[col]
+        return pd.Series("", index=code_summary.index)
+
+    return pd.Series(
+        [
+            first_nonempty(
+                [
+                    extract_production_family_key(production_code),
+                    extract_production_family_key(p_code),
+                ]
+            )
+            for production_code, p_code in zip(column_values("production_code"), column_values("p_code"))
+        ],
+        index=code_summary.index,
+    )
+
+
+def align_base_product_names_by_production_family(code_summary: pd.DataFrame) -> pd.DataFrame:
+    out = code_summary.copy()
+    if out.empty:
+        return out
+    if "base_product_name" not in out.columns:
+        out["base_product_name"] = out.get("product_name", pd.Series("", index=out.index)).map(strip_pack_unit_suffix)
+
+    family_key = code_summary_production_family_keys(out).map(clean_str)
+    if family_key.empty or (family_key == "").all():
+        return out
+
+    rep_source = out.loc[family_key != "", ["base_product_name"]].copy()
+    rep_source["_production_family_key"] = family_key.loc[family_key != ""]
+    for col in ["request_pcs", "request_pack", "packing_pack", "yongma_in_pack"]:
+        if col in out.columns:
+            rep_source[col] = pd.to_numeric(out.loc[rep_source.index, col], errors="coerce").fillna(0.0)
+        else:
+            rep_source[col] = 0.0
+    rep_source["base_product_name"] = rep_source["base_product_name"].map(clean_str)
+    rep_source = rep_source[rep_source["base_product_name"] != ""].copy()
+    if rep_source.empty:
+        return out
+
+    rep_source["_display_weight"] = rep_source["request_pcs"]
+    fallback_request = rep_source["request_pack"]
+    fallback_supply = rep_source["packing_pack"] + rep_source["yongma_in_pack"]
+    rep_source["_display_weight"] = rep_source["_display_weight"].where(
+        rep_source["_display_weight"] > 0,
+        fallback_request,
+    )
+    rep_source["_display_weight"] = rep_source["_display_weight"].where(
+        rep_source["_display_weight"] > 0,
+        fallback_supply,
+    )
+    representatives = (
+        rep_source.sort_values(
+            ["_production_family_key", "_display_weight", "base_product_name"],
+            ascending=[True, False, True],
+        )
+        .drop_duplicates("_production_family_key", keep="first")
+        .set_index("_production_family_key")["base_product_name"]
+    )
+    representative_names = family_key.map(representatives).fillna("")
+    replace_mask = representative_names.map(clean_str) != ""
+    out.loc[replace_mask, "base_product_name"] = representative_names.loc[replace_mask]
+    return out
 
 
 def build_first_value_map(df: pd.DataFrame, key_col: str, value_col: str) -> dict[str, str]:
@@ -2098,6 +2270,8 @@ def build_summaries(
             )
         matched_code_summary = pd.concat([matched_code_summary, pd.DataFrame(unmatched_rows)], ignore_index=True)
 
+    matched_code_summary = align_base_product_names_by_production_family(matched_code_summary)
+
     product_summary = (
         matched_code_summary.groupby("base_product_name", dropna=False)[
             ["request_pack", "request_pcs", "packing_pack", "yongma_in_pack"]
@@ -2304,9 +2478,21 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
     if candidates.empty:
         return pd.DataFrame(columns=columns)
 
+    toric_templates = build_toric_progress_code_template_map(candidates)
+    candidates["_derived_progress_code_key"] = [
+        derive_toric_progress_code_key(row, toric_templates) for _, row in candidates.iterrows()
+    ]
+
     by_production_code = {
         key: group.copy()
         for key, group in candidates[candidates["production_code_key"] != ""].groupby("production_code_key", dropna=False)
+    }
+    by_derived_progress_code = {
+        key: group.copy()
+        for key, group in candidates[candidates["_derived_progress_code_key"] != ""].groupby(
+            "_derived_progress_code_key",
+            dropna=False,
+        )
     }
     by_sales_code = {
         key: group.copy()
@@ -2316,43 +2502,30 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
         key: group.copy()
         for key, group in candidates[candidates["p_code_key"] != ""].groupby("p_code_key", dropna=False)
     }
-    by_product_name = {
-        key: group.copy()
-        for key, group in candidates[candidates["product_name_key"] != ""].groupby("product_name_key", dropna=False)
-    }
 
     records: list[dict[str, Any]] = []
     for _, progress_row in progress_work.iterrows():
         product_code_key = clean_str(progress_row.get("product_code_key", ""))
         product_base_p_key = clean_str(progress_row.get("product_base_p_key", ""))
-        demand_product_name_key = clean_str(progress_row.get("demand_product_name_key", ""))
 
         matched = by_sales_code.get(product_code_key, pd.DataFrame())
         match_source = "품목코드"
         if matched.empty:
             matched = by_production_code.get(product_code_key, pd.DataFrame())
             match_source = "생산코드"
+        if matched.empty:
+            matched = by_derived_progress_code.get(product_code_key, pd.DataFrame())
+            match_source = "P/S코드규칙"
         if matched.empty and product_code_key in by_p_code:
             matched = by_p_code[product_code_key]
             match_source = "P코드"
         if matched.empty and product_base_p_key in by_p_code:
             matched = by_p_code[product_base_p_key]
             match_source = "P대표코드"
-        if matched.empty and demand_product_name_key in by_product_name:
-            matched = by_product_name[demand_product_name_key]
-            match_source = "제품명"
         if matched.empty:
             continue
 
-        candidate_count_before_refine = len(matched)
         matched = refine_progress_candidates_by_name(matched, progress_row)
-        progress_measure_key = extract_code_measure_key(progress_row.get("product_code", ""))
-        if (
-            progress_measure_key
-            and candidate_count_before_refine > len(matched)
-            and match_source == "제품명"
-        ):
-            match_source = "규격코드"
         qty = to_number_value(progress_row.get("production_basis_qty", 0.0))
         if qty <= 0:
             continue
