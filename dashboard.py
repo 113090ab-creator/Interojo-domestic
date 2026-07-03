@@ -5,7 +5,7 @@ from html import escape
 from io import BytesIO
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 17
+DATA_CACHE_VERSION = 18
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -763,6 +763,7 @@ def normalize_request(
     path: Path,
     product_master_path: Path | None = None,
     preferred_sheet: str | None = None,
+    product_master_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     raw = read_request_workbook_sheet(path, preferred_sheet)
     cols = resolve_columns(
@@ -819,7 +820,8 @@ def normalize_request(
         out = out[~overseas_mask].copy()
 
     out = filter_request_for_due_month(out)
-    out = enrich_request_from_product_master(out, normalize_product_code_master(product_master_path))
+    master_df = product_master_df if product_master_df is not None else normalize_product_code_master(product_master_path)
+    out = enrich_request_from_product_master(out, master_df)
     out["base_product_name"] = out["product_name"].map(strip_pack_unit_suffix)
     out["factory_group"] = out["category_summary"].map(factory_group_from_category)
 
@@ -828,7 +830,11 @@ def normalize_request(
     return out
 
 
-def normalize_instruction_request(path: Path, product_master_path: Path | None = None) -> pd.DataFrame:
+def normalize_instruction_request(
+    path: Path,
+    product_master_path: Path | None = None,
+    product_master_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     try:
         xl = pd.ExcelFile(path)
     except Exception:
@@ -836,7 +842,7 @@ def normalize_instruction_request(path: Path, product_master_path: Path | None =
     sheet_name = select_instruction_request_sheet(xl.sheet_names)
     if not sheet_name:
         return pd.DataFrame()
-    return normalize_request(path, product_master_path, preferred_sheet=sheet_name)
+    return normalize_request(path, product_master_path, preferred_sheet=sheet_name, product_master_df=product_master_df)
 
 
 def filter_request_for_due_month(
@@ -1511,6 +1517,14 @@ def fill_daily_product_code_from_wms(out: pd.DataFrame, inventory_df: pd.DataFra
         .agg(_wms_product_name=("_wms_product_name", first_nonempty))
         .reset_index()
     )
+    catalog_groups: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+    for code, pack, power, product_name in catalog[["제품코드", "PACK", "POWER", "_wms_product_name"]].itertuples(index=False, name=None):
+        code_text = clean_str(code)
+        pack_text = clean_str(pack)
+        power_text = clean_str(power)
+        product_text = clean_str(product_name)
+        catalog_groups.setdefault((pack_text, power_text), []).append((code_text, product_text, product_text.lower()))
+
     filled = out.copy()
     needs_code = filled["제품코드"].map(clean_str) == ""
     for idx, row in filled[needs_code].iterrows():
@@ -1519,15 +1533,20 @@ def fill_daily_product_code_from_wms(out: pd.DataFrame, inventory_df: pd.DataFra
         terms = expand_product_query_terms(row.get("제품명", ""))
         if not pack or not power or not terms:
             continue
-        candidates = catalog[(catalog["PACK"] == pack) & (catalog["POWER"] == power)].copy()
-        if candidates.empty:
+        candidates = catalog_groups.get((pack, power), [])
+        if not candidates:
             continue
-        candidates = candidates[contains_any_query_term(candidates["_wms_product_name"], terms)]
-        product_codes = [code for code in candidates["제품코드"].dropna().astype(str).unique().tolist() if clean_str(code)]
+        lowered_terms = [term.lower() for term in terms if clean_str(term)]
+        matched = [
+            (code, product_name)
+            for code, product_name, product_name_lower in candidates
+            if any(term in product_name_lower for term in lowered_terms)
+        ]
+        product_codes = list(dict.fromkeys([code for code, _product_name in matched if clean_str(code)]))
         if len(product_codes) != 1:
             continue
         filled.at[idx, "제품코드"] = product_codes[0]
-        product_name = first_nonempty(candidates["_wms_product_name"])
+        product_name = first_nonempty([name for _code, name in matched])
         if product_name and clean_str(filled.at[idx, "제품명"]) == "":
             filled.at[idx, "제품명"] = product_name
     return filled
@@ -3494,13 +3513,15 @@ def render_status_board(
     daily_inventory_df: pd.DataFrame | None,
     sample_available_df: pd.DataFrame | None,
     stock_threshold_pack: float,
+    exception_kpis: dict[str, float] | None = None,
 ) -> None:
     kpi = calc_operation_kpis(product_summary, code_summary, stock_threshold_pack)
-    exception_kpis, _exception_detail = build_daily_exception_report_view(
-        daily_inventory_df,
-        code_summary,
-        sample_available_df,
-    )
+    if exception_kpis is None:
+        exception_kpis, _exception_detail = build_daily_exception_report_view(
+            daily_inventory_df,
+            code_summary,
+            sample_available_df,
+        )
     request_pack = float(kpi.get("request_pack", 0.0))
     yongma_in_pack = float(kpi.get("yongma_in_pack", 0.0))
     missing_pack = float(kpi.get("packing_shortage_pack", 0.0))
@@ -3674,11 +3695,16 @@ def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
         work["base_product_name"] = work["product_name"].map(strip_pack_unit_suffix)
     if "pack_unit" not in work.columns:
         work["pack_unit"] = work["product_name"].map(extract_pack_unit)
-    work["_pack_label"] = work["pack_unit"].map(base_pack_label)
-    work["_pack_sort"] = work["_pack_label"].map(pack_sort_rank)
-    work["제품분류"] = work["base_product_name"].map(classify_product_group)
-    work["본품분류"] = work["base_product_name"].map(classify_main_product_family)
-    work["본품/샘플"] = np.where(work["base_product_name"].astype(str).map(is_sample_name), "샘플", "본품")
+    if "_pack_label" not in work.columns:
+        work["_pack_label"] = work["pack_unit"].map(base_pack_label)
+    if "_pack_sort" not in work.columns:
+        work["_pack_sort"] = work["_pack_label"].map(pack_sort_rank)
+    if "제품분류" not in work.columns:
+        work["제품분류"] = work["base_product_name"].map(classify_product_group)
+    if "본품분류" not in work.columns:
+        work["본품분류"] = work["base_product_name"].map(classify_main_product_family)
+    if "본품/샘플" not in work.columns:
+        work["본품/샘플"] = np.where(work["base_product_name"].astype(str).map(is_sample_name), "샘플", "본품")
     if "factory_group" not in work.columns:
         category_source = work.get("category_summary", pd.Series("", index=work.index))
         work["factory_group"] = category_source.map(factory_group_from_category)
@@ -3687,14 +3713,19 @@ def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
     if "customer_name" not in work.columns:
         work["customer_name"] = "(미기재)"
     work["customer_name"] = work["customer_name"].replace("", "(미기재)").fillna("(미기재)")
-    sales_power = work["sales_code"].map(parse_power_from_sales_code)
-    production_power = work["production_code"].map(parse_power_from_sales_code)
-    product_power = work["product_name"].map(parse_power_from_sales_code)
-    work["power_value"] = sales_power.fillna(production_power).fillna(product_power)
-    work["POWER"] = work["power_value"].map(format_power)
-    work["production_code_display"] = work["production_code"].replace("", "(생산코드 미기재)")
-    work["_pack_bucket"] = work.apply(row_pack_bucket, axis=1)
-    work["_pack_bucket_sort"] = work["_pack_bucket"].map(pack_sort_rank)
+    if "power_value" not in work.columns:
+        sales_power = work["sales_code"].map(parse_power_from_sales_code)
+        production_power = work["production_code"].map(parse_power_from_sales_code)
+        product_power = work["product_name"].map(parse_power_from_sales_code)
+        work["power_value"] = sales_power.fillna(production_power).fillna(product_power)
+    if "POWER" not in work.columns:
+        work["POWER"] = work["power_value"].map(format_power)
+    if "production_code_display" not in work.columns:
+        work["production_code_display"] = work["production_code"].replace("", "(생산코드 미기재)")
+    if "_pack_bucket" not in work.columns:
+        work["_pack_bucket"] = work.apply(row_pack_bucket, axis=1)
+    if "_pack_bucket_sort" not in work.columns:
+        work["_pack_bucket_sort"] = work["_pack_bucket"].map(pack_sort_rank)
     return work
 
 
@@ -5008,6 +5039,7 @@ def build_daily_lot_wait_lookup(lot_status_df: pd.DataFrame | None) -> dict[str,
     return {clean_str(key): float(value) for key, value in grouped.items() if clean_str(key)}
 
 
+@st.cache_data(show_spinner=False, max_entries=16)
 def build_daily_inventory_response_view(
     daily_inventory_df: pd.DataFrame,
     code_summary: pd.DataFrame,
@@ -5662,6 +5694,16 @@ def build_lot_receipt_status_view(
     )[columns].copy()
 
 
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_lot_receipt_status_view_cached(
+    packing_df: pd.DataFrame,
+    yongma_df: pd.DataFrame,
+    code_summary: pd.DataFrame,
+    cache_version: int,
+) -> pd.DataFrame:
+    return build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
+
+
 def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_factory: str = "전체") -> None:
     render_panel_title(
         "세부 포장 진도 현황",
@@ -6300,9 +6342,11 @@ def sales_status_label(row: pd.Series) -> str:
     return "부족"
 
 
+@st.cache_data(show_spinner=False, max_entries=24)
 def build_sales_order_main_view(
     code_summary: pd.DataFrame,
     stock_threshold_pack: float = INVENTORY_STOCK_THRESHOLD_DEFAULT,
+    today_key: str | None = None,
 ) -> pd.DataFrame:
     if code_summary.empty:
         return pd.DataFrame(
@@ -7068,6 +7112,58 @@ def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
     return output.getvalue()
 
 
+def dataframe_light_signature(df: pd.DataFrame) -> tuple[Any, ...]:
+    if df is None or df.empty:
+        return ("empty",)
+
+    columns = tuple(str(col) for col in df.columns)
+    sample = pd.concat([df.head(5), df.tail(5)], ignore_index=False)
+    sample_hash = tuple(int(value) for value in pd.util.hash_pandas_object(sample.astype(str), index=True).to_numpy())
+    numeric_sums: list[tuple[str, float]] = []
+    for col in df.columns[:20]:
+        series = pd.to_numeric(df[col], errors="coerce")
+        if series.notna().any():
+            numeric_sums.append((str(col), round(float(series.fillna(0.0).sum()), 6)))
+    return (tuple(df.shape), columns, tuple(numeric_sums), sample_hash)
+
+
+def sheet_collection_signature(sheets: dict[str, pd.DataFrame]) -> tuple[Any, ...]:
+    return tuple((clean_str(name), dataframe_light_signature(df)) for name, df in sheets.items())
+
+
+def render_lazy_binary_download(
+    label: str,
+    prepare_label: str,
+    file_name: str,
+    mime: str,
+    build_bytes: Callable[[], bytes],
+    signature: tuple[Any, ...],
+    key: str,
+    width: str = "stretch",
+) -> None:
+    bytes_key = f"{key}_bytes"
+    signature_key = f"{key}_signature"
+    if st.session_state.get(signature_key) != signature:
+        st.session_state.pop(bytes_key, None)
+        st.session_state[signature_key] = signature
+
+    if st.button(prepare_label, key=f"{key}_prepare", width=width):
+        with st.spinner(f"{label} 생성 중..."):
+            st.session_state[bytes_key] = build_bytes()
+            st.session_state[signature_key] = signature
+
+    if bytes_key in st.session_state:
+        st.download_button(
+            label,
+            data=st.session_state[bytes_key],
+            file_name=file_name,
+            mime=mime,
+            width=width,
+            key=f"{key}_download",
+            on_click="ignore",
+        )
+
+
 def render_excel_download(
     label: str,
     file_prefix: str,
@@ -7076,13 +7172,15 @@ def render_excel_download(
     width: str = "stretch",
 ) -> None:
     timestamp = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y%m%d_%H%M")
-    st.download_button(
+    render_lazy_binary_download(
         label,
-        data=build_excel_download_bytes(sheets),
-        file_name=f"{file_prefix}_{timestamp}.xlsx",
+        f"{label} 준비",
+        f"{file_prefix}_{timestamp}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        width=width,
+        build_bytes=lambda: build_excel_download_bytes(sheets),
+        signature=sheet_collection_signature(sheets),
         key=key,
+        width=width,
     )
 
 
@@ -7111,13 +7209,18 @@ def build_daily_exception_report_view(
     code_summary: pd.DataFrame,
     sample_available_df: pd.DataFrame | None = None,
     max_rows: int = 5,
+    response_view: pd.DataFrame | None = None,
 ) -> tuple[dict[str, float], pd.DataFrame]:
     columns = ["품목코드", "제품명", "현재 재고수량", "부족수량", "포장가능재고(PCS)", "대응가능 여부"]
     empty_kpis = {"request_out_count": 0.0, "negative_count": 0.0, "waiting_pcs": 0.0}
-    if daily_inventory_df is None or daily_inventory_df.empty:
+    if response_view is None and (daily_inventory_df is None or daily_inventory_df.empty):
         return empty_kpis, pd.DataFrame(columns=columns)
 
-    view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    view = (
+        response_view
+        if response_view is not None
+        else build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    )
     if view.empty or "대응상태" not in view.columns:
         return empty_kpis, pd.DataFrame(columns=columns)
 
@@ -7158,12 +7261,17 @@ def build_urgent_request_summary_view(
     daily_inventory_df: pd.DataFrame | None,
     code_summary: pd.DataFrame,
     sample_available_df: pd.DataFrame | None = None,
+    response_view: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     columns = ["S코드", "요청구분", "제품명", "SKU 수"]
-    if daily_inventory_df is None or daily_inventory_df.empty:
+    if response_view is None and (daily_inventory_df is None or daily_inventory_df.empty):
         return pd.DataFrame(columns=columns)
 
-    view = build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    view = (
+        response_view
+        if response_view is not None
+        else build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+    )
     if view.empty or "긴급요청" not in view.columns:
         return pd.DataFrame(columns=columns)
 
@@ -9762,16 +9870,23 @@ def render_product_summary_tab(
     category_request_view = build_category_request_summary_view(request_level_source, instruction_df)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
     gap_top_view = build_gap_top_view(product_summary, top_n=10)
+    daily_response_view = (
+        build_daily_inventory_response_view(daily_inventory_df, code_summary, sample_available_df)
+        if daily_inventory_df is not None and not daily_inventory_df.empty
+        else None
+    )
     exception_kpis, exception_detail = build_daily_exception_report_view(
         daily_inventory_df,
         code_summary,
         sample_available_df,
         max_rows=10,
+        response_view=daily_response_view,
     )
     urgent_summary_view = build_urgent_request_summary_view(
         daily_inventory_df,
         code_summary,
         sample_available_df,
+        response_view=daily_response_view,
     )
 
     title_col, download_col = st.columns([4.8, 1.2], gap="small", vertical_alignment="center")
@@ -9781,21 +9896,27 @@ def render_product_summary_tab(
             "생산지시물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.",
         )
     with download_col:
-        ppt_bytes = build_ppt_report(
-            product_view=product_summary,
-            code_summary=code_summary,
-            product_names=product_summary["제품명"],
-            scope_label="전체",
-            daily_inventory_df=daily_inventory_df,
-            sample_available_df=sample_available_df,
-        )
-        st.download_button(
+        render_lazy_binary_download(
             "PPT 보고서 다운로드",
-            data=ppt_bytes,
-            file_name=f"국내_제품_포장현황_운영보고서_{pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y%m%d_%H%M')}.pptx",
+            "PPT 보고서 준비",
+            f"국내_제품_포장현황_운영보고서_{pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y%m%d_%H%M')}.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            width="stretch",
+            build_bytes=lambda: build_ppt_report(
+                product_view=product_summary,
+                code_summary=code_summary,
+                product_names=product_summary["제품명"],
+                scope_label="전체",
+                daily_inventory_df=daily_inventory_df,
+                sample_available_df=sample_available_df,
+            ),
+            signature=(
+                dataframe_light_signature(product_summary),
+                dataframe_light_signature(code_summary),
+                dataframe_light_signature(daily_inventory_df) if daily_inventory_df is not None else ("none",),
+                dataframe_light_signature(sample_available_df) if sample_available_df is not None else ("none",),
+            ),
             key="download_ppt_report",
+            width="stretch",
         )
         render_excel_download(
             "엑셀 다운로드",
@@ -9818,6 +9939,7 @@ def render_product_summary_tab(
         daily_inventory_df,
         sample_available_df,
         stock_threshold_pack,
+        exception_kpis=exception_kpis,
     )
     render_kpi_scope_panels(code_summary)
 
@@ -10021,6 +10143,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
     sales_base = build_sales_order_main_view(
         factory_scoped_code_summary,
         stock_threshold_pack=float(stock_threshold_pack),
+        today_key=pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d"),
     )
     render_urgent_sales_packing_list(sales_base)
 
@@ -10356,7 +10479,7 @@ def file_fingerprint(path: Path | None) -> tuple[str, int, int] | None:
     return (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
 
 
-@st.cache_data(show_spinner="데이터 파일을 읽는 중입니다. 잠시만 기다려 주세요.")
+@st.cache_data(show_spinner="데이터 파일을 읽는 중입니다. 잠시만 기다려 주세요.", max_entries=8, persist="disk")
 def load_dashboard_data(
     request_fingerprint: tuple[str, int, int],
     packing_fingerprint: tuple[str, int, int],
@@ -10365,7 +10488,7 @@ def load_dashboard_data(
     daily_inventory_fingerprint: tuple[str, int, int] | None,
     product_master_fingerprint: tuple[str, int, int] | None,
     cache_version: int,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
@@ -10373,14 +10496,14 @@ def load_dashboard_data(
     daily_inventory_file = Path(daily_inventory_fingerprint[0]) if daily_inventory_fingerprint is not None else None
     product_master_file = Path(product_master_fingerprint[0]) if product_master_fingerprint is not None else None
 
-    request_df = normalize_request(request_file, product_master_file)
-    instruction_df = normalize_instruction_request(request_file, product_master_file)
+    product_master_df = normalize_product_code_master(product_master_file)
+    request_df = normalize_request(request_file, product_master_file, product_master_df=product_master_df)
+    instruction_df = normalize_instruction_request(request_file, product_master_file, product_master_df=product_master_df)
     progress_basis_df = instruction_df if not instruction_df.empty else request_df
     packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
     inventory_df = normalize_inventory(inventory_file)
     daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
     daily_inventory_df = enrich_daily_inventory_from_wms(daily_inventory_df, inventory_df)
-    product_master_df = normalize_product_code_master(product_master_file)
     product_summary, _unmatched_packing_total, code_summary = build_summaries(
         progress_basis_df,
         packing_df,
@@ -10393,9 +10516,9 @@ def load_dashboard_data(
     code_summary = attach_progress_to_code_summary(code_summary, production_progress_df)
     product_summary = enrich_product_summary_from_code_summary(product_summary, code_summary)
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
+    code_summary = with_operational_columns(code_summary)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
-    lot_status_df = build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
-    return product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df, request_df
+    return product_summary, code_summary, packing_df, yongma_df, daily_inventory_df, sample_available_df, instruction_df, request_df
 
 
 def render_dashboard_nav() -> str:
@@ -10450,7 +10573,7 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        product_summary, code_summary, lot_status_df, daily_inventory_df, sample_available_df, instruction_df, request_df = load_dashboard_data(
+        product_summary, code_summary, packing_df, yongma_df, daily_inventory_df, sample_available_df, instruction_df, request_df = load_dashboard_data(
             file_fingerprint(files.request_file),
             file_fingerprint(files.packing_file),
             file_fingerprint(files.progress_file),
@@ -10458,6 +10581,11 @@ def main() -> None:
             file_fingerprint(files.daily_inventory_file),
             file_fingerprint(files.product_master_file),
             DATA_CACHE_VERSION,
+        )
+        lot_status_df = (
+            build_lot_receipt_status_view_cached(packing_df, yongma_df, code_summary, DATA_CACHE_VERSION)
+            if active_tab == "포장 LOT 상세"
+            else pd.DataFrame()
         )
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
