@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 18
+DATA_CACHE_VERSION = 19
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -1820,6 +1820,63 @@ def calc_production_progress_pct(request_qty: Any, production_shortage_qty: Any)
     return np.where(request > 0, produced / request * 100.0, 0.0)
 
 
+def pcs_per_pack_series(work: pd.DataFrame) -> pd.Series:
+    pack_unit = pd.to_numeric(work.get("pack_unit", pd.Series(np.nan, index=work.index)), errors="coerce")
+    request_pack = pd.to_numeric(work.get("request_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    implied_unit = pd.Series(np.where(request_pack > 0, request_pcs / request_pack, np.nan), index=work.index)
+    unit = pack_unit.where(pack_unit > 0, implied_unit)
+    unit = pd.Series(unit, index=work.index).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    return unit.where(unit > 0, 1.0)
+
+
+def cap_production_shortage_by_packing_progress(work: pd.DataFrame) -> pd.DataFrame:
+    out = work.copy()
+    if out.empty:
+        return out
+
+    request_pcs = pd.to_numeric(out.get("request_pcs", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    raw_shortage = pd.to_numeric(
+        out.get("production_shortage_qty", out.get("production_basis_qty", pd.Series(0.0, index=out.index))),
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    packing_pack = pd.to_numeric(out.get("packing_pack", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    yongma_pack = pd.to_numeric(out.get("yongma_in_pack", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    completed_pack = pd.concat([packing_pack, yongma_pack], axis=1).max(axis=1).clip(lower=0.0)
+    completed_pcs_floor = (completed_pack * pcs_per_pack_series(out)).clip(lower=0.0)
+    remaining_after_supply = (request_pcs - completed_pcs_floor).clip(lower=0.0)
+    out["production_shortage_qty"] = pd.concat([raw_shortage, remaining_after_supply], axis=1).min(axis=1)
+    out["production_progress_pct"] = calc_production_progress_pct(request_pcs, out["production_shortage_qty"])
+    return out
+
+
+def cap_grouped_shortage_by_packing_totals(
+    grouped: pd.DataFrame,
+    request_pack_col: str,
+    request_pcs_col: str,
+    packing_pack_col: str,
+    shortage_col: str,
+    yongma_pack_col: str | None = None,
+) -> pd.DataFrame:
+    out = grouped.copy()
+    if out.empty:
+        return out
+
+    request_pack = pd.to_numeric(out.get(request_pack_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    request_pcs = pd.to_numeric(out.get(request_pcs_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    packing_pack = pd.to_numeric(out.get(packing_pack_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    completed_pack = packing_pack
+    if yongma_pack_col and yongma_pack_col in out.columns:
+        yongma_pack = pd.to_numeric(out[yongma_pack_col], errors="coerce").fillna(0.0)
+        completed_pack = pd.concat([packing_pack, yongma_pack], axis=1).max(axis=1)
+    implied_unit = pd.Series(np.where(request_pack > 0, request_pcs / request_pack, np.nan), index=out.index)
+    implied_unit = implied_unit.replace([np.inf, -np.inf], np.nan).fillna(1.0).where(lambda s: s > 0, 1.0)
+    remaining_after_supply = (request_pcs - completed_pack.clip(lower=0.0) * implied_unit).clip(lower=0.0)
+    current_shortage = pd.to_numeric(out.get(shortage_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    out[shortage_col] = pd.concat([current_shortage.clip(lower=0.0), remaining_after_supply], axis=1).min(axis=1)
+    return out
+
+
 def build_summaries(
     request_df: pd.DataFrame,
     packing_df: pd.DataFrame,
@@ -2174,15 +2231,22 @@ def enrich_product_summary_from_code_summary(product_summary: pd.DataFrame, code
     work = code_summary.copy()
     if "production_basis_qty" not in work.columns:
         work["production_basis_qty"] = 0.0
+    if "production_shortage_qty" not in work.columns:
+        work["production_shortage_qty"] = work["production_basis_qty"]
     work["production_basis_qty"] = pd.to_numeric(work["production_basis_qty"], errors="coerce").fillna(0.0)
+    work["production_shortage_qty"] = pd.to_numeric(work["production_shortage_qty"], errors="coerce").fillna(0.0)
     progress_by_product = (
         work.groupby("base_product_name", dropna=False)
-        .agg(production_basis_qty=("production_basis_qty", "sum"))
+        .agg(
+            production_basis_qty=("production_basis_qty", "sum"),
+            production_shortage_qty=("production_shortage_qty", "sum"),
+        )
         .reset_index()
         .rename(
             columns={
                 "base_product_name": "제품명",
                 "production_basis_qty": "누수규격검사 생산수량",
+                "production_shortage_qty": "생산부족수량",
             }
         )
     )
@@ -2191,7 +2255,15 @@ def enrich_product_summary_from_code_summary(product_summary: pd.DataFrame, code
         out["누수규격검사 생산수량"],
         errors="coerce",
     ).fillna(0.0)
-    out["생산부족수량"] = out["누수규격검사 생산수량"].clip(lower=0.0)
+    out["생산부족수량"] = pd.to_numeric(out["생산부족수량"], errors="coerce").fillna(0.0).clip(lower=0.0)
+    out = cap_grouped_shortage_by_packing_totals(
+        out,
+        request_pack_col="요청 PACK",
+        request_pcs_col="요청 PCS",
+        packing_pack_col="포장 PACK",
+        shortage_col="생산부족수량",
+        yongma_pack_col="용마입고 PACK",
+    )
     out["생산진도율"] = calc_production_progress_pct(out["요청 PCS"], out["생산부족수량"])
     return out
 
@@ -2265,10 +2337,7 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
     out = out.drop(columns=["p_production_basis_qty", "p_production_due_date"], errors="ignore")
 
     out["production_shortage_qty"] = out["production_basis_qty"].clip(lower=0.0)
-    out["production_progress_pct"] = calc_production_progress_pct(
-        out["request_pcs"],
-        out["production_shortage_qty"],
-    )
+    out = cap_production_shortage_by_packing_progress(out)
     return out
 
 
@@ -2294,6 +2363,8 @@ def attach_sample_available_to_code_summary(code_summary: pd.DataFrame, sample_a
 def build_production_code_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     work = code_summary.copy()
     work["production_code"] = work["production_code"].replace("", "(생산코드 미기재)")
+    if "production_shortage_qty" not in work.columns:
+        work["production_shortage_qty"] = work.get("production_basis_qty", 0.0)
     grouped = (
         work.groupby("production_code", dropna=False)
         .agg(
@@ -2303,12 +2374,12 @@ def build_production_code_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_pack", "sum"),
             production_basis_qty=("production_basis_qty", "max"),
+            production_shortage_qty=("production_shortage_qty", "sum"),
             request_due_date=("request_due_date", min_datetime),
             production_due_date=("production_due_date", min_datetime),
         )
         .reset_index()
     )
-    grouped["production_shortage_qty"] = grouped["production_basis_qty"].clip(lower=0.0)
     grouped["production_progress_pct"] = calc_production_progress_pct(
         grouped["request_pcs"],
         grouped["production_shortage_qty"],
@@ -2490,6 +2561,8 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
     ]
 
     progress_source = work.copy()
+    if "production_shortage_qty" not in progress_source.columns:
+        progress_source["production_shortage_qty"] = progress_source.get("production_basis_qty", 0.0)
     progress_source["_progress_dedupe_key"] = np.where(
         progress_source["production_code_key"].map(clean_str) != "",
         progress_source["production_code_key"],
@@ -2500,18 +2573,20 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
         progress_source.groupby(["product_name", "power_value"], dropna=False)
         .agg(
             production_basis_qty=("production_basis_qty", "sum"),
+            production_shortage_qty=("production_shortage_qty", "sum"),
         )
         .reset_index()
         .rename(
             columns={
                 "product_name": "제품명",
                 "production_basis_qty": "누수규격검사 생산수량",
+                "production_shortage_qty": "생산부족수량",
             }
         )
     )
     grouped = grouped.merge(progress_grouped, on=["제품명", "power_value"], how="left")
     grouped["누수규격검사 생산수량"] = grouped["누수규격검사 생산수량"].fillna(0.0)
-    grouped["생산부족수량"] = grouped["누수규격검사 생산수량"].clip(lower=0.0)
+    grouped["생산부족수량"] = pd.to_numeric(grouped["생산부족수량"], errors="coerce").fillna(0.0).clip(lower=0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청PCS"], grouped["생산부족수량"])
     return grouped
 
@@ -2771,9 +2846,12 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
 
     if "production_basis_qty" not in work.columns:
         work["production_basis_qty"] = 0.0
+    if "production_shortage_qty" not in work.columns:
+        work["production_shortage_qty"] = work["production_basis_qty"]
     if "sample_available_pcs" not in work.columns:
         work["sample_available_pcs"] = 0.0
     work["production_basis_qty"] = pd.to_numeric(work["production_basis_qty"], errors="coerce").fillna(0.0)
+    work["production_shortage_qty"] = pd.to_numeric(work["production_shortage_qty"], errors="coerce").fillna(0.0)
     work["sample_available_pcs"] = pd.to_numeric(work["sample_available_pcs"], errors="coerce").fillna(0.0)
 
     production_key = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
@@ -2782,7 +2860,7 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     work["_production_alloc_key"] = production_key.where(production_key != "", sales_key)
     work["_production_alloc_key"] = work["_production_alloc_key"].where(work["_production_alloc_key"] != "", fallback_key)
 
-    work["_allocated_production_shortage_qty"] = work["production_basis_qty"].clip(lower=0.0)
+    work["_allocated_production_shortage_qty"] = work["production_shortage_qty"].clip(lower=0.0)
     work["_allocated_sample_available_pcs"] = work["sample_available_pcs"].clip(lower=0.0).round(0).astype("int64")
     return work
 
@@ -4659,7 +4737,7 @@ def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataF
     if work.empty:
         return pd.DataFrame(columns=columns)
 
-    for col in ["request_pack", "request_pcs", "production_basis_qty", "sample_available_pcs"]:
+    for col in ["request_pack", "request_pcs", "_allocated_production_shortage_qty", "sample_available_pcs"]:
         if col not in work.columns:
             work[col] = 0.0
         work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
@@ -4669,7 +4747,7 @@ def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataF
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            production_shortage_pcs=("production_basis_qty", "max"),
+            production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
             sample_available_pcs=("sample_available_pcs", "max"),
         )
         .reset_index()
@@ -4735,7 +4813,7 @@ def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.
     if work.empty:
         return pd.DataFrame(columns=columns)
 
-    for col in ["request_pack", "request_pcs", "production_basis_qty", "sample_available_pcs"]:
+    for col in ["request_pack", "request_pcs", "_allocated_production_shortage_qty", "sample_available_pcs"]:
         if col not in work.columns:
             work[col] = 0.0
         work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
@@ -4745,7 +4823,7 @@ def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
-            production_shortage_pcs=("production_basis_qty", "max"),
+            production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
             sample_available_pcs=("sample_available_pcs", "max"),
         )
         .reset_index()
