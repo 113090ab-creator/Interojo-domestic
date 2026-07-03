@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 19
+DATA_CACHE_VERSION = 22
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -340,6 +340,26 @@ def factory_group_from_category(value: Any) -> str:
     if not text:
         return "(미기재)"
     return FACTORY_GROUP_BY_CATEGORY.get(text, "(미기재)")
+
+
+def factory_group_from_product_name(value: Any) -> str:
+    text = clean_str(value)
+    if not text:
+        return ""
+    upper = text.upper()
+    if upper.startswith("PIA_KR_1D") or "FELIAMO" in upper or "EYESTAR" in upper:
+        return "S관"
+    if "REALSOME" in upper or "렌즈미" in text:
+        return "S관"
+    if "CLALEN O2O2 D" in upper:
+        return "S관"
+    if "CLALEN O2O2 M" in upper:
+        return "A관"
+    if "FRP" in upper:
+        return "A관"
+    if "IRIS" in upper:
+        return "C관"
+    return ""
 
 
 def normalize_match_key(value: Any) -> str:
@@ -1820,63 +1840,6 @@ def calc_production_progress_pct(request_qty: Any, production_shortage_qty: Any)
     return np.where(request > 0, produced / request * 100.0, 0.0)
 
 
-def pcs_per_pack_series(work: pd.DataFrame) -> pd.Series:
-    pack_unit = pd.to_numeric(work.get("pack_unit", pd.Series(np.nan, index=work.index)), errors="coerce")
-    request_pack = pd.to_numeric(work.get("request_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
-    request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
-    implied_unit = pd.Series(np.where(request_pack > 0, request_pcs / request_pack, np.nan), index=work.index)
-    unit = pack_unit.where(pack_unit > 0, implied_unit)
-    unit = pd.Series(unit, index=work.index).replace([np.inf, -np.inf], np.nan).fillna(1.0)
-    return unit.where(unit > 0, 1.0)
-
-
-def cap_production_shortage_by_packing_progress(work: pd.DataFrame) -> pd.DataFrame:
-    out = work.copy()
-    if out.empty:
-        return out
-
-    request_pcs = pd.to_numeric(out.get("request_pcs", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    raw_shortage = pd.to_numeric(
-        out.get("production_shortage_qty", out.get("production_basis_qty", pd.Series(0.0, index=out.index))),
-        errors="coerce",
-    ).fillna(0.0).clip(lower=0.0)
-    packing_pack = pd.to_numeric(out.get("packing_pack", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    yongma_pack = pd.to_numeric(out.get("yongma_in_pack", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    completed_pack = pd.concat([packing_pack, yongma_pack], axis=1).max(axis=1).clip(lower=0.0)
-    completed_pcs_floor = (completed_pack * pcs_per_pack_series(out)).clip(lower=0.0)
-    remaining_after_supply = (request_pcs - completed_pcs_floor).clip(lower=0.0)
-    out["production_shortage_qty"] = pd.concat([raw_shortage, remaining_after_supply], axis=1).min(axis=1)
-    out["production_progress_pct"] = calc_production_progress_pct(request_pcs, out["production_shortage_qty"])
-    return out
-
-
-def cap_grouped_shortage_by_packing_totals(
-    grouped: pd.DataFrame,
-    request_pack_col: str,
-    request_pcs_col: str,
-    packing_pack_col: str,
-    shortage_col: str,
-    yongma_pack_col: str | None = None,
-) -> pd.DataFrame:
-    out = grouped.copy()
-    if out.empty:
-        return out
-
-    request_pack = pd.to_numeric(out.get(request_pack_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    request_pcs = pd.to_numeric(out.get(request_pcs_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    packing_pack = pd.to_numeric(out.get(packing_pack_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    completed_pack = packing_pack
-    if yongma_pack_col and yongma_pack_col in out.columns:
-        yongma_pack = pd.to_numeric(out[yongma_pack_col], errors="coerce").fillna(0.0)
-        completed_pack = pd.concat([packing_pack, yongma_pack], axis=1).max(axis=1)
-    implied_unit = pd.Series(np.where(request_pack > 0, request_pcs / request_pack, np.nan), index=out.index)
-    implied_unit = implied_unit.replace([np.inf, -np.inf], np.nan).fillna(1.0).where(lambda s: s > 0, 1.0)
-    remaining_after_supply = (request_pcs - completed_pack.clip(lower=0.0) * implied_unit).clip(lower=0.0)
-    current_shortage = pd.to_numeric(out.get(shortage_col, pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
-    out[shortage_col] = pd.concat([current_shortage.clip(lower=0.0), remaining_after_supply], axis=1).min(axis=1)
-    return out
-
-
 def build_summaries(
     request_df: pd.DataFrame,
     packing_df: pd.DataFrame,
@@ -2089,6 +2052,10 @@ def build_summaries(
             product_name_code = clean_str(prefix_values.get("product_name_code", "")) or product_name
             category_summary = clean_str(prefix_values.get("category_summary", "")) or "(포장실적)"
             factory_group = clean_factory_group_display(prefix_values.get("factory_group", ""))
+            if not has_factory_group(factory_group):
+                factory_group = clean_factory_group_display(factory_group_from_category(category_summary))
+            if not has_factory_group(factory_group):
+                factory_group = clean_factory_group_display(factory_group_from_product_name(product_name))
             pack_unit = extract_pack_unit(product_name)
             unmatched_rows.append(
                 {
@@ -2256,14 +2223,6 @@ def enrich_product_summary_from_code_summary(product_summary: pd.DataFrame, code
         errors="coerce",
     ).fillna(0.0)
     out["생산부족수량"] = pd.to_numeric(out["생산부족수량"], errors="coerce").fillna(0.0).clip(lower=0.0)
-    out = cap_grouped_shortage_by_packing_totals(
-        out,
-        request_pack_col="요청 PACK",
-        request_pcs_col="요청 PCS",
-        packing_pack_col="포장 PACK",
-        shortage_col="생산부족수량",
-        yongma_pack_col="용마입고 PACK",
-    )
     out["생산진도율"] = calc_production_progress_pct(out["요청 PCS"], out["생산부족수량"])
     return out
 
@@ -2337,7 +2296,7 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
     out = out.drop(columns=["p_production_basis_qty", "p_production_due_date"], errors="ignore")
 
     out["production_shortage_qty"] = out["production_basis_qty"].clip(lower=0.0)
-    out = cap_production_shortage_by_packing_progress(out)
+    out["production_progress_pct"] = calc_production_progress_pct(request_pcs, out["production_shortage_qty"])
     return out
 
 
@@ -3786,7 +3745,16 @@ def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
     if "factory_group" not in work.columns:
         category_source = work.get("category_summary", pd.Series("", index=work.index))
         work["factory_group"] = category_source.map(factory_group_from_category)
-    work["factory_group"] = work["factory_group"].map(clean_str).replace("", "(미기재)").fillna("(미기재)")
+    work["factory_group"] = work["factory_group"].map(clean_str)
+    category_source = work.get("category_summary", pd.Series("", index=work.index))
+    category_factory = category_source.map(factory_group_from_category)
+    product_source = work.get("product_name", work["base_product_name"])
+    product_factory = product_source.map(factory_group_from_product_name)
+    missing_factory = ~work["factory_group"].map(has_factory_group)
+    work.loc[missing_factory & category_factory.map(has_factory_group), "factory_group"] = category_factory
+    missing_factory = ~work["factory_group"].map(has_factory_group)
+    work.loc[missing_factory & product_factory.map(has_factory_group), "factory_group"] = product_factory
+    work["factory_group"] = work["factory_group"].map(clean_factory_group_display).replace("", "(미기재)").fillna("(미기재)")
     work["공장구분"] = work["factory_group"]
     if "customer_name" not in work.columns:
         work["customer_name"] = "(미기재)"
@@ -3799,7 +3767,7 @@ def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
     if "POWER" not in work.columns:
         work["POWER"] = work["power_value"].map(format_power)
     if "production_code_display" not in work.columns:
-        work["production_code_display"] = work["production_code"].replace("", "(생산코드 미기재)")
+        work["production_code_display"] = work["production_code"].map(clean_str)
     if "_pack_bucket" not in work.columns:
         work["_pack_bucket"] = work.apply(row_pack_bucket, axis=1)
     if "_pack_bucket_sort" not in work.columns:
@@ -6430,7 +6398,6 @@ def build_sales_order_main_view(
         return pd.DataFrame(
             columns=[
                 "우선등급",
-                "D-Day",
                 "판매코드",
                 "생산코드",
                 "공장구분",
@@ -6553,7 +6520,6 @@ def build_sales_order_main_view(
     return grouped[
         [
             "우선등급",
-            "D-Day",
             "판매코드",
             "생산코드",
             "공장구분",
