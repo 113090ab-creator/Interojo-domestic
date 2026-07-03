@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 25
+DATA_CACHE_VERSION = 26
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -918,6 +918,15 @@ def normalize_product_code_master(path: Path | None) -> pd.DataFrame:
     return out.drop_duplicates("sales_code_key", keep="first")[columns].copy()
 
 
+def should_use_master_code(current_value: Any, master_value: Any, expected_prefix: str) -> bool:
+    current = clean_str(current_value).upper()
+    master = clean_str(master_value).upper()
+    prefix = clean_str(expected_prefix).upper()
+    if not prefix or not master.startswith(prefix):
+        return False
+    return current == "" or not current.startswith(prefix)
+
+
 def enrich_request_from_product_master(request_df: pd.DataFrame, product_master_df: pd.DataFrame) -> pd.DataFrame:
     if request_df.empty or product_master_df.empty:
         return request_df.copy()
@@ -932,18 +941,21 @@ def enrich_request_from_product_master(request_df: pd.DataFrame, product_master_
         suffixes=("", "_master"),
     )
     fill_pairs = [
-        ("p_code", "master_p_code"),
-        ("production_code", "master_production_code"),
-        ("q_code", "master_q_code"),
-        ("r_code", "master_r_code"),
+        ("p_code", "master_p_code", "P"),
+        ("production_code", "master_production_code", "P"),
+        ("q_code", "master_q_code", "Q"),
+        ("r_code", "master_r_code", "R"),
     ]
-    for target_col, master_col in fill_pairs:
+    for target_col, master_col, expected_prefix in fill_pairs:
         if target_col not in out.columns:
             out[target_col] = ""
         if master_col not in out.columns:
             out[master_col] = ""
-        target = out[target_col].map(clean_str)
-        out[target_col] = out[target_col].where(target != "", out[master_col].fillna(""))
+        use_master = [
+            should_use_master_code(current, master, expected_prefix)
+            for current, master in zip(out[target_col], out[master_col])
+        ]
+        out[target_col] = out[target_col].where(~pd.Series(use_master, index=out.index), out[master_col].fillna(""))
     if "master_product_name" in out.columns:
         master_product = out["master_product_name"].map(clean_str)
         out["product_name"] = out["master_product_name"].where(master_product != "", out["product_name"])
