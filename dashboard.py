@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 16
+DATA_CACHE_VERSION = 17
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -473,6 +473,23 @@ def to_number(series: pd.Series) -> pd.Series:
         .str.strip()
     )
     return pd.to_numeric(cleaned, errors="coerce").fillna(0.0)
+
+
+def to_number_value(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        if pd.isna(value):
+            return 0.0
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    text = clean_str(value).replace(",", "").replace(" ", "")
+    if not text:
+        return 0.0
+    number = pd.to_numeric(pd.Series([text]), errors="coerce").iloc[0]
+    return 0.0 if pd.isna(number) else float(number)
 
 
 def find_column(df: pd.DataFrame, aliases: list[str]) -> str | None:
@@ -958,14 +975,20 @@ def empty_sample_available_df() -> pd.DataFrame:
     )
 
 
-def normalize_sample_available_frame(raw: pd.DataFrame, file_label: str) -> pd.DataFrame:
+def normalize_sample_available_frame(
+    raw: pd.DataFrame,
+    file_label: str,
+    sample_available_col: str | None = None,
+) -> pd.DataFrame:
     cols = resolve_columns(
         raw,
         SAMPLE_AVAILABLE_COLS,
         required_keys=["product_code"],
         file_label=file_label,
     )
-    if len(raw.columns) > SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
+    if sample_available_col is not None and sample_available_col in raw.columns:
+        cols["sample_available_qty"] = sample_available_col
+    elif len(raw.columns) > SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
         cols["sample_available_qty"] = raw.columns[SAMPLE_AVAILABLE_QTY_COLUMN_INDEX]
     elif "sample_available_qty" not in cols:
         raise DashboardConfigError(
@@ -978,7 +1001,68 @@ def normalize_sample_available_frame(raw: pd.DataFrame, file_label: str) -> pd.D
         }
     )
     out["production_code_key"] = out["product_code"].map(normalize_match_key)
-    return out[(out["production_code_key"] != "") & (out["sample_available_pcs"] > 0)].copy()
+    out = out[(out["production_code_key"] != "") & (out["sample_available_pcs"] > 0)].copy()
+    if out.empty:
+        return empty_sample_available_df()
+    return (
+        out.groupby("production_code_key", dropna=False)
+        .agg(
+            product_code=("product_code", first_nonempty),
+            sample_available_pcs=("sample_available_pcs", "sum"),
+        )
+        .reset_index()[["product_code", "sample_available_pcs", "production_code_key"]]
+        .copy()
+    )
+
+
+def read_sample_available_sheet(xl: pd.ExcelFile, sheet_name: str, file_label: str) -> pd.DataFrame:
+    worksheet = xl.book[sheet_name]
+    header_values = list(next(worksheet.iter_rows(min_row=1, max_row=1, values_only=True), []))
+    normalized_headers = {normalize_col(value): idx for idx, value in enumerate(header_values)}
+    product_col_idx = None
+    for alias in SAMPLE_AVAILABLE_COLS["product_code"]:
+        idx = normalized_headers.get(normalize_col(alias))
+        if idx is not None:
+            product_col_idx = idx
+            break
+    if product_col_idx is None:
+        raise DashboardConfigError(
+            [f"[{file_label}] 필수 컬럼 누락: product_code (후보: {', '.join(SAMPLE_AVAILABLE_COLS['product_code'])})"]
+        )
+    if len(header_values) <= SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
+        raise DashboardConfigError([f"[{file_label}] 샘플신청가능수량 J열을 찾지 못했습니다."])
+
+    min_col_idx = min(product_col_idx, SAMPLE_AVAILABLE_QTY_COLUMN_INDEX)
+    max_col_idx = max(product_col_idx, SAMPLE_AVAILABLE_QTY_COLUMN_INDEX)
+    product_offset = product_col_idx - min_col_idx
+    sample_offset = SAMPLE_AVAILABLE_QTY_COLUMN_INDEX - min_col_idx
+    sample_by_key: dict[str, float] = {}
+    product_by_key: dict[str, str] = {}
+    for row in worksheet.iter_rows(
+        min_row=2,
+        min_col=min_col_idx + 1,
+        max_col=max_col_idx + 1,
+        values_only=True,
+    ):
+        product_code = clean_str(row[product_offset] if product_offset < len(row) else "")
+        production_code_key = normalize_match_key(product_code)
+        if not production_code_key:
+            continue
+        sample_qty = to_number_value(row[sample_offset] if sample_offset < len(row) else 0.0)
+        if sample_qty <= 0:
+            continue
+        sample_by_key[production_code_key] = sample_by_key.get(production_code_key, 0.0) + sample_qty
+        product_by_key.setdefault(production_code_key, product_code)
+
+    if not sample_by_key:
+        return empty_sample_available_df()
+    return pd.DataFrame(
+        {
+            "product_code": [product_by_key[key] for key in sample_by_key],
+            "sample_available_pcs": [sample_by_key[key] for key in sample_by_key],
+            "production_code_key": list(sample_by_key),
+        }
+    )
 
 
 def normalize_sample_available(path: Path) -> pd.DataFrame:
@@ -988,7 +1072,7 @@ def normalize_sample_available(path: Path) -> pd.DataFrame:
 
     try:
         xl = pd.ExcelFile(path)
-        raw = xl.parse(sheet_name=sheet_name)
+        return read_sample_available_sheet(xl, sheet_name, f"{path.name}:{sheet_name}")
     except DashboardConfigError:
         raise
     except Exception:
@@ -1031,8 +1115,7 @@ def normalize_packing_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, 
 
     sample_sheet = "샘플신청가능수량"
     if sample_sheet in xl.sheet_names:
-        sample_raw = xl.parse(sheet_name=sample_sheet)
-        sample_available_df = normalize_sample_available_frame(sample_raw, f"{path.name}:{sample_sheet}")
+        sample_available_df = read_sample_available_sheet(xl, sample_sheet, f"{path.name}:{sample_sheet}")
     else:
         sample_available_df = empty_sample_available_df()
 
@@ -6427,6 +6510,34 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
     return out[columns].head(max_rows).copy()
 
 
+def filter_sales_order_view(
+    sales_view: pd.DataFrame,
+    product_query: str = "",
+    production_query: str = "",
+    sales_query: str = "",
+    pack_label: str = "전체",
+    power_label: str = "전체",
+) -> pd.DataFrame:
+    if sales_view.empty:
+        return sales_view.copy()
+
+    out = sales_view
+    product_q = product_query.strip()
+    if product_q and "제품명" in out.columns:
+        out = out[out["제품명"].astype(str).str.contains(product_q, case=False, na=False, regex=False)]
+    production_q = production_query.strip()
+    if production_q and "생산코드" in out.columns:
+        out = out[out["생산코드"].astype(str).str.contains(production_q, case=False, na=False, regex=False)]
+    sales_q = sales_query.strip()
+    if sales_q and "판매코드" in out.columns:
+        out = out[out["판매코드"].astype(str).str.contains(sales_q, case=False, na=False, regex=False)]
+    if pack_label != "전체" and "PACK" in out.columns:
+        out = out[out["PACK"] == pack_label]
+    if power_label != "전체" and "POWER" in out.columns:
+        out = out[out["POWER"] == power_label]
+    return out.copy()
+
+
 def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
     urgent_view = build_urgent_sales_packing_view(sales_view)
     render_panel_title(
@@ -6924,6 +7035,7 @@ def make_unique_excel_columns(columns: pd.Index) -> list[str]:
     return unique_columns
 
 
+@st.cache_data(show_spinner=False, max_entries=24)
 def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
     output = BytesIO()
     used_names: set[str] = set()
@@ -7765,6 +7877,7 @@ def add_report_legend(slide: Any) -> None:
         )
 
 
+@st.cache_data(show_spinner=False, max_entries=8)
 def build_ppt_report(
     product_view: pd.DataFrame,
     code_summary: pd.DataFrame,
@@ -9905,11 +10018,11 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
         code_summary,
         factory_group=selected_factory,
     )
-    urgent_sales_base = build_sales_order_main_view(
+    sales_base = build_sales_order_main_view(
         factory_scoped_code_summary,
         stock_threshold_pack=float(stock_threshold_pack),
     )
-    render_urgent_sales_packing_list(urgent_sales_base)
+    render_urgent_sales_packing_list(sales_base)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     sf1, sf2, sf3, sf4, sf5 = st.columns([1.9, 1.6, 1.6, 1.2, 1.2], gap="small")
@@ -9939,18 +10052,13 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
     with sf5:
         selected_power = st.selectbox("POWER 선택", options=power_options, index=0, key="tab_sales_power")
 
-    sales_source = filter_operational_code_summary(
-        code_summary,
+    sales_view = filter_sales_order_view(
+        sales_base,
         product_query=product_query,
         production_query=production_query,
         sales_query=sales_query,
         pack_label=selected_pack,
         power_label=selected_power,
-        factory_group=selected_factory,
-    )
-    sales_view = build_sales_order_main_view(
-        sales_source,
-        stock_threshold_pack=float(stock_threshold_pack),
     )
     dl_col, _ = st.columns([1.2, 4.8], gap="small")
     with dl_col:
@@ -9958,7 +10066,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
             "엑셀 다운로드",
             "판매코드_상세",
             {
-                "긴급 포장 리스트": urgent_sales_base,
+                "긴급 포장 리스트": build_urgent_sales_packing_view(sales_base),
                 "판매코드": sales_view,
             },
             key="download_sales_code_excel",
@@ -9976,7 +10084,15 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
 
     selected_sales = str(selected_sales_row["판매코드"])
     st.markdown(f"<div class='breadcrumb'>판매코드 <span>{escape(selected_sales)}</span></div>", unsafe_allow_html=True)
-    inventory_view = build_inventory_detail_view(sales_source, selected_sales)
+    inventory_source = filter_operational_code_summary(
+        factory_scoped_code_summary,
+        product_query=product_query,
+        production_query=production_query,
+        sales_query=sales_query,
+        pack_label=selected_pack,
+        power_label=selected_power,
+    )
+    inventory_view = build_inventory_detail_view(inventory_source, selected_sales)
     render_panel_title("WMS 재고 상세", "용마WMS재고현황 기준 판매코드별 PACK 재고")
     st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if inventory_view.empty or set(inventory_view["매칭여부"].astype(str)) == {"미매칭"}:
