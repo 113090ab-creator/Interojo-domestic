@@ -4692,8 +4692,8 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
         "포장부족(PACK)",
         "생산부족수량(PCS)",
         "기준차이",
-        "포장진도율",
         "생산진도율",
+        "포장진도율",
         "최소 납기일",
     ]
     return visible_columns(df, columns)
@@ -4710,8 +4710,8 @@ def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str
         "포장부족(PACK)",
         "생산부족수량(PCS)",
         "기준차이",
-        "포장진도율",
         "생산진도율",
+        "포장진도율",
         "최소 납기일",
     ]
     return visible_columns(df, columns)
@@ -6540,8 +6540,8 @@ def build_production_power_main_view(
         "포장부족(PACK)",
         "생산부족수량(PCS)",
         "기준차이",
-        "포장진도율",
         "생산진도율",
+        "포장진도율",
         "최소 납기일",
     ]
     if rows.empty:
@@ -6679,8 +6679,8 @@ def build_production_power_detail_view(
         "포장부족(PACK)",
         "생산부족수량(PCS)",
         "기준차이",
-        "포장진도율",
         "생산진도율",
+        "포장진도율",
         "최소 납기일",
     ]
     if rows.empty:
