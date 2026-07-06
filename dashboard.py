@@ -84,7 +84,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 31
+DATA_CACHE_VERSION = 32
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -11562,7 +11562,7 @@ def file_fingerprint(path: Path | None) -> tuple[str, int, int] | None:
     return (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
 
 
-@st.cache_data(show_spinner="데이터 파일을 읽는 중입니다. 잠시만 기다려 주세요.", max_entries=8, persist="disk")
+@st.cache_data(show_spinner="데이터 파일을 읽는 중입니다. 잠시만 기다려 주세요.", max_entries=8)
 def load_dashboard_data(
     request_fingerprint: tuple[str, int, int],
     packing_fingerprint: tuple[str, int, int],
