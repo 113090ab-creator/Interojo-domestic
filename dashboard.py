@@ -2510,17 +2510,55 @@ def enrich_product_summary_from_code_summary(product_summary: pd.DataFrame, code
     return out
 
 
+def progress_row_pack_unit(progress_row: pd.Series) -> float:
+    for col in ["demand_product_name", "linked_product_name"]:
+        unit = extract_pack_unit(progress_row.get(col, ""))
+        if pd.notna(unit) and float(unit) > 0:
+            return float(unit)
+    return np.nan
+
+
+def candidate_pack_units(candidates: pd.DataFrame) -> pd.Series:
+    if "pack_unit" in candidates.columns:
+        units = pd.to_numeric(candidates["pack_unit"], errors="coerce")
+    else:
+        units = pd.Series(np.nan, index=candidates.index)
+    fallback = candidates.get("product_name", pd.Series("", index=candidates.index)).map(extract_pack_unit)
+    return units.where(units.notna() & (units > 0), fallback)
+
+
+def build_progress_source_key(progress_key: str, progress_index: Any) -> str:
+    base = clean_str(progress_key) or "PROGRESS"
+    row_key = normalize_match_key(progress_index)
+    return f"{base}#ROW{row_key}" if row_key else base
+
+
 def refine_progress_candidates_by_code_measure(candidates: pd.DataFrame, progress_row: pd.Series) -> pd.DataFrame:
     if candidates.empty or len(candidates) <= 1:
         return candidates
 
+    narrowed = candidates
     progress_measure_key = extract_code_measure_key(progress_row.get("product_code", ""))
     if progress_measure_key and "_code_measure_key" in candidates.columns:
         narrowed_by_code = candidates[candidates["_code_measure_key"] == progress_measure_key].copy()
         if not narrowed_by_code.empty:
-            return narrowed_by_code
+            narrowed = narrowed_by_code
 
-    return candidates
+    progress_pack_unit = progress_row_pack_unit(progress_row)
+    if pd.notna(progress_pack_unit) and float(progress_pack_unit) > 0:
+        pack_units = candidate_pack_units(narrowed)
+        narrowed_by_pack = narrowed[np.isclose(pack_units, float(progress_pack_unit), rtol=0.0, atol=1e-6)].copy()
+        if not narrowed_by_pack.empty:
+            narrowed = narrowed_by_pack
+
+    demand_qty = to_number_value(progress_row.get("demand_qty", np.nan))
+    if demand_qty > 0 and "request_pack" in narrowed.columns:
+        request_pack = pd.to_numeric(narrowed["request_pack"], errors="coerce").fillna(-1.0)
+        narrowed_by_qty = narrowed[np.isclose(request_pack, demand_qty, rtol=0.0, atol=1e-6)].copy()
+        if not narrowed_by_qty.empty:
+            narrowed = narrowed_by_qty
+
+    return narrowed
 
 
 def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.DataFrame) -> pd.DataFrame:
@@ -2590,7 +2628,7 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
     }
 
     records: list[dict[str, Any]] = []
-    for _, progress_row in progress_work.iterrows():
+    for progress_index, progress_row in progress_work.iterrows():
         product_code_key = clean_str(progress_row.get("product_code_key", ""))
         product_base_p_key = clean_str(progress_row.get("product_base_p_key", ""))
         progress_key = first_nonempty([product_code_key, product_base_p_key])
@@ -2616,6 +2654,7 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
         qty = to_number_value(progress_row.get("production_basis_qty", 0.0))
         if qty <= 0:
             continue
+        source_progress_key = build_progress_source_key(progress_key, progress_index)
 
         for _, candidate_row in matched.iterrows():
             records.append(
@@ -2624,7 +2663,7 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
                     "production_basis_qty": qty,
                     "production_due_date": progress_row.get("production_due_date", pd.NaT),
                     "production_match_source": match_source,
-                    "production_progress_key": progress_key,
+                    "production_progress_key": source_progress_key,
                 }
             )
 
