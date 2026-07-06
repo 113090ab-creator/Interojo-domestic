@@ -21,9 +21,9 @@ import streamlit as st
 
 
 st.set_page_config(
-    page_title="국내 제품 생산, 포장 모니터링",
+    page_title="국내 생산·포장 현황",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -3877,6 +3877,27 @@ def render_top_shortage_list(top_df: pd.DataFrame) -> None:
     )
 
 
+def render_top_shortage_compact(top_df: pd.DataFrame) -> None:
+    if top_df.empty:
+        st.warning("미입고 제품이 없습니다.")
+        return
+    max_shortage = float(pd.to_numeric(top_df["미입고 PACK"], errors="coerce").fillna(0.0).max())
+    rows: list[str] = []
+    for _, row in top_df.iterrows():
+        shortage = float(pd.to_numeric(pd.Series([row.get("미입고 PACK", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+        width = (shortage / max_shortage * 100.0) if max_shortage > 0 else 0.0
+        rows.append(
+            "<div class='rank-list-row'>"
+            f"<span class='rank-num'>{format_int(float(row.get('순위', 0.0)))}</span>"
+            f"<span class='rank-name'>{escape(clean_str(row.get('제품명', '')))}</span>"
+            "<span class='rank-bar'><i style='width:"
+            f"{max(4.0, min(100.0, width)):.1f}%'></i></span>"
+            f"<span class='rank-value'>{format_int(shortage)}</span>"
+            "</div>"
+        )
+    st.markdown(f"<div class='rank-list compact-rank-list'>{''.join(rows)}</div>", unsafe_allow_html=True)
+
+
 def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     columns = ["순위", "제품명", "생산진도율", "용마입고율", "GAP"]
     if product_df.empty:
@@ -3977,6 +3998,7 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
     packing_progress = float(kpi.get("packing_progress_pct", 0.0))
     shortage_tone = "danger" if kpi["shortage_pack"] > 0 else "normal"
     production_shortage_tone = "danger" if kpi.get("production_shortage_pcs", 0.0) > 0 else "normal"
+    scope_class = "sample-kpi" if "샘플" in title else "main-kpi" if "본품" in title else ""
 
     if unit_mode == UNIT_PCS:
         metrics = [
@@ -3997,10 +4019,10 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
         ]
     metric_html = "".join(kpi_metric_item_html(label, value, tone) for label, value, tone in metrics)
     panel_html = f"""
-    <div class='kpi-panel scope-kpi'>
+    <div class='kpi-panel scope-kpi {scope_class}'>
       <div class='kpi-panel-head'>
         <div class='kpi-title'>{escape(title)}</div>
-        <div class='kpi-rating'>★★★★☆</div>
+        <div class='kpi-card-link'>전일 대비</div>
       </div>
       <div class='kpi-divider-grid'>{metric_html}</div>
       <div class='kpi-progress-stack'>
@@ -4161,23 +4183,15 @@ def render_status_board(
             kpi_metric_item_html("포장진도", f"{packing_progress:.1f}%", "warning"),
             kpi_metric_item_html("용마입고율", f"{receipt_progress:.1f}%", "purple"),
             kpi_metric_item_html("미입고 PACK", format_int(missing_pack), "danger" if missing_pack > 0 else "normal"),
-            kpi_metric_item_html("긴급 대응", f"{emergency_count:,}", "danger" if emergency_count > 0 else "normal"),
         ]
     )
 
     board_html = f"""
     <div class='kpi-dashboard-block status-board {board_tone}'>
-      <div class='kpi-dashboard-head'>
-        <div>
-          <div class='section-title'>KPI Dashboard</div>
-          <div class='section-sub'>전체 KPI를 중심으로 본품과 샘플 현황을 비교합니다.</div>
-        </div>
-        <div class='kpi-rating large'>★★★★★</div>
-      </div>
       <div class='overall-kpi-card'>
         <div class='overall-kpi-title'>
           <span>전체 KPI</span>
-          <b>생산 → 포장 → 용마입고</b>
+          <b>요청 대비 진행 현황</b>
         </div>
         <div class='kpi-divider-grid overall'>{metric_html}</div>
         <div class='kpi-progress-stack overall'>
@@ -8421,6 +8435,29 @@ def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
     )
 
 
+def render_urgent_request_compact(summary_view: pd.DataFrame) -> None:
+    if summary_view.empty:
+        st.warning("긴급요청 품목이 없습니다.")
+        return
+    rows: list[str] = []
+    for _, row in summary_view.head(8).iterrows():
+        sku_num = pd.to_numeric(row.get("SKU 수", 0), errors="coerce")
+        sku_count = 0.0 if pd.isna(sku_num) else float(sku_num)
+        scope = clean_str(row.get("요청구분", ""))
+        scope_class = "in" if scope == "요청내" else "out"
+        rows.append(
+            "<div class='urgent-list-row'>"
+            "<div class='urgent-row-main'>"
+            f"<span class='urgent-code'>{escape(clean_str(row.get('S코드', '')))}</span>"
+            f"<span class='request-scope-badge {scope_class}'>{escape(scope)}</span>"
+            f"<span class='urgent-sku'>SKU {format_int(sku_count)}</span>"
+            "</div>"
+            f"<div class='urgent-product'>{escape(clean_str(row.get('제품명', '')))}</div>"
+            "</div>"
+        )
+    st.markdown(f"<div class='urgent-list'>{''.join(rows)}</div>", unsafe_allow_html=True)
+
+
 def to_report_float(value: Any) -> float:
     num = pd.to_numeric(value, errors="coerce")
     if pd.isna(num):
@@ -10186,19 +10223,122 @@ def render_style() -> None:
             background: {BG_PAGE} !important;
         }}
         .block-container {{
-            padding: 28px 32px 40px !important;
-            max-width: 100% !important;
+            padding: 28px 28px 40px !important;
+            max-width: 1720px !important;
+        }}
+        [data-testid="stSidebar"] {{
+            background: #FFFFFF !important;
+            border-right: 1px solid {BORDER_DEFAULT};
+        }}
+        [data-testid="stSidebar"] > div:first-child {{
+            padding: 22px 14px 24px !important;
+        }}
+        .sidebar-brand {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 8px 24px;
+            border-bottom: 1px solid {BORDER_LIGHT};
+            margin-bottom: 14px;
+        }}
+        .sidebar-logo-dot {{
+            width: 24px;
+            height: 24px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, {COLOR_BLUE}, #60A5FA);
+            box-shadow: inset 0 0 0 6px rgba(255,255,255,0.72);
+        }}
+        .sidebar-brand-title {{
+            color: {TEXT_PRIMARY};
+            font-size: 18px;
+            line-height: 1;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+        }}
+        .sidebar-brand-sub {{
+            color: #64748B;
+            font-size: 11px;
+            line-height: 1.3;
+            font-weight: 600;
+            margin-top: 4px;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] {{
+            margin-bottom: 20px;
+        }}
+        [data-testid="stSidebar"] [role="radiogroup"] {{
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] label {{
+            min-height: 42px;
+            padding: 0 10px !important;
+            border-radius: 8px;
+            color: #475569 !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            transition: background 0.18s ease, color 0.18s ease;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {{
+            background: #F1F5F9;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {{
+            background: #EAF2FF;
+            color: {COLOR_BLUE} !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {{
+            font-size: 13px !important;
+            font-weight: 700 !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] input {{
+            display: none;
+        }}
+        .sidebar-section-title {{
+            color: {COLOR_BLUE};
+            font-size: 11px;
+            line-height: 1.2;
+            font-weight: 800;
+            padding: 14px 8px 8px;
+            border-top: 1px solid {BORDER_LIGHT};
+            margin-top: 12px;
+        }}
+        .sidebar-muted-menu {{
+            display: grid;
+            gap: 4px;
+            padding: 0 0 10px;
+        }}
+        .sidebar-muted-menu span {{
+            display: flex;
+            align-items: center;
+            min-height: 36px;
+            padding: 0 10px;
+            border-radius: 8px;
+            color: #64748B;
+            font-size: 13px;
+            font-weight: 700;
+        }}
+        .sidebar-filter-note {{
+            margin: 0 8px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #F8FAFC;
+            color: #64748B;
+            font-size: 12px;
+            line-height: 1.45;
+            font-weight: 600;
+            border: 1px solid {BORDER_LIGHT};
         }}
         .app-header {{
-            margin-bottom: 18px;
+            margin-bottom: 16px;
         }}
         .app-title {{
             color: {TEXT_PRIMARY};
-            font-size: 32px;
+            font-size: 28px;
             line-height: 1.2;
-            font-weight: 700;
+            font-weight: 800;
             letter-spacing: 0;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }}
         .app-basis {{
             color: {TEXT_SECONDARY};
@@ -10308,7 +10448,13 @@ def render_style() -> None:
             color: {TEXT_PRIMARY} !important;
         }}
         .kpi-dashboard-block {{
-            margin: 0 0 24px;
+            margin: 0;
+        }}
+        .kpi-dashboard-label {{
+            color: {TEXT_PRIMARY};
+            font-size: 14px;
+            font-weight: 800;
+            margin: 4px 0 10px;
         }}
         .kpi-dashboard-block.status-board {{
             display: block;
@@ -10332,10 +10478,11 @@ def render_style() -> None:
             background: {BG_CARD} !important;
             border: 1px solid {BORDER_DEFAULT} !important;
             border-radius: 12px !important;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.04) !important;
+            box-shadow: 0 8px 26px rgba(15,23,42,0.04) !important;
         }}
         .overall-kpi-card {{
-            padding: 24px;
+            padding: 22px 24px;
+            min-height: 212px;
             transition: transform 0.2s ease;
         }}
         .overall-kpi-card:hover,
@@ -10349,26 +10496,34 @@ def render_style() -> None:
             align-items: baseline;
             justify-content: space-between;
             gap: 12px;
-            margin-bottom: 18px;
+            margin-bottom: 14px;
         }}
         .overall-kpi-title span,
         .kpi-title {{
-            color: {TEXT_PRIMARY};
-            font-size: 18px;
+            color: {COLOR_BLUE};
+            font-size: 15px;
             line-height: 1.35;
-            font-weight: 700;
+            font-weight: 800;
             margin: 0;
+        }}
+        .scope-kpi .kpi-title {{
+            color: {COLOR_TEAL};
+        }}
+        .scope-kpi.main-kpi .kpi-title {{
+            color: {COLOR_TEAL};
+        }}
+        .scope-kpi.sample-kpi .kpi-title {{
+            color: {COLOR_AMBER};
         }}
         .overall-kpi-title b {{
             color: {TEXT_SECONDARY};
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
         }}
-        .kpi-rating {{
+        .kpi-card-link {{
             color: {COLOR_BLUE};
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
-            letter-spacing: 1px;
             white-space: nowrap;
         }}
         .kpi-rating.large {{
@@ -10378,15 +10533,15 @@ def render_style() -> None:
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
             gap: 0;
-            border-top: 1px solid {BORDER_LIGHT};
-            border-bottom: 1px solid {BORDER_LIGHT};
+            border-top: 0;
+            border-bottom: 0;
         }}
         .kpi-divider-grid.overall {{
-            grid-template-columns: repeat(6, minmax(0, 1fr));
+            grid-template-columns: repeat(5, minmax(0, 1fr));
         }}
         .kpi-metric {{
             min-width: 0;
-            padding: 18px 20px;
+            padding: 12px 16px;
             border-left: 1px solid {BORDER_LIGHT};
         }}
         .kpi-metric:first-child {{
@@ -10394,16 +10549,16 @@ def render_style() -> None:
         }}
         .metric-label {{
             color: {TEXT_TERTIARY};
-            font-size: 12px;
+            font-size: 11px;
             line-height: 1.35;
-            font-weight: 600;
+            font-weight: 700;
             margin-bottom: 8px;
         }}
         .metric-value {{
             color: {TEXT_PRIMARY};
             font-size: 22px;
             line-height: 1.1;
-            font-weight: 700;
+            font-weight: 800;
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }}
@@ -10427,27 +10582,27 @@ def render_style() -> None:
         }}
         .kpi-progress-stack {{
             display: grid;
-            gap: 10px;
-            margin-top: 18px;
+            gap: 8px;
+            margin-top: 14px;
         }}
         .kpi-progress-row {{
             display: grid;
-            grid-template-columns: 66px minmax(120px, 1fr) 58px;
+            grid-template-columns: 54px minmax(100px, 1fr) 46px;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }}
         .kpi-progress-row span,
         .kpi-progress-row b {{
             color: {TEXT_SECONDARY};
-            font-size: 12px;
-            font-weight: 600;
+            font-size: 11px;
+            font-weight: 700;
             font-variant-numeric: tabular-nums;
         }}
         .kpi-progress-row b {{
             text-align: right;
         }}
         .kpi-progress-track {{
-            height: 6px;
+            height: 4px;
             border-radius: 999px;
             background: #EEF2F7;
             overflow: hidden;
@@ -10496,20 +10651,21 @@ def render_style() -> None:
             display: flex;
             flex-wrap: wrap;
             gap: 10px 18px;
-            margin-top: 16px;
+            margin-top: 12px;
             color: {TEXT_SECONDARY};
             font-size: 12px;
-            font-weight: 600;
+            font-weight: 700;
             font-variant-numeric: tabular-nums;
         }}
         .scope-kpi {{
-            padding: 20px 22px;
+            padding: 18px 20px;
             margin-bottom: 0;
+            min-height: 212px;
             height: 100%;
             transition: transform 0.2s ease;
         }}
         .scope-kpi .metric-value {{
-            font-size: 20px;
+            font-size: 18px;
         }}
         .metric-strip {{
             padding: 0;
@@ -10529,8 +10685,12 @@ def render_style() -> None:
             min-height: 92px;
         }}
         .panel-box {{
-            padding: 20px 24px;
+            padding: 18px 20px;
             margin-bottom: 24px;
+        }}
+        .dashboard-card {{
+            min-height: 360px;
+            margin-bottom: 0;
         }}
         .family-section {{
             gap: 12px;
@@ -10620,6 +10780,92 @@ def render_style() -> None:
         .gap-value {{
             color: {COLOR_DANGER};
             font-weight: 700;
+        }}
+        .rank-list {{
+            display: grid;
+            gap: 10px;
+        }}
+        .rank-list-row {{
+            display: grid;
+            grid-template-columns: 22px minmax(92px, 1fr) minmax(52px, 0.75fr) 58px;
+            align-items: center;
+            gap: 10px;
+            min-height: 22px;
+        }}
+        .rank-num {{
+            color: #64748B;
+            font-size: 12px;
+            font-weight: 800;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }}
+        .rank-name {{
+            color: {TEXT_PRIMARY};
+            font-size: 12px;
+            line-height: 1.25;
+            font-weight: 700;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }}
+        .rank-bar {{
+            height: 4px;
+            border-radius: 999px;
+            background: #EEF2F7;
+            overflow: hidden;
+        }}
+        .rank-bar i {{
+            display: block;
+            height: 100%;
+            border-radius: 999px;
+            background: {COLOR_DANGER};
+        }}
+        .rank-value {{
+            color: {COLOR_DANGER};
+            font-size: 12px;
+            font-weight: 800;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }}
+        .urgent-list {{
+            display: grid;
+            gap: 0;
+        }}
+        .urgent-list-row {{
+            padding: 12px 2px;
+            border-bottom: 1px solid {BORDER_LIGHT};
+        }}
+        .urgent-list-row:last-child {{
+            border-bottom: 0;
+        }}
+        .urgent-row-main {{
+            display: grid;
+            grid-template-columns: 44px 58px 1fr;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 5px;
+        }}
+        .urgent-code {{
+            color: {COLOR_BLUE};
+            font-size: 12px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+        }}
+        .urgent-sku {{
+            color: #64748B;
+            font-size: 11px;
+            font-weight: 800;
+            text-align: right;
+            white-space: nowrap;
+        }}
+        .urgent-product {{
+            color: #64748B;
+            font-size: 12px;
+            line-height: 1.35;
+            font-weight: 600;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }}
         .request-scope-badge,
         .response-badge,
@@ -11482,15 +11728,59 @@ def render_product_summary_tab(
             key="download_product_progress_excel",
         )
 
-    render_status_board(
-        product_summary,
-        code_summary,
-        daily_inventory_df,
-        sample_available_df,
-        stock_threshold_pack,
-        exception_kpis=exception_kpis,
+    st.markdown("<div class='kpi-dashboard-label'>KPI Dashboard</div>", unsafe_allow_html=True)
+    scope_kpis = {
+        name: kpi
+        for name, kpi in build_scope_kpis(add_allocated_production_basis(code_summary))
+        if name in {"본품", "샘플"}
+    }
+    kpi_cols = st.columns([1.55, 1.0, 1.0], gap="small")
+    with kpi_cols[0]:
+        render_status_board(
+            product_summary,
+            code_summary,
+            daily_inventory_df,
+            sample_available_df,
+            stock_threshold_pack,
+            exception_kpis=exception_kpis,
+        )
+    with kpi_cols[1]:
+        render_kpi_panel("본품 KPI", scope_kpis.get("본품", calc_kpi_from_code_summary(pd.DataFrame())))
+    with kpi_cols[2]:
+        render_kpi_panel("샘플 KPI", scope_kpis.get("샘플", calc_kpi_from_code_summary(pd.DataFrame())))
+
+    urgent_sku_count = int(
+        pd.to_numeric(urgent_summary_view.get("SKU 수", pd.Series(dtype=float)), errors="coerce")
+        .fillna(0)
+        .sum()
     )
-    render_kpi_scope_panels(code_summary)
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    lower_cols = st.columns([1.55, 0.85, 0.85], gap="small")
+    with lower_cols[0]:
+        render_panel_title(
+            "제품 분류별 진도 현황",
+            "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
+        )
+        st.markdown("<div class='panel-box dashboard-card'>", unsafe_allow_html=True)
+        render_family_progress_cards(family_view)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with lower_cols[1]:
+        render_panel_title(
+            "미입고 TOP10",
+            "미입고 PACK이 큰 제품의 진도를 확인합니다.",
+        )
+        st.markdown("<div class='panel-box dashboard-card'>", unsafe_allow_html=True)
+        render_top_shortage_compact(top_shortage_view)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with lower_cols[2]:
+        render_panel_title(
+            "요청 긴급 대응",
+            f"S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개",
+        )
+        st.markdown("<div class='panel-box dashboard-card'>", unsafe_allow_html=True)
+        render_urgent_request_compact(urgent_summary_view)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
@@ -11502,43 +11792,11 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "본품 분류별 진도현황",
-        "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
-    )
-    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
-    render_family_progress_cards(family_view)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
-        "미입고 TOP10",
-        "미입고 PACK이 큰 제품의 생산·포장·입고 진도를 확인합니다.",
-    )
-    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
-    render_top_shortage_list(top_shortage_view)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
         "생산완료 후 미입고 TOP10",
         "생산은 진행됐지만 용마 입고가 지연되는 제품을 GAP 기준으로 표시합니다.",
     )
     st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_gap_top_list(gap_top_view)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    urgent_sku_count = int(
-        pd.to_numeric(urgent_summary_view.get("SKU 수", pd.Series(dtype=float)), errors="coerce")
-        .fillna(0)
-        .sum()
-    )
-    render_panel_title(
-        "요청 긴급 요약",
-        f"일일 재고표 기준 긴급요청 S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개를 확인합니다.",
-    )
-    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
-    render_urgent_request_summary_table(urgent_summary_view)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -12113,14 +12371,39 @@ def load_dashboard_data(
 
 
 def render_dashboard_nav() -> str:
-    selected = st.segmented_control(
-        "대시보드 메뉴",
-        options=DASHBOARD_TABS,
-        default=DASHBOARD_TABS[0],
-        label_visibility="collapsed",
-        key="dashboard_active_tab",
-    )
-    st.markdown("<div class='dashboard-nav-divider'></div>", unsafe_allow_html=True)
+    with st.sidebar:
+        st.markdown(
+            """
+            <div class="sidebar-brand">
+              <div class="sidebar-logo-dot"></div>
+              <div>
+                <div class="sidebar-brand-title">INTEROJO</div>
+                <div class="sidebar-brand-sub">Domestic Dashboard</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        selected = st.radio(
+            "메뉴",
+            options=DASHBOARD_TABS,
+            index=0,
+            label_visibility="collapsed",
+            key="dashboard_active_tab_sidebar",
+        )
+        st.markdown(
+            """
+            <div class="sidebar-section-title">분석 · 리포트</div>
+            <div class="sidebar-muted-menu">
+              <span>긴급 대응 목록</span>
+              <span>이슈 & 알림</span>
+              <span>보고서 관리</span>
+            </div>
+            <div class="sidebar-section-title">필터</div>
+            <div class="sidebar-filter-note">상세 필터는 각 화면 상단 조건 영역에서 조정합니다.</div>
+            """,
+            unsafe_allow_html=True,
+        )
     return str(selected or DASHBOARD_TABS[0])
 
 
