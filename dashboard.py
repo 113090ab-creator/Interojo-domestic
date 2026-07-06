@@ -192,25 +192,20 @@ PACK_SUFFIX_RE = re.compile(
 )
 PACK_PREFIX_SUFFIX_RE = re.compile(r"^\d+(?:\.\d+)?\s*(?:P|팩)_", re.IGNORECASE)
 
-COLOR_BLUE = "#7F77DD"
+COLOR_BLUE = "#185FA5"
 COLOR_TEAL = "#1D9E75"
 COLOR_ORANGE = "#D85A30"
 COLOR_AMBER = "#BA7517"
 COLOR_ALERT_BG = "#FAECE7"
 COLOR_ALERT_BD = "#F0997B"
-COLOR_PURPLE_BG = "#EEEDFE"
-COLOR_PURPLE_TEXT = "#26215C"
-COLOR_TEAL_BG = "#E1F5EE"
-COLOR_TEAL_TEXT = "#04342C"
-COLOR_CORAL_TEXT = "#4A1B0C"
-BG_PAGE = "#F1EFE8"
+BG_PAGE = "#F4F4F2"
 BG_CARD = "#FFFFFF"
-BG_SECTION = "#F7F6F1"
+BG_SECTION = "#EFEFEC"
 TEXT_PRIMARY = "#1A1A1A"
 TEXT_SECONDARY = "#6B6B68"
 TEXT_TERTIARY = "#9E9D99"
-BORDER_DEFAULT = "rgba(74,58,40,0.14)"
-BORDER_LIGHT = "rgba(74,58,40,0.08)"
+BORDER_DEFAULT = "rgba(0,0,0,0.10)"
+BORDER_LIGHT = "rgba(0,0,0,0.06)"
 
 NAVY = COLOR_BLUE
 SOFT_NAVY = COLOR_TEAL
@@ -3361,109 +3356,6 @@ def format_int(value: float) -> str:
     return f"{value:,.0f}"
 
 
-def clamp_percent(value: Any) -> float:
-    num = pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0.0).iloc[0]
-    return float(max(0.0, min(100.0, num)))
-
-
-def metric_info_card_html(label: str, value: str, tone: str = "normal", note: str = "") -> str:
-    note_html = f"<div class='metric-note'>{escape(note)}</div>" if note else ""
-    return (
-        "<div class='mini-kpi-card'>"
-        f"<div class='metric-label'>{escape(label)}</div>"
-        f"<div class='metric-value {escape(tone)}'>{escape(value)}</div>"
-        f"{note_html}"
-        "</div>"
-    )
-
-
-def circular_gauge_html(label: str, value: Any, color: str) -> str:
-    pct = clamp_percent(value)
-    radius = 50.0
-    circumference = 2 * np.pi * radius
-    dash_offset = circumference * (1 - pct / 100.0)
-    return f"""
-    <div class='gauge-card'>
-      <div class='gauge-svg-wrap'>
-        <svg class='circular-gauge' viewBox='0 0 120 120' aria-hidden='true'>
-          <circle class='gauge-track' cx='60' cy='60' r='50'></circle>
-          <circle
-            class='gauge-fill'
-            cx='60'
-            cy='60'
-            r='50'
-            style='stroke:{color}; stroke-dasharray:{circumference:.2f}; stroke-dashoffset:{dash_offset:.2f};'
-          ></circle>
-        </svg>
-        <div class='gauge-value'>{pct:.1f}%</div>
-      </div>
-      <div class='gauge-label'>{escape(label)}</div>
-    </div>
-    """
-
-
-def render_gauge_metric_block(
-    title: str,
-    gauges: list[tuple[str, Any, str]],
-    metrics: list[tuple[str, str, str] | tuple[str, str, str, str]],
-    class_name: str = "",
-) -> None:
-    gauge_html = "".join(circular_gauge_html(label, value, color) for label, value, color in gauges)
-    metric_html = "".join(metric_info_card_html(*item) for item in metrics)
-    title_html = f"<div class='kpi-title'>{escape(title)}</div>" if title else ""
-    st.markdown(
-        f"""
-        <div class='gauge-metric-block {escape(class_name)}'>
-          {title_html}
-          <div class='gauge-metric-layout'>
-            <div class='gauge-grid'>{gauge_html}</div>
-            <div class='metric-side-grid'>{metric_html}</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def compact_progress_bar_html(label: str, value: Any, color: str) -> str:
-    pct = clamp_percent(value)
-    return (
-        "<div class='category-progress-row'>"
-        f"<span>{escape(label)}</span>"
-        "<div class='category-progress-track'>"
-        f"<div class='category-progress-fill' style='width:{pct:.1f}%; background:{color}'></div>"
-        "</div>"
-        f"<b>{pct:.1f}%</b>"
-        "</div>"
-    )
-
-
-def rank_list_row_html(
-    rank: Any,
-    title: str,
-    value: str,
-    meta: str = "",
-    badge: str = "",
-) -> str:
-    badge_html = f"<span class='rank-badge'>{escape(badge)}</span>" if badge else ""
-    meta_html = f"<div class='rank-meta'>{escape(meta)}</div>" if meta else ""
-    return (
-        "<div class='rank-row'>"
-        f"<div class='rank-number'>{format_int(float(rank or 0))}</div>"
-        "<div class='rank-body'>"
-        f"<div class='rank-title'>{escape(title)}</div>"
-        f"{meta_html}"
-        "</div>"
-        f"{badge_html}"
-        f"<div class='rank-value'>{escape(value)}</div>"
-        "</div>"
-    )
-
-
-def render_rank_list(rows: list[str]) -> None:
-    st.markdown(f"<div class='rank-list'>{''.join(rows)}</div>", unsafe_allow_html=True)
-
-
 def progress_tone(progress: float) -> str:
     if progress >= 100:
         return "done"
@@ -3685,19 +3577,14 @@ def family_card_html(row: pd.Series) -> str:
     production_progress = float(row["생산진도율"])
     receipt_progress = float(row.get("용마입고율", row["포장진도율"]))
     production_shortage = format_int(float(row["생산부족수량"]))
-    section = family_card_section(row["본품분류"])
-    section_class = {
-        "1DAY": "one-day",
-        "FRP": "frp",
-        "기타": "etc",
-    }.get(section, "etc")
     return (
-        f"<div class='category-progress-card {section_class}'>"
-        f"<div class='category-badge'>{escape(section)}</div>"
-        f"<div class='category-title'>{family}</div>"
-        f"<div class='category-meta'>요청 {request_pack} PACK · 생산부족 {production_shortage} PCS</div>"
-        f"{compact_progress_bar_html('생산', production_progress, COLOR_BLUE)}"
-        f"{compact_progress_bar_html('입고', receipt_progress, COLOR_TEAL)}"
+        "<div class='family-card'>"
+        f"<div class='family-head'><span>{family}</span><b>요청 {request_pack} PACK</b></div>"
+        f"{progress_cell_html(production_progress, '생산')}"
+        f"{progress_cell_html(receipt_progress, '입고')}"
+        "<div class='family-shortages'>"
+        f"<span>생산부족 PCS <b>{production_shortage}</b></span>"
+        "</div>"
         "</div>"
     )
 
@@ -3897,13 +3784,38 @@ def render_top_shortage_list(top_df: pd.DataFrame) -> None:
     rows: list[str] = []
     for _, row in top_df.iterrows():
         rows.append(
-            rank_list_row_html(
-                row.get("순위", 0.0),
-                str(row.get("제품명", "")),
-                f"{format_int(float(row.get('미입고 PACK', 0.0)))} PACK",
-            )
+            "<tr>"
+            f"<td class='num muted'>{format_int(float(row.get('순위', 0.0)))}</td>"
+            f"<td class='left'>{escape(str(row.get('제품명', '')))}</td>"
+            f"<td class='num shortage'>{format_int(float(row.get('미입고 PACK', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('포장진도율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)))}</td>"
+            "</tr>"
         )
-    render_rank_list(rows)
+    st.markdown(
+        "<div class='table-wrap compact-table'>"
+        "<table class='ops-table progress-summary-table main-summary-table top-shortage-summary-table'>"
+        "<colgroup>"
+        "<col class='summary-rank-col'>"
+        "<col class='summary-product-col'>"
+        "<col class='summary-number-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-progress-col'>"
+        "</colgroup>"
+        "<thead><tr>"
+        "<th class='num'>순위</th>"
+        "<th class='left'>제품명</th>"
+        "<th class='num'>미입고 PACK</th>"
+        "<th>생산진도율</th>"
+        "<th>포장진도율</th>"
+        "<th>용마입고율</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -3946,64 +3858,108 @@ def render_gap_top_list(gap_df: pd.DataFrame) -> None:
         return
     rows: list[str] = []
     for _, row in gap_df.iterrows():
-        meta = (
-            f"생산 {float(row.get('생산진도율', 0.0)):.1f}% · "
-            f"용마 {float(row.get('용마입고율', 0.0)):.1f}%"
-        )
         rows.append(
-            rank_list_row_html(
-                row.get("순위", 0.0),
-                str(row.get("제품명", "")),
-                f"+{float(row.get('GAP', 0.0)):.1f}",
-                meta=meta,
-            )
+            "<tr>"
+            f"<td class='num muted'>{format_int(float(row.get('순위', 0.0)))}</td>"
+            f"<td class='left'>{escape(str(row.get('제품명', '')))}</td>"
+            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)))}</td>"
+            f"<td class='num shortage'>+{float(row.get('GAP', 0.0)):.1f}</td>"
+            "</tr>"
         )
-    render_rank_list(rows)
+    st.markdown(
+        "<div class='table-wrap compact-table'>"
+        "<table class='ops-table progress-summary-table main-summary-table gap-summary-table'>"
+        "<colgroup>"
+        "<col class='summary-rank-col'>"
+        "<col class='summary-product-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-progress-col'>"
+        "<col class='summary-number-col'>"
+        "</colgroup>"
+        "<thead><tr>"
+        "<th class='num'>순위</th>"
+        "<th class='left'>제품명</th>"
+        "<th>생산진도율</th>"
+        "<th>용마입고율</th>"
+        "<th class='num'>GAP</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PACK) -> None:
     progress = float(kpi["progress_pct"])
     production_progress = float(kpi.get("production_progress_pct", 0.0))
     packing_progress = float(kpi.get("packing_progress_pct", 0.0))
+    shortage_class = "metric-value warn" if kpi["shortage_pack"] > 0 else "metric-value"
+    production_shortage_class = "metric-value warn" if kpi.get("production_shortage_pcs", 0.0) > 0 else "metric-value"
 
     if unit_mode == UNIT_PCS:
-        render_gauge_metric_block(
-            title,
-            [
-                ("용마입고율", progress, COLOR_ORANGE),
-                ("생산진도율", production_progress, COLOR_BLUE),
-            ],
-            [
-                ("요청 PCS", format_int(kpi.get("request_pcs", 0.0)), "normal"),
-                ("용마입고 PACK", format_int(kpi.get("yongma_in_pack", kpi["packing_pack"])), "normal"),
-                (
-                    "생산부족 PCS",
-                    format_int(kpi.get("production_shortage_pcs", 0.0)),
-                    "warn" if kpi.get("production_shortage_pcs", 0.0) > 0 else "normal",
-                ),
-            ],
-            class_name="scope-kpi",
-        )
+        panel_html = f"""
+        <div class='kpi-panel scope-kpi'>
+          <div class='kpi-title'>{escape(title)}</div>
+          <div class='kpi-grid'>
+            <div class='kpi-card'>
+              <div class='metric-label'>요청 PCS</div>
+              <div class='metric-value'>{format_int(kpi.get('request_pcs', 0.0))}</div>
+            </div>
+            <div class='kpi-card'>
+              <div class='metric-label'>생산부족 PCS</div>
+              <div class='{production_shortage_class}'>{format_int(kpi.get('production_shortage_pcs', 0.0))}</div>
+            </div>
+            <div class='kpi-card'>
+              <div class='metric-label'>생산진도율</div>
+              <div class='metric-value'>{production_progress:.1f}%</div>
+            </div>
+            <div class='kpi-card'>
+              <div class='metric-label'>용마입고 PACK</div>
+              <div class='metric-value'>{format_int(kpi.get('yongma_in_pack', kpi['packing_pack']))}</div>
+            </div>
+            <div class='kpi-card'>
+              <div class='metric-label'>용마입고율</div>
+              <div class='metric-value'>{progress:.1f}%</div>
+            </div>
+          </div>
+        </div>
+        """
+        st.markdown(panel_html, unsafe_allow_html=True)
         return
 
-    render_gauge_metric_block(
-        title,
-        [
-            ("용마입고율", progress, COLOR_ORANGE),
-            ("생산진도율", production_progress, COLOR_BLUE),
-            ("포장진도율", packing_progress, COLOR_TEAL),
-        ],
-        [
-            ("요청 PACK", format_int(kpi["request_pack"]), "normal"),
-            ("미입고 PACK", format_int(kpi["shortage_pack"]), "warn" if kpi["shortage_pack"] > 0 else "normal"),
-            (
-                "생산부족 PCS",
-                format_int(kpi.get("production_shortage_pcs", 0.0)),
-                "warn" if kpi.get("production_shortage_pcs", 0.0) > 0 else "normal",
-            ),
-        ],
-        class_name="scope-kpi",
-    )
+    panel_html = f"""
+    <div class='kpi-panel scope-kpi'>
+      <div class='kpi-title'>{escape(title)}</div>
+      <div class='kpi-grid'>
+        <div class='kpi-card'>
+          <div class='metric-label'>요청 PACK</div>
+          <div class='metric-value'>{format_int(kpi['request_pack'])}</div>
+        </div>
+        <div class='kpi-card'>
+          <div class='metric-label'>생산진도율</div>
+          <div class='metric-value'>{production_progress:.1f}%</div>
+        </div>
+        <div class='kpi-card'>
+          <div class='metric-label'>포장진도율</div>
+          <div class='metric-value'>{packing_progress:.1f}%</div>
+        </div>
+        <div class='kpi-card'>
+          <div class='metric-label'>용마입고율</div>
+          <div class='metric-value'>{progress:.1f}%</div>
+        </div>
+        <div class='kpi-card'>
+          <div class='metric-label'>미입고 PACK</div>
+          <div class='{shortage_class}'>{format_int(kpi['shortage_pack'])}</div>
+        </div>
+        <div class='kpi-card'>
+          <div class='metric-label'>생산부족 PCS</div>
+          <div class='{production_shortage_class}'>{format_int(kpi.get('production_shortage_pcs', 0.0))}</div>
+        </div>
+      </div>
+    </div>
+    """
+    st.markdown(panel_html, unsafe_allow_html=True)
 
 
 def render_kpi_scope_panels(
@@ -4049,8 +4005,20 @@ def metric_progress_tone(progress: float) -> str:
 
 
 def render_metric_card_grid(items: list[tuple[str, str, str] | tuple[str, str, str, str]]) -> None:
+    def card_html(item: tuple[str, str, str] | tuple[str, str, str, str]) -> str:
+        label, value, tone = item[:3]
+        note = item[3] if len(item) > 3 else ""
+        note_html = f"<div class='metric-note'>{escape(note)}</div>" if note else ""
+        return (
+            "<div class='mini-kpi-card'>"
+            f"<div class='metric-label'>{escape(label)}</div>"
+            f"<div class='metric-value {tone}'>{escape(value)}</div>"
+            f"{note_html}"
+            "</div>"
+        )
+
     cards = "".join(
-        metric_info_card_html(*item)
+        card_html(item)
         for item in items
     )
     st.markdown(f"<div class='mini-kpi-grid'>{cards}</div>", unsafe_allow_html=True)
@@ -4122,25 +4090,57 @@ def render_status_board(
         missing_pack = max(0.0, request_pack - yongma_in_pack)
         receipt_progress = yongma_in_pack / request_pack * 100.0 if request_pack > 0 else 0.0
 
+    receipt_width = max(0.0, min(100.0, receipt_progress))
+    missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
     emergency_count = request_out_count
+    if emergency_count > 0 or priority_products > 0:
+        board_tone = "risk"
+    elif missing_pack > 0 or production_shortage > 0:
+        board_tone = "warn"
+    else:
+        board_tone = "good"
 
-    render_gauge_metric_block(
-        "요청 대비 핵심 진도",
-        [
-            ("용마입고율", receipt_progress, COLOR_ORANGE),
-            ("생산진도율", production_progress, COLOR_BLUE),
-            ("포장진도율", packing_progress, COLOR_TEAL),
-        ],
-        [
-            ("요청 PACK", format_int(request_pack), "normal"),
-            ("용마입고 PACK", format_int(yongma_in_pack), "normal"),
-            ("미입고 PACK", format_int(missing_pack), "warn" if missing_pack > 0 else "normal"),
-            ("생산부족 PCS", format_int(production_shortage), "warn" if production_shortage > 0 else "normal"),
-            ("용마입고대기 PACK", format_int(receipt_wait_pack), "normal"),
-            ("긴급 대응 품목 수", f"{emergency_count:,}", "warn" if emergency_count > 0 else "normal"),
-        ],
-        class_name="status-board",
+    cards = [
+        ("국내 요청량 PACK", format_int(request_pack), "normal"),
+        ("생산진도율", f"{production_progress:.1f}%", metric_progress_tone(production_progress)),
+        ("포장진도율", f"{packing_progress:.1f}%", metric_progress_tone(packing_progress)),
+        ("용마입고율", f"{receipt_progress:.1f}%", metric_progress_tone(receipt_progress)),
+        ("미입고 PACK", format_int(missing_pack), "warn" if missing_pack > 0 else "normal"),
+        ("긴급 대응 품목 수", f"{emergency_count:,}", "warn" if emergency_count > 0 else "normal"),
+    ]
+    card_html = "".join(
+        "<div class='status-tile'>"
+        f"<div class='metric-label'>{escape(label)}</div>"
+        f"<div class='metric-value {tone}'>{escape(value)}</div>"
+        "</div>"
+        for label, value, tone in cards
     )
+
+    board_html = f"""
+    <div class='status-board {board_tone}'>
+      <div class='status-main'>
+        <div class='status-head'>
+          <span class='status-pill {board_tone}'>용마입고율</span>
+          <strong>요청 대비 용마 입고 현황</strong>
+        </div>
+        <div class='status-main-value'>{receipt_progress:.1f}%</div>
+        <div class='status-flow'>
+          <div class='status-flow-fill receipt' style='width:{receipt_width:.1f}%'></div>
+          <div class='status-flow-fill shortage' style='width:{missing_width:.1f}%'></div>
+        </div>
+        <div class='status-flow-legend'>
+          <span>요청 {format_int(request_pack)} PACK</span>
+          <span>용마입고 {format_int(yongma_in_pack)} PACK</span>
+          <span>미입고 {format_int(missing_pack)} PACK</span>
+          <span>용마입고율 {receipt_progress:.1f}%</span>
+        </div>
+      </div>
+      <div class='status-tile-grid'>
+        {card_html}
+      </div>
+    </div>
+    """
+    st.markdown(board_html, unsafe_allow_html=True)
 
 
 def build_scope_kpis(code_summary: pd.DataFrame) -> list[tuple[str, dict[str, float]]]:
@@ -6828,34 +6828,28 @@ def calc_production_power_kpis(view: pd.DataFrame) -> dict[str, float]:
 def render_production_power_kpis(view: pd.DataFrame, unit_mode: str = UNIT_PACK) -> None:
     kpi = calc_production_power_kpis(view)
     if unit_mode == UNIT_PCS:
-        render_gauge_metric_block(
-            "생산코드 기준 진도 요약",
-            [
-                ("생산진도율", kpi["production_progress_pct"], COLOR_BLUE),
-                ("포장진도율", kpi["packing_progress_pct"], COLOR_TEAL),
-            ],
-            [
-                ("생산코드 수", f"{int(kpi['production_code_count']):,}", "normal"),
-                ("총 요청 PCS", format_int(kpi["request_pcs"]), "normal"),
-                ("총 생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "warn"),
-            ],
-            class_name="production-summary",
-        )
+        items = [
+            ("생산코드 수", f"{int(kpi['production_code_count']):,}", "normal"),
+            ("총 요청 PCS", format_int(kpi["request_pcs"]), "normal"),
+            ("총 생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "risk"),
+            ("생산진도율", f"{kpi['production_progress_pct']:.1f}%", "normal"),
+            ("포장진도율", f"{kpi['packing_progress_pct']:.1f}%", "normal"),
+        ]
     else:
-        render_gauge_metric_block(
-            "생산코드 기준 진도 요약",
-            [
-                ("생산진도율", kpi["production_progress_pct"], COLOR_BLUE),
-                ("포장진도율", kpi["packing_progress_pct"], COLOR_TEAL),
-            ],
-            [
-                ("생산코드 수", f"{int(kpi['production_code_count']):,}", "normal"),
-                ("총 요청 PACK", format_int(kpi["request_pack"]), "normal"),
-                ("총 포장부족(PACK)", format_int(kpi["packing_shortage_pack"]), "warn"),
-                ("총 생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "warn"),
-            ],
-            class_name="production-summary",
-        )
+        items = [
+            ("생산코드 수", f"{int(kpi['production_code_count']):,}", "normal"),
+            ("총 요청 PACK", format_int(kpi["request_pack"]), "normal"),
+            ("총 포장부족(PACK)", format_int(kpi["packing_shortage_pack"]), "warn"),
+            ("총 생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "risk"),
+        ]
+    cards = "".join(
+        "<div class='mini-kpi-card'>"
+        f"<div class='metric-label'>{escape(label)}</div>"
+        f"<div class='metric-value {tone}'>{value}</div>"
+        "</div>"
+        for label, value, tone in items
+    )
+    st.markdown(f"<div class='mini-kpi-grid'>{cards}</div>", unsafe_allow_html=True)
 
 
 def due_d_day_label(value: Any) -> str:
@@ -7461,28 +7455,18 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
         "긴급 포장 리스트",
         "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 PACK 기준 요청·부족 수량만 표시합니다.",
     )
+    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if urgent_view.empty:
         st.info("현재 기준에 해당하는 긴급 포장 판매코드가 없습니다.")
     else:
-        rows: list[str] = []
-        for rank, (_, row) in enumerate(urgent_view.iterrows(), start=1):
-            product = clean_str(row.get("제품명", ""))
-            code = clean_str(row.get("판매코드", ""))
-            pack = clean_str(row.get("PACK", ""))
-            power = clean_str(row.get("POWER", ""))
-            due = clean_str(row.get("납기", ""))
-            shortage = float(pd.to_numeric(row.get("포장부족(PACK)", 0.0), errors="coerce") or 0.0)
-            meta_parts = [part for part in [code, pack, power, f"납기 {due}" if due else ""] if part]
-            rows.append(
-                rank_list_row_html(
-                    rank,
-                    product,
-                    f"{format_int(shortage)} PACK",
-                    meta=" · ".join(meta_parts),
-                    badge=clean_str(row.get("우선등급", "")),
-                )
-            )
-        render_rank_list(rows)
+        st.dataframe(
+            urgent_view,
+            hide_index=True,
+            height=260,
+            width="stretch",
+            column_config=drilldown_column_config(),
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def sales_scope_from_row(code_summary: pd.DataFrame, sales_code: str) -> pd.DataFrame:
@@ -8312,21 +8296,39 @@ def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
         return
 
     rows: list[str] = []
-    for rank, (_, row) in enumerate(summary_view.iterrows(), start=1):
+    for _, row in summary_view.iterrows():
         sku_num = pd.to_numeric(row.get("SKU 수", 0), errors="coerce")
         sku_count = 0.0 if pd.isna(sku_num) else float(sku_num)
         scope = clean_str(row.get("요청구분", ""))
-        code = clean_str(row.get("S코드", ""))
+        scope_class = "in" if scope == "요청내" else "out"
         rows.append(
-            rank_list_row_html(
-                rank,
-                clean_str(row.get("제품명", "")),
-                f"{format_int(sku_count)} SKU",
-                meta=code,
-                badge=scope,
-            )
+            "<tr>"
+            f"<td class='left code-cell'>{escape(clean_str(row.get('S코드', '')))}</td>"
+            f"<td class='left'><span class='request-scope-badge {scope_class}'>{escape(scope)}</span></td>"
+            f"<td class='left'>{escape(clean_str(row.get('제품명', '')))}</td>"
+            f"<td class='num shortage'>{format_int(sku_count)}</td>"
+            "</tr>"
         )
-    render_rank_list(rows)
+    st.markdown(
+        "<div class='table-wrap compact-table'>"
+        "<table class='ops-table urgent-summary-table main-summary-table urgent-request-summary-table'>"
+        "<colgroup>"
+        "<col class='summary-code-col'>"
+        "<col class='summary-scope-col'>"
+        "<col class='summary-product-col'>"
+        "<col class='summary-number-col'>"
+        "</colgroup>"
+        "<thead><tr>"
+        "<th class='left'>S코드</th>"
+        "<th class='left'>요청구분</th>"
+        "<th class='left'>제품명</th>"
+        "<th class='num'>SKU 수</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def to_report_float(value: Any) -> float:
@@ -10086,392 +10088,6 @@ def render_style() -> None:
             font-weight: 500;
             font-variant-numeric: tabular-nums;
         }}
-        .block-container {{
-            padding: 28px 32px 36px !important;
-        }}
-        p, div, span, label, button, input, textarea, select {{
-            font-weight: 400;
-        }}
-        h1 {{
-            font-size: 22px !important;
-            font-weight: 500 !important;
-            margin-bottom: 8px !important;
-        }}
-        h3, .section-title {{
-            font-size: 16px !important;
-            font-weight: 500 !important;
-            line-height: 1.35;
-        }}
-        .section-sub {{
-            font-size: 12px !important;
-            color: {TEXT_SECONDARY};
-            margin-bottom: 12px;
-        }}
-        [data-testid="stCaptionContainer"],
-        [data-testid="stCaptionContainer"] p {{
-            color: {TEXT_SECONDARY} !important;
-            font-size: 12px !important;
-        }}
-        [data-testid="stSegmentedControl"] {{
-            margin: 8px 0 18px 0 !important;
-        }}
-        [data-testid="stSegmentedControl"] button {{
-            border-radius: 0 !important;
-            font-size: 13px !important;
-            font-weight: 400 !important;
-        }}
-        [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
-            color: {COLOR_ORANGE} !important;
-            font-weight: 500 !important;
-            border-bottom: 2px solid {COLOR_ORANGE} !important;
-        }}
-        .dashboard-nav-divider {{
-            background: {BORDER_DEFAULT};
-            margin: -12px 0 22px 0;
-        }}
-        [data-testid="stTextInput"] input,
-        [data-testid="stNumberInput"] input,
-        [data-testid="stSelectbox"] > div > div,
-        [data-testid="stMultiSelect"] > div > div {{
-            border-radius: 12px !important;
-            min-height: 38px !important;
-        }}
-        [data-testid="stButton"] button,
-        [data-testid="stDownloadButton"] button {{
-            border-radius: 12px !important;
-            min-height: 38px !important;
-        }}
-        .gauge-metric-block {{
-            display: block;
-            background: {BG_CARD};
-            border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
-            padding: 1rem;
-            box-shadow: none;
-            margin: 0 0 1.5rem 0;
-        }}
-        .gauge-metric-block.status-board {{
-            display: block;
-            grid-template-columns: unset;
-            gap: 0;
-            align-items: initial;
-        }}
-        .gauge-metric-block.scope-kpi {{
-            height: 100%;
-            margin-bottom: 0;
-        }}
-        .gauge-metric-layout {{
-            display: grid;
-            grid-template-columns: minmax(280px, 1.1fr) minmax(360px, 1fr);
-            gap: 16px;
-            align-items: stretch;
-        }}
-        .scope-kpi .gauge-metric-layout {{
-            grid-template-columns: 1fr;
-            gap: 12px;
-        }}
-        .gauge-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
-            gap: 14px;
-            align-items: center;
-        }}
-        .scope-kpi .gauge-grid {{
-            grid-template-columns: repeat(auto-fit, minmax(94px, 1fr));
-            gap: 10px;
-        }}
-        .gauge-card {{
-            min-width: 0;
-            text-align: center;
-        }}
-        .gauge-svg-wrap {{
-            position: relative;
-            width: 118px;
-            height: 118px;
-            margin: 0 auto 7px;
-        }}
-        .scope-kpi .gauge-svg-wrap {{
-            width: 96px;
-            height: 96px;
-        }}
-        .circular-gauge {{
-            width: 100%;
-            height: 100%;
-            display: block;
-        }}
-        .gauge-track,
-        .gauge-fill {{
-            fill: none;
-            stroke-width: 10;
-        }}
-        .gauge-track {{
-            stroke: #E2DED5;
-        }}
-        .gauge-fill {{
-            stroke-linecap: round;
-            transform: rotate(-90deg);
-            transform-origin: 60px 60px;
-            transition: stroke-dashoffset 220ms ease;
-        }}
-        .gauge-value {{
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: {TEXT_PRIMARY};
-            font-size: 20px;
-            font-weight: 500;
-            font-variant-numeric: tabular-nums;
-        }}
-        .scope-kpi .gauge-value {{
-            font-size: 17px;
-        }}
-        .gauge-label {{
-            color: {TEXT_SECONDARY};
-            font-size: 13px;
-            line-height: 1.25;
-        }}
-        .metric-side-grid,
-        .mini-kpi-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 12px;
-        }}
-        .scope-kpi .metric-side-grid {{
-            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-        }}
-        .mini-kpi-card,
-        .kpi-card,
-        .status-tile {{
-            background: {BG_CARD};
-            border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
-            padding: 1rem;
-            box-shadow: none;
-            min-height: 74px;
-        }}
-        .metric-label {{
-            font-size: 12px;
-            color: {TEXT_SECONDARY};
-            font-weight: 400;
-        }}
-        .metric-value {{
-            font-size: 20px;
-            font-weight: 500;
-            color: {TEXT_PRIMARY};
-            font-variant-numeric: tabular-nums;
-        }}
-        .metric-value.warn,
-        .metric-value.risk {{
-            color: {COLOR_ORANGE};
-        }}
-        .metric-value.good {{
-            color: {COLOR_TEAL};
-        }}
-        .metric-value.mid {{
-            color: {COLOR_BLUE};
-        }}
-        .panel-box,
-        .table-wrap,
-        [data-testid="stDataFrame"] {{
-            border-radius: 12px !important;
-            border: 0.5px solid {BORDER_DEFAULT} !important;
-            background: {BG_CARD};
-            box-shadow: none !important;
-        }}
-        .panel-box {{
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-        }}
-        .family-section {{
-            gap: 10px;
-        }}
-        .family-section + .family-section {{
-            margin-top: 18px;
-        }}
-        .family-section-title {{
-            background: transparent;
-            color: {TEXT_SECONDARY};
-            font-size: 13px;
-            font-weight: 500;
-            padding: 0;
-            border-radius: 0;
-        }}
-        .family-grid {{
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-        }}
-        .category-progress-card {{
-            border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
-            padding: 1rem;
-            min-height: 142px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            box-shadow: none;
-        }}
-        .category-progress-card.one-day {{
-            background: {COLOR_PURPLE_BG};
-            color: {COLOR_PURPLE_TEXT};
-        }}
-        .category-progress-card.frp {{
-            background: {COLOR_TEAL_BG};
-            color: {COLOR_TEAL_TEXT};
-        }}
-        .category-progress-card.etc {{
-            background: {COLOR_ALERT_BG};
-            color: {COLOR_CORAL_TEXT};
-        }}
-        .category-badge {{
-            display: inline-flex;
-            align-items: center;
-            width: fit-content;
-            border-radius: 20px;
-            padding: 4px 9px;
-            font-size: 11px;
-            line-height: 1;
-            font-weight: 500;
-            background: rgba(255,255,255,0.58);
-            color: currentColor;
-        }}
-        .category-title {{
-            color: currentColor;
-            font-size: 15px;
-            font-weight: 500;
-            line-height: 1.3;
-            overflow-wrap: anywhere;
-        }}
-        .category-meta {{
-            color: rgba(0,0,0,0.56);
-            font-size: 12px;
-            line-height: 1.3;
-        }}
-        .category-progress-row {{
-            display: grid;
-            grid-template-columns: 34px minmax(0, 1fr) 48px;
-            gap: 8px;
-            align-items: center;
-            font-size: 12px;
-        }}
-        .category-progress-row span {{
-            color: rgba(0,0,0,0.62);
-        }}
-        .category-progress-row b {{
-            text-align: right;
-            color: rgba(0,0,0,0.72);
-            font-size: 12px;
-            font-weight: 500;
-            font-variant-numeric: tabular-nums;
-        }}
-        .category-progress-track {{
-            height: 6px;
-            border-radius: 3px;
-            background: rgba(255,255,255,0.72);
-            overflow: hidden;
-        }}
-        .category-progress-fill {{
-            height: 100%;
-            border-radius: 3px;
-        }}
-        .rank-list {{
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }}
-        .rank-row {{
-            display: grid;
-            grid-template-columns: 24px minmax(0, 1fr) auto minmax(92px, auto);
-            gap: 12px;
-            align-items: center;
-            border: 0.5px solid {BORDER_DEFAULT};
-            border-radius: 12px;
-            background: {BG_CARD};
-            padding: 11px 14px;
-        }}
-        .rank-number {{
-            width: 24px;
-            color: {TEXT_TERTIARY};
-            font-size: 13px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-        }}
-        .rank-title {{
-            color: {TEXT_PRIMARY};
-            font-size: 13px;
-            font-weight: 400;
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-        }}
-        .rank-meta {{
-            color: {TEXT_SECONDARY};
-            font-size: 12px;
-            line-height: 1.3;
-            margin-top: 2px;
-        }}
-        .rank-badge {{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 20px;
-            padding: 4px 9px;
-            background: {COLOR_ALERT_BG};
-            color: {COLOR_CORAL_TEXT};
-            font-size: 11px;
-            font-weight: 500;
-            white-space: nowrap;
-        }}
-        .rank-value {{
-            color: {COLOR_ORANGE};
-            font-size: 13px;
-            font-weight: 500;
-            text-align: right;
-            white-space: nowrap;
-            font-variant-numeric: tabular-nums;
-        }}
-        .ops-table th,
-        [data-testid="stDataFrame"] th {{
-            background: {BG_SECTION} !important;
-            font-size: 12px !important;
-            font-weight: 500 !important;
-            color: {TEXT_SECONDARY} !important;
-        }}
-        .ops-table td,
-        [data-testid="stDataFrame"] td {{
-            font-size: 12px !important;
-            font-weight: 400 !important;
-        }}
-        .progress-track {{
-            height: 6px;
-            background: #E2DED5;
-        }}
-        .progress-fill.production {{
-            background: {COLOR_BLUE};
-        }}
-        .progress-fill.receipt,
-        .progress-fill.done,
-        .progress-fill.active {{
-            background: {COLOR_TEAL};
-        }}
-        .progress-fill.warn,
-        .progress-fill.risk {{
-            background: {COLOR_ORANGE};
-        }}
-        @media (max-width: 900px) {{
-            .gauge-metric-layout {{
-                grid-template-columns: 1fr;
-            }}
-            .rank-row {{
-                grid-template-columns: 24px minmax(0, 1fr);
-            }}
-            .rank-badge,
-            .rank-value {{
-                grid-column: 2;
-                justify-self: start;
-                text-align: left;
-            }}
-        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -10882,8 +10498,10 @@ def render_selectable_table(
     column_order: list[str] | None = None,
 ) -> pd.Series | None:
     render_panel_title(title, sub)
+    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if df.empty:
         st.warning("조건에 맞는 데이터가 없습니다.")
+        st.markdown("</div>", unsafe_allow_html=True)
         return None
     display_df = dataframe_for_streamlit(df)
     column_config = drilldown_column_config()
@@ -10901,6 +10519,7 @@ def render_selectable_table(
         selection_mode="single-row",
         key=key,
     )
+    st.markdown("</div>", unsafe_allow_html=True)
     return get_selected_row(event, df)
 
 
@@ -11280,28 +10899,36 @@ def render_product_summary_tab(
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
         st.caption("3Q전체물량은 요청량, 생산지시물량은 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.")
         render_request_instruction_level_cards(category_request_view)
+        st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
         render_category_request_summary_table(category_request_view)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
         "본품 분류별 진도현황",
         "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
     )
+    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_family_progress_cards(family_view)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
         "미입고 TOP10",
         "미입고 PACK이 큰 제품의 생산·포장·입고 진도를 확인합니다.",
     )
+    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_top_shortage_list(top_shortage_view)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
         "생산완료 후 미입고 TOP10",
         "생산은 진행됐지만 용마 입고가 지연되는 제품을 GAP 기준으로 표시합니다.",
     )
+    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_gap_top_list(gap_top_view)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     urgent_sku_count = int(
@@ -11313,7 +10940,9 @@ def render_product_summary_tab(
         "요청 긴급 요약",
         f"일일 재고표 기준 긴급요청 S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개를 확인합니다.",
     )
+    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     render_urgent_request_summary_table(urgent_summary_view)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str = "전체") -> None:
@@ -11648,18 +11277,14 @@ def render_power_tab(code_summary: pd.DataFrame, selected_factory: str = "전체
         )
         production_progress = min(100.0, max(0.0, production_progress))
         packing_progress = min(100.0, max(0.0, packing_progress))
-        render_gauge_metric_block(
-            "POWER 기준 진도 요약",
-            [
-                ("생산진도율", production_progress, COLOR_BLUE),
-                ("포장진도율", packing_progress, COLOR_TEAL),
-            ],
+        render_metric_card_grid(
             [
                 ("대상 도수", f"{ops_kpi['rows']:,}", "normal"),
                 ("요청합계(PCS)", format_int(request_pcs), "normal"),
                 ("생산부족수량(PCS)", format_int(production_shortage_pcs), "warn"),
-            ],
-            class_name="power-summary",
+                ("생산진도율", f"{production_progress:.1f}%", metric_progress_tone(production_progress)),
+                ("포장진도율", f"{packing_progress:.1f}%", metric_progress_tone(packing_progress)),
+            ]
         )
     else:
         render_metric_card_grid(
