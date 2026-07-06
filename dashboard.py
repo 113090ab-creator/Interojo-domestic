@@ -193,20 +193,21 @@ PACK_SUFFIX_RE = re.compile(
 )
 PACK_PREFIX_SUFFIX_RE = re.compile(r"^\d+(?:\.\d+)?\s*(?:P|팩)_", re.IGNORECASE)
 
-COLOR_BLUE = "#185FA5"
-COLOR_TEAL = "#1D9E75"
-COLOR_ORANGE = "#D85A30"
-COLOR_AMBER = "#BA7517"
-COLOR_ALERT_BG = "#FAECE7"
-COLOR_ALERT_BD = "#F0997B"
-BG_PAGE = "#F4F4F2"
+COLOR_BLUE = "#2563EB"
+COLOR_TEAL = "#16A34A"
+COLOR_ORANGE = "#F97316"
+COLOR_AMBER = "#7C3AED"
+COLOR_DANGER = "#DC2626"
+COLOR_ALERT_BG = "#FEF2F2"
+COLOR_ALERT_BD = "#FECACA"
+BG_PAGE = "#F7F8FA"
 BG_CARD = "#FFFFFF"
-BG_SECTION = "#EFEFEC"
-TEXT_PRIMARY = "#1A1A1A"
-TEXT_SECONDARY = "#6B6B68"
-TEXT_TERTIARY = "#9E9D99"
-BORDER_DEFAULT = "rgba(0,0,0,0.10)"
-BORDER_LIGHT = "rgba(0,0,0,0.06)"
+BG_SECTION = "#F3F4F6"
+TEXT_PRIMARY = "#111827"
+TEXT_SECONDARY = "#4B5563"
+TEXT_TERTIARY = "#9CA3AF"
+BORDER_DEFAULT = "#E5E7EB"
+BORDER_LIGHT = "#EEF0F3"
 
 NAVY = COLOR_BLUE
 SOFT_NAVY = COLOR_TEAL
@@ -225,7 +226,7 @@ REPORT_HEADER = "#121A2A"
 REPORT_MUTED = "#6B7280"
 REPORT_FAINT = "#F1F4F8"
 REPORT_ROW_ALT = "#F8FAFC"
-REPORT_ACCENT = "#D85A30"
+REPORT_ACCENT = COLOR_ORANGE
 REPORT_NAVY = "#172033"
 REPORT_BLUE_SOFT = "#EAF2F9"
 REPORT_ACCENT_SOFT = "#FFF1E8"
@@ -3382,15 +3383,17 @@ def status_class(status: str) -> str:
     return "risk"
 
 
-def progress_cell_html(progress: float, label: str = "") -> str:
+def progress_cell_html(progress: float, label: str = "", show_label: bool = True) -> str:
     width = max(0.0, min(100.0, float(progress)))
     tone = progress_tone(float(progress))
     semantic = ""
     if label in {"생산"}:
         semantic = " production"
+    elif label in {"포장"}:
+        semantic = " packing"
     elif label in {"입고", "용마입고"}:
         semantic = " receipt"
-    prefix = f"<span class='progress-name'>{escape(label)}</span>" if label else ""
+    prefix = f"<span class='progress-name'>{escape(label)}</span>" if label and show_label else ""
     return (
         "<div class='progress-cell'>"
         f"{prefix}"
@@ -3844,9 +3847,9 @@ def render_top_shortage_list(top_df: pd.DataFrame) -> None:
             f"<td class='num muted'>{format_int(float(row.get('순위', 0.0)))}</td>"
             f"<td class='left'>{escape(str(row.get('제품명', '')))}</td>"
             f"<td class='num shortage'>{format_int(float(row.get('미입고 PACK', 0.0)))}</td>"
-            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)))}</td>"
-            f"<td>{progress_cell_html(float(row.get('포장진도율', 0.0)))}</td>"
-            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)), '생산', show_label=False)}</td>"
+            f"<td>{progress_cell_html(float(row.get('포장진도율', 0.0)), '포장', show_label=False)}</td>"
+            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)), '용마입고', show_label=False)}</td>"
             "</tr>"
         )
     st.markdown(
@@ -3918,8 +3921,8 @@ def render_gap_top_list(gap_df: pd.DataFrame) -> None:
             "<tr>"
             f"<td class='num muted'>{format_int(float(row.get('순위', 0.0)))}</td>"
             f"<td class='left'>{escape(str(row.get('제품명', '')))}</td>"
-            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)))}</td>"
-            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)))}</td>"
+            f"<td>{progress_cell_html(float(row.get('생산진도율', 0.0)), '생산', show_label=False)}</td>"
+            f"<td>{progress_cell_html(float(row.get('용마입고율', 0.0)), '용마입고', show_label=False)}</td>"
             f"<td class='num shortage'>+{float(row.get('GAP', 0.0)):.1f}</td>"
             "</tr>"
         )
@@ -3946,72 +3949,64 @@ def render_gap_top_list(gap_df: pd.DataFrame) -> None:
     )
 
 
+def kpi_metric_item_html(label: str, value: str, tone: str = "normal") -> str:
+    return (
+        "<div class='kpi-metric'>"
+        f"<div class='metric-label'>{escape(label)}</div>"
+        f"<div class='metric-value {escape(tone)}'>{escape(value)}</div>"
+        "</div>"
+    )
+
+
+def kpi_progress_line_html(label: str, value: float, tone: str) -> str:
+    width = max(0.0, min(100.0, float(value)))
+    return (
+        "<div class='kpi-progress-row'>"
+        f"<span>{escape(label)}</span>"
+        "<div class='kpi-progress-track'>"
+        f"<div class='kpi-progress-fill {escape(tone)}' style='width:{width:.1f}%'></div>"
+        "</div>"
+        f"<b>{float(value):.1f}%</b>"
+        "</div>"
+    )
+
+
 def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PACK) -> None:
     progress = float(kpi["progress_pct"])
     production_progress = float(kpi.get("production_progress_pct", 0.0))
     packing_progress = float(kpi.get("packing_progress_pct", 0.0))
-    shortage_class = "metric-value warn" if kpi["shortage_pack"] > 0 else "metric-value"
-    production_shortage_class = "metric-value warn" if kpi.get("production_shortage_pcs", 0.0) > 0 else "metric-value"
+    shortage_tone = "danger" if kpi["shortage_pack"] > 0 else "normal"
+    production_shortage_tone = "danger" if kpi.get("production_shortage_pcs", 0.0) > 0 else "normal"
 
     if unit_mode == UNIT_PCS:
-        panel_html = f"""
-        <div class='kpi-panel scope-kpi'>
-          <div class='kpi-title'>{escape(title)}</div>
-          <div class='kpi-grid'>
-            <div class='kpi-card'>
-              <div class='metric-label'>요청 PCS</div>
-              <div class='metric-value'>{format_int(kpi.get('request_pcs', 0.0))}</div>
-            </div>
-            <div class='kpi-card'>
-              <div class='metric-label'>생산부족 PCS</div>
-              <div class='{production_shortage_class}'>{format_int(kpi.get('production_shortage_pcs', 0.0))}</div>
-            </div>
-            <div class='kpi-card'>
-              <div class='metric-label'>생산진도율</div>
-              <div class='metric-value'>{production_progress:.1f}%</div>
-            </div>
-            <div class='kpi-card'>
-              <div class='metric-label'>용마입고 PACK</div>
-              <div class='metric-value'>{format_int(kpi.get('yongma_in_pack', kpi['packing_pack']))}</div>
-            </div>
-            <div class='kpi-card'>
-              <div class='metric-label'>용마입고율</div>
-              <div class='metric-value'>{progress:.1f}%</div>
-            </div>
-          </div>
-        </div>
-        """
-        st.markdown(panel_html, unsafe_allow_html=True)
-        return
-
+        metrics = [
+            ("요청 PCS", format_int(kpi.get("request_pcs", 0.0)), "normal"),
+            ("생산부족 PCS", format_int(kpi.get("production_shortage_pcs", 0.0)), production_shortage_tone),
+            ("생산진도율", f"{production_progress:.1f}%", "primary"),
+            ("용마입고 PACK", format_int(kpi.get("yongma_in_pack", kpi["packing_pack"])), "normal"),
+            ("용마입고율", f"{progress:.1f}%", "purple"),
+        ]
+    else:
+        metrics = [
+            ("요청 PACK", format_int(kpi["request_pack"]), "normal"),
+            ("생산진도율", f"{production_progress:.1f}%", "primary"),
+            ("포장진도율", f"{packing_progress:.1f}%", "warning"),
+            ("용마입고율", f"{progress:.1f}%", "purple"),
+            ("미입고 PACK", format_int(kpi["shortage_pack"]), shortage_tone),
+            ("생산부족 PCS", format_int(kpi.get("production_shortage_pcs", 0.0)), production_shortage_tone),
+        ]
+    metric_html = "".join(kpi_metric_item_html(label, value, tone) for label, value, tone in metrics)
     panel_html = f"""
     <div class='kpi-panel scope-kpi'>
-      <div class='kpi-title'>{escape(title)}</div>
-      <div class='kpi-grid'>
-        <div class='kpi-card'>
-          <div class='metric-label'>요청 PACK</div>
-          <div class='metric-value'>{format_int(kpi['request_pack'])}</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>생산진도율</div>
-          <div class='metric-value'>{production_progress:.1f}%</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>포장진도율</div>
-          <div class='metric-value'>{packing_progress:.1f}%</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>용마입고율</div>
-          <div class='metric-value'>{progress:.1f}%</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>미입고 PACK</div>
-          <div class='{shortage_class}'>{format_int(kpi['shortage_pack'])}</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>생산부족 PCS</div>
-          <div class='{production_shortage_class}'>{format_int(kpi.get('production_shortage_pcs', 0.0))}</div>
-        </div>
+      <div class='kpi-panel-head'>
+        <div class='kpi-title'>{escape(title)}</div>
+        <div class='kpi-rating'>★★★★☆</div>
+      </div>
+      <div class='kpi-divider-grid'>{metric_html}</div>
+      <div class='kpi-progress-stack'>
+        {kpi_progress_line_html("생산", production_progress, "production")}
+        {kpi_progress_line_html("포장", packing_progress, "packing")}
+        {kpi_progress_line_html("용마입고", progress, "receipt")}
       </div>
     </div>
     """
@@ -4061,23 +4056,26 @@ def metric_progress_tone(progress: float) -> str:
 
 
 def render_metric_card_grid(items: list[tuple[str, str, str] | tuple[str, str, str, str]]) -> None:
-    def card_html(item: tuple[str, str, str] | tuple[str, str, str, str]) -> str:
+    def metric_html(item: tuple[str, str, str] | tuple[str, str, str, str]) -> str:
         label, value, tone = item[:3]
         note = item[3] if len(item) > 3 else ""
         note_html = f"<div class='metric-note'>{escape(note)}</div>" if note else ""
         return (
-            "<div class='mini-kpi-card'>"
+            "<div class='kpi-metric'>"
             f"<div class='metric-label'>{escape(label)}</div>"
             f"<div class='metric-value {tone}'>{escape(value)}</div>"
             f"{note_html}"
             "</div>"
         )
 
-    cards = "".join(
-        card_html(item)
+    metrics = "".join(
+        metric_html(item)
         for item in items
     )
-    st.markdown(f"<div class='mini-kpi-grid'>{cards}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='kpi-panel metric-strip'><div class='kpi-divider-grid'>{metrics}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_status_board(
@@ -4156,43 +4154,43 @@ def render_status_board(
     else:
         board_tone = "good"
 
-    cards = [
-        ("국내 요청량 PACK", format_int(request_pack), "normal"),
-        ("생산진도율", f"{production_progress:.1f}%", metric_progress_tone(production_progress)),
-        ("포장진도율", f"{packing_progress:.1f}%", metric_progress_tone(packing_progress)),
-        ("용마입고율", f"{receipt_progress:.1f}%", metric_progress_tone(receipt_progress)),
-        ("미입고 PACK", format_int(missing_pack), "warn" if missing_pack > 0 else "normal"),
-        ("긴급 대응 품목 수", f"{emergency_count:,}", "warn" if emergency_count > 0 else "normal"),
-    ]
-    card_html = "".join(
-        "<div class='status-tile'>"
-        f"<div class='metric-label'>{escape(label)}</div>"
-        f"<div class='metric-value {tone}'>{escape(value)}</div>"
-        "</div>"
-        for label, value, tone in cards
+    metric_html = "".join(
+        [
+            kpi_metric_item_html("요청 PACK", format_int(request_pack), "normal"),
+            kpi_metric_item_html("생산진도", f"{production_progress:.1f}%", "primary"),
+            kpi_metric_item_html("포장진도", f"{packing_progress:.1f}%", "warning"),
+            kpi_metric_item_html("용마입고율", f"{receipt_progress:.1f}%", "purple"),
+            kpi_metric_item_html("미입고 PACK", format_int(missing_pack), "danger" if missing_pack > 0 else "normal"),
+            kpi_metric_item_html("긴급 대응", f"{emergency_count:,}", "danger" if emergency_count > 0 else "normal"),
+        ]
     )
 
     board_html = f"""
-    <div class='status-board {board_tone}'>
-      <div class='status-main'>
-        <div class='status-head'>
-          <span class='status-pill {board_tone}'>용마입고율</span>
-          <strong>요청 대비 용마 입고 현황</strong>
+    <div class='kpi-dashboard-block status-board {board_tone}'>
+      <div class='kpi-dashboard-head'>
+        <div>
+          <div class='section-title'>KPI Dashboard</div>
+          <div class='section-sub'>전체 KPI를 중심으로 본품과 샘플 현황을 비교합니다.</div>
         </div>
-        <div class='status-main-value'>{receipt_progress:.1f}%</div>
-        <div class='status-flow'>
-          <div class='status-flow-fill receipt' style='width:{receipt_width:.1f}%'></div>
-          <div class='status-flow-fill shortage' style='width:{missing_width:.1f}%'></div>
-        </div>
-        <div class='status-flow-legend'>
-          <span>요청 {format_int(request_pack)} PACK</span>
-          <span>용마입고 {format_int(yongma_in_pack)} PACK</span>
-          <span>미입고 {format_int(missing_pack)} PACK</span>
-          <span>용마입고율 {receipt_progress:.1f}%</span>
-        </div>
+        <div class='kpi-rating large'>★★★★★</div>
       </div>
-      <div class='status-tile-grid'>
-        {card_html}
+      <div class='overall-kpi-card'>
+        <div class='overall-kpi-title'>
+          <span>전체 KPI</span>
+          <b>생산 → 포장 → 용마입고</b>
+        </div>
+        <div class='kpi-divider-grid overall'>{metric_html}</div>
+        <div class='kpi-progress-stack overall'>
+          {kpi_progress_line_html("생산", production_progress, "production")}
+          {kpi_progress_line_html("포장", packing_progress, "packing")}
+          {kpi_progress_line_html("용마입고", receipt_progress, "receipt")}
+        </div>
+        <div class='overall-kpi-foot'>
+          <span>용마입고 {format_int(yongma_in_pack)} PACK</span>
+          <span>포장대기 {format_int(receipt_wait_pack)} PACK</span>
+          <span>포장필요 {format_int(packing_todo_pack)} PACK</span>
+          <span>생산부족 {format_int(production_shortage)} PCS</span>
+        </div>
       </div>
     </div>
     """
@@ -9304,6 +9302,8 @@ def render_style() -> None:
             --color-teal: {COLOR_TEAL};
             --color-orange: {COLOR_ORANGE};
             --color-amber: {COLOR_AMBER};
+            --color-purple: {COLOR_AMBER};
+            --color-danger: {COLOR_DANGER};
             --bg-page: {BG_PAGE};
             --bg-card: {BG_CARD};
             --bg-section: {BG_SECTION};
@@ -10180,6 +10180,524 @@ def render_style() -> None:
             font-weight: 500;
             font-variant-numeric: tabular-nums;
         }}
+
+        /* Enterprise dashboard refresh: layout and visual treatment only. */
+        .stApp {{
+            background: {BG_PAGE} !important;
+        }}
+        .block-container {{
+            padding: 28px 32px 40px !important;
+            max-width: 100% !important;
+        }}
+        .app-header {{
+            margin-bottom: 18px;
+        }}
+        .app-title {{
+            color: {TEXT_PRIMARY};
+            font-size: 32px;
+            line-height: 1.2;
+            font-weight: 700;
+            letter-spacing: 0;
+            margin-bottom: 10px;
+        }}
+        .app-basis {{
+            color: {TEXT_SECONDARY};
+            font-size: 13px;
+            line-height: 1.5;
+            font-weight: 500;
+        }}
+        .header-date {{
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            font-weight: 600;
+            text-align: right;
+            margin-bottom: 8px;
+        }}
+        .section-title {{
+            color: {TEXT_PRIMARY};
+            font-size: 18px;
+            line-height: 1.35;
+            font-weight: 700;
+            margin: 0 0 6px;
+            letter-spacing: 0;
+        }}
+        .section-sub {{
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            line-height: 1.5;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }}
+        [data-testid="stSegmentedControl"] {{
+            margin: 0 0 24px !important;
+        }}
+        [data-testid="stSegmentedControl"] label {{
+            color: {TEXT_SECONDARY} !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            margin-bottom: 8px !important;
+        }}
+        [data-testid="stSegmentedControl"] div[role="radiogroup"] {{
+            gap: 8px !important;
+            background: transparent !important;
+        }}
+        [data-testid="stSegmentedControl"] button {{
+            min-height: 40px !important;
+            border: 1px solid {BORDER_DEFAULT} !important;
+            border-radius: 8px !important;
+            background: {BG_CARD} !important;
+            color: {TEXT_SECONDARY} !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            padding: 9px 18px !important;
+            box-shadow: none !important;
+            transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease !important;
+        }}
+        [data-testid="stSegmentedControl"] button:hover {{
+            transform: translateY(-1px);
+            border-color: #CBD5E1 !important;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
+            background: {COLOR_BLUE} !important;
+            border-color: {COLOR_BLUE} !important;
+            color: #FFFFFF !important;
+        }}
+        .dashboard-nav-divider {{
+            height: 1px;
+            background: {BORDER_DEFAULT};
+            margin: -10px 0 24px;
+        }}
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stSelectbox"] > div > div,
+        [data-testid="stMultiSelect"] > div > div {{
+            min-height: 40px !important;
+            border-radius: 8px !important;
+            border: 1px solid {BORDER_DEFAULT} !important;
+            background: {BG_CARD} !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stTextInput"] label,
+        [data-testid="stNumberInput"] label,
+        [data-testid="stSelectbox"] label,
+        [data-testid="stMultiSelect"] label,
+        [data-testid="stCheckbox"] label,
+        [data-testid="stRadio"] label {{
+            color: {TEXT_SECONDARY} !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+        }}
+        [data-testid="stButton"] button,
+        [data-testid="stDownloadButton"] button {{
+            min-height: 40px !important;
+            border-radius: 8px !important;
+            border: 1px solid {BORDER_DEFAULT} !important;
+            background: {BG_CARD} !important;
+            color: {TEXT_PRIMARY} !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            box-shadow: none !important;
+            transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease !important;
+        }}
+        [data-testid="stButton"] button:hover,
+        [data-testid="stDownloadButton"] button:hover {{
+            transform: translateY(-2px);
+            background: #F9FAFB !important;
+            border-color: #CBD5E1 !important;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        .kpi-dashboard-block {{
+            margin: 0 0 24px;
+        }}
+        .kpi-dashboard-block.status-board {{
+            display: block;
+            grid-template-columns: none;
+            gap: 0;
+            align-items: initial;
+        }}
+        .kpi-dashboard-head {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 12px;
+        }}
+        .overall-kpi-card,
+        .kpi-panel,
+        .panel-box,
+        .mini-kpi-card,
+        [data-testid="metric-container"],
+        [data-testid="stDataFrame"] {{
+            background: {BG_CARD} !important;
+            border: 1px solid {BORDER_DEFAULT} !important;
+            border-radius: 12px !important;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.04) !important;
+        }}
+        .overall-kpi-card {{
+            padding: 24px;
+            transition: transform 0.2s ease;
+        }}
+        .overall-kpi-card:hover,
+        .kpi-panel:hover,
+        .panel-box:hover {{
+            transform: translateY(-2px);
+        }}
+        .overall-kpi-title,
+        .kpi-panel-head {{
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }}
+        .overall-kpi-title span,
+        .kpi-title {{
+            color: {TEXT_PRIMARY};
+            font-size: 18px;
+            line-height: 1.35;
+            font-weight: 700;
+            margin: 0;
+        }}
+        .overall-kpi-title b {{
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        .kpi-rating {{
+            color: {COLOR_BLUE};
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }}
+        .kpi-rating.large {{
+            font-size: 13px;
+        }}
+        .kpi-divider-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 0;
+            border-top: 1px solid {BORDER_LIGHT};
+            border-bottom: 1px solid {BORDER_LIGHT};
+        }}
+        .kpi-divider-grid.overall {{
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+        }}
+        .kpi-metric {{
+            min-width: 0;
+            padding: 18px 20px;
+            border-left: 1px solid {BORDER_LIGHT};
+        }}
+        .kpi-metric:first-child {{
+            border-left: 0;
+        }}
+        .metric-label {{
+            color: {TEXT_TERTIARY};
+            font-size: 12px;
+            line-height: 1.35;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }}
+        .metric-value {{
+            color: {TEXT_PRIMARY};
+            font-size: 22px;
+            line-height: 1.1;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }}
+        .metric-value.primary {{
+            color: {COLOR_BLUE};
+        }}
+        .metric-value.good {{
+            color: {COLOR_TEAL};
+        }}
+        .metric-value.warning,
+        .metric-value.warn,
+        .metric-value.mid {{
+            color: {COLOR_ORANGE};
+        }}
+        .metric-value.purple {{
+            color: {COLOR_AMBER};
+        }}
+        .metric-value.danger,
+        .metric-value.risk {{
+            color: {COLOR_DANGER};
+        }}
+        .kpi-progress-stack {{
+            display: grid;
+            gap: 10px;
+            margin-top: 18px;
+        }}
+        .kpi-progress-row {{
+            display: grid;
+            grid-template-columns: 66px minmax(120px, 1fr) 58px;
+            align-items: center;
+            gap: 12px;
+        }}
+        .kpi-progress-row span,
+        .kpi-progress-row b {{
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }}
+        .kpi-progress-row b {{
+            text-align: right;
+        }}
+        .kpi-progress-track {{
+            height: 6px;
+            border-radius: 999px;
+            background: #EEF2F7;
+            overflow: hidden;
+        }}
+        .kpi-progress-fill {{
+            height: 100%;
+            border-radius: 999px;
+        }}
+        .kpi-progress-fill.production,
+        .progress-fill.production {{
+            background: {COLOR_BLUE};
+        }}
+        .kpi-progress-fill.packing,
+        .progress-fill.packing,
+        .progress-fill.warn,
+        .progress-fill.risk {{
+            background: {COLOR_ORANGE};
+        }}
+        .kpi-progress-fill.receipt,
+        .progress-fill.receipt {{
+            background: {COLOR_AMBER};
+        }}
+        .progress-fill.good.production,
+        .progress-fill.mid.production,
+        .progress-fill.warn.production,
+        .progress-fill.risk.production {{
+            background: {COLOR_BLUE};
+        }}
+        .progress-fill.good.packing,
+        .progress-fill.mid.packing,
+        .progress-fill.warn.packing,
+        .progress-fill.risk.packing {{
+            background: {COLOR_ORANGE};
+        }}
+        .progress-fill.good.receipt,
+        .progress-fill.mid.receipt,
+        .progress-fill.warn.receipt,
+        .progress-fill.risk.receipt {{
+            background: {COLOR_AMBER};
+        }}
+        .progress-fill.done,
+        .progress-fill.active {{
+            background: {COLOR_TEAL};
+        }}
+        .overall-kpi-foot {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 18px;
+            margin-top: 16px;
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }}
+        .scope-kpi {{
+            padding: 20px 22px;
+            margin-bottom: 0;
+            height: 100%;
+            transition: transform 0.2s ease;
+        }}
+        .scope-kpi .metric-value {{
+            font-size: 20px;
+        }}
+        .metric-strip {{
+            padding: 0;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }}
+        .metric-strip .kpi-divider-grid {{
+            border-top: 0;
+            border-bottom: 0;
+        }}
+        .mini-kpi-grid {{
+            gap: 16px;
+            margin-bottom: 24px;
+        }}
+        .mini-kpi-card {{
+            padding: 20px;
+            min-height: 92px;
+        }}
+        .panel-box {{
+            padding: 20px 24px;
+            margin-bottom: 24px;
+        }}
+        .family-section {{
+            gap: 12px;
+        }}
+        .family-section + .family-section {{
+            margin-top: 24px;
+        }}
+        .family-section-title {{
+            background: #EEF2FF;
+            color: {COLOR_BLUE};
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 12px;
+        }}
+        .family-grid {{
+            gap: 12px;
+        }}
+        .family-card {{
+            border: 1px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            padding: 16px;
+            min-height: 128px;
+            gap: 12px;
+            box-shadow: none;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }}
+        .family-card:hover {{
+            transform: translateY(-2px);
+            border-color: #CBD5E1;
+        }}
+        .family-shortages b,
+        .ops-table td.num.shortage,
+        .ops-table td.num.negative {{
+            color: {COLOR_DANGER};
+            font-weight: 700;
+        }}
+        .table-wrap {{
+            border: 1px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            background: {BG_CARD};
+            box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        }}
+        .ops-table th {{
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #F9FAFB;
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            font-weight: 700;
+            padding: 12px 14px;
+            border-bottom: 1px solid {BORDER_DEFAULT};
+        }}
+        .ops-table td {{
+            color: {TEXT_PRIMARY};
+            font-size: 13px;
+            font-weight: 500;
+            padding: 12px 14px;
+            border-bottom: 1px solid {BORDER_LIGHT};
+        }}
+        .ops-table tbody tr:hover td {{
+            background: #F9FAFB;
+        }}
+        .progress-track {{
+            height: 6px;
+            border-radius: 999px;
+            background: #EEF2F7;
+        }}
+        .progress-fill {{
+            border-radius: 999px;
+        }}
+        .progress-text {{
+            color: {TEXT_SECONDARY};
+            font-size: 11px;
+            font-weight: 600;
+        }}
+        .top-row,
+        .gap-row {{
+            border: 1px solid {BORDER_DEFAULT};
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: {BG_CARD};
+        }}
+        .top-shortage,
+        .gap-value {{
+            color: {COLOR_DANGER};
+            font-weight: 700;
+        }}
+        .request-scope-badge,
+        .response-badge,
+        .status-badge {{
+            border-radius: 999px;
+            padding: 3px 9px;
+            font-size: 11px;
+            font-weight: 700;
+            border: 1px solid transparent;
+        }}
+        .response-badge {{
+            background: #DCFCE7;
+            color: #166534;
+            min-width: 56px;
+        }}
+        .response-badge.partial,
+        .request-scope-badge.mixed {{
+            background: #FFEDD5;
+            color: #9A3412;
+            border-color: #FED7AA;
+        }}
+        .response-badge.need,
+        .request-scope-badge.out,
+        .status-badge.warn,
+        .status-badge.risk {{
+            background: #FEE2E2;
+            color: {COLOR_DANGER};
+            border-color: #FECACA;
+        }}
+        .request-scope-badge.in,
+        .status-badge.done {{
+            background: #DCFCE7;
+            color: #166534;
+            border-color: #BBF7D0;
+        }}
+        .status-badge.active {{
+            background: #DBEAFE;
+            color: {COLOR_BLUE};
+            border-color: #BFDBFE;
+        }}
+        .breadcrumb {{
+            margin: 4px 0 16px;
+        }}
+        hr {{
+            border-color: {BORDER_DEFAULT} !important;
+            margin: 24px 0 !important;
+        }}
+        @media (max-width: 1200px) {{
+            .kpi-divider-grid.overall {{
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }}
+            .kpi-metric:nth-child(4) {{
+                border-left: 0;
+            }}
+        }}
+        @media (max-width: 760px) {{
+            .block-container {{
+                padding: 20px 16px 32px !important;
+            }}
+            .app-title {{
+                font-size: 28px;
+            }}
+            .kpi-divider-grid,
+            .kpi-divider-grid.overall {{
+                grid-template-columns: 1fr;
+            }}
+            .kpi-metric,
+            .kpi-metric:nth-child(4) {{
+                border-left: 0;
+                border-top: 1px solid {BORDER_LIGHT};
+            }}
+            .kpi-metric:first-child {{
+                border-top: 0;
+            }}
+            .kpi-progress-row {{
+                grid-template-columns: 56px minmax(100px, 1fr) 52px;
+            }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -10288,29 +10806,19 @@ def calc_drilldown_kpi(df: pd.DataFrame) -> dict[str, float]:
 
 
 def render_drilldown_kpi(kpi: dict[str, float]) -> None:
+    metrics = [
+        ("요청 PACK", format_int(kpi["request_qty"]), "normal"),
+        ("생산부족수량", format_int(kpi["production_shortage_qty"]), "danger" if kpi["production_shortage_qty"] > 0 else "normal"),
+        ("생산진도율", f"{kpi['production_progress_pct']:.1f}%", "primary"),
+        ("포장수량", format_int(kpi["packing_qty"]), "normal"),
+        ("포장부족수량", format_int(kpi["shortage_qty"]), "danger" if kpi["shortage_qty"] > 0 else "normal"),
+    ]
+    metric_html = "".join(kpi_metric_item_html(label, value, tone) for label, value, tone in metrics)
     panel_html = f"""
     <div class='kpi-panel drill-kpi'>
-      <div class='kpi-grid'>
-        <div class='kpi-card'>
-          <div class='metric-label'>요청 PACK</div>
-          <div class='metric-value'>{format_int(kpi['request_qty'])}</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>생산부족수량</div>
-          <div class='metric-value warn'>{format_int(kpi['production_shortage_qty'])}</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>생산진도율</div>
-          <div class='metric-value'>{kpi['production_progress_pct']:.1f}%</div>
-        </div>
-        <div class='kpi-card'>
-          <div class='metric-label'>포장수량</div>
-          <div class='metric-value'>{format_int(kpi['packing_qty'])}</div>
-        </div>
-        <div class='kpi-card shortage-card'>
-          <div class='metric-label'>포장부족수량</div>
-          <div class='metric-value warn'>{format_int(kpi['shortage_qty'])}</div>
-        </div>
+      <div class='kpi-divider-grid'>{metric_html}</div>
+      <div class='kpi-progress-stack'>
+        {kpi_progress_line_html("생산", kpi["production_progress_pct"], "production")}
       </div>
     </div>
     """
@@ -11625,12 +12133,12 @@ def render_period_group_filter(active_tab: str) -> str:
         "POWER 상세": "power",
         "포장 LOT 상세": "packing_lot",
     }
-    filter_col, _ = st.columns([1.2, 4.8], gap="small")
+    filter_col, _ = st.columns([1.6, 4.4], gap="small")
     with filter_col:
-        selected = st.selectbox(
+        selected = st.segmented_control(
             "기간구분",
             options=PERIOD_GROUP_ORDER,
-            index=0,
+            default="전체",
             key=f"{filter_key_by_tab.get(active_tab, 'common')}_period_group_filter",
         )
     return str(selected or "전체")
@@ -11638,8 +12146,22 @@ def render_period_group_filter(active_tab: str) -> str:
 
 def main() -> None:
     render_style()
-    st.title("국내 생산·포장 현황 대시보드")
-    st.caption(DATA_BASIS_NOTE)
+    today_label = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d")
+    header_left, header_right = st.columns([5.2, 1.2], gap="large", vertical_alignment="center")
+    with header_left:
+        st.markdown(
+            "<div class='app-header'>"
+            "<div class='app-title'>국내 생산·포장 현황</div>"
+            f"<div class='app-basis'>기준일 {today_label} · 생산지시 기준 {REQUEST_DUE_MONTH_LABEL} 납기 · "
+            f"용마입고 기준 {PACKING_RECEIPT_BASE_DATE_LABEL}부터 · 지시수준 3Q전체물량 대비 생산지시물량</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        st.markdown(f"<div class='header-date'>{today_label}</div>", unsafe_allow_html=True)
+        if st.button("새로고침", key="refresh_dashboard_header", width="stretch"):
+            st.cache_data.clear()
+            st.rerun()
     active_tab = render_dashboard_nav()
 
     base_dir = Path.cwd()
