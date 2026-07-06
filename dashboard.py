@@ -83,7 +83,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 29
+DATA_CACHE_VERSION = 30
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -2143,16 +2143,6 @@ def recognized_packing_pcs(df: pd.DataFrame) -> pd.Series:
     return packing_pcs.where(request_pcs <= 0, packing_pcs.clip(upper=request_pcs))
 
 
-def reconcile_production_shortage_with_packing(df: pd.DataFrame, shortage_qty: Any) -> pd.Series:
-    request_pcs = pd.to_numeric(df.get("request_pcs", pd.Series(0.0, index=df.index)), errors="coerce").fillna(0.0)
-    shortage = pd.to_numeric(shortage_qty, errors="coerce").fillna(0.0).clip(lower=0.0)
-    if not isinstance(shortage, pd.Series):
-        shortage = pd.Series(shortage, index=df.index)
-    shortage = shortage.where(request_pcs <= 0, shortage.clip(upper=request_pcs))
-    max_shortage_after_packing = (request_pcs - recognized_packing_pcs(df)).clip(lower=0.0)
-    return pd.Series(np.minimum(shortage, max_shortage_after_packing), index=df.index).clip(lower=0.0)
-
-
 def calc_production_progress_pct(request_qty: Any, production_shortage_qty: Any) -> Any:
     request = pd.to_numeric(request_qty, errors="coerce").fillna(0.0)
     shortage = pd.to_numeric(production_shortage_qty, errors="coerce").fillna(0.0)
@@ -2755,10 +2745,7 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
     out["production_progress_key"] = out["production_progress_key"].map(clean_str)
 
     out["production_source_shortage_qty"] = out["production_basis_qty"].clip(lower=0.0)
-    out["production_shortage_qty"] = reconcile_production_shortage_with_packing(
-        out,
-        out["production_source_shortage_qty"],
-    )
+    out["production_shortage_qty"] = out["production_source_shortage_qty"]
     out["production_progress_pct"] = calc_production_progress_pct(request_pcs, out["production_shortage_qty"])
     return out
 
@@ -3294,7 +3281,9 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     raw_shortage = work["production_shortage_qty"].clip(lower=0.0)
     request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
     source_shortage = work["production_source_shortage_qty"].clip(lower=0.0)
-    source_shortage_for_gap = source_shortage.where(request_pcs <= 0, source_shortage.clip(upper=request_pcs))
+    source_produced_pcs = (request_pcs - source_shortage).clip(lower=0.0)
+    packing_pcs = recognized_packing_pcs(work)
+    basis_difference_pcs = (packing_pcs - source_produced_pcs).clip(lower=0.0)
     duplicated_progress = (
         (work["_production_alloc_key"].map(clean_str) != "")
         & (raw_shortage > 0)
@@ -3307,10 +3296,7 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     )
     work["_allocated_production_shortage_qty"] = raw_shortage.where(~duplicated_progress, 0.0)
     work["_allocated_production_source_shortage_qty"] = source_shortage.where(~duplicated_source, 0.0)
-    work["_basis_difference_pcs"] = (
-        source_shortage_for_gap.where(~duplicated_source, 0.0)
-        - work["_allocated_production_shortage_qty"]
-    ).clip(lower=0.0)
+    work["_basis_difference_pcs"] = basis_difference_pcs.where(~duplicated_source, 0.0)
     work["_allocated_sample_available_pcs"] = work["sample_available_pcs"].clip(lower=0.0).round(0).astype("int64")
     return work
 
