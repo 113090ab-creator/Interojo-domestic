@@ -3667,7 +3667,10 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
             f"<div class='family-grid'>{cards}</div>"
             "</section>"
         )
-    st.markdown("".join(sections), unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='panel-box dashboard-card'>{''.join(sections)}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def build_category_request_summary_view(
@@ -3895,7 +3898,10 @@ def render_top_shortage_compact(top_df: pd.DataFrame) -> None:
             f"<span class='rank-value'>{format_int(shortage)}</span>"
             "</div>"
         )
-    st.markdown(f"<div class='rank-list compact-rank-list'>{''.join(rows)}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='panel-box dashboard-card'><div class='rank-list compact-rank-list'>{''.join(rows)}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -7553,7 +7559,6 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
         "긴급 포장 리스트",
         "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 PACK 기준 요청·부족 수량만 표시합니다.",
     )
-    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if urgent_view.empty:
         st.info("현재 기준에 해당하는 긴급 포장 판매코드가 없습니다.")
     else:
@@ -7564,7 +7569,6 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
             width="stretch",
             column_config=drilldown_column_config(),
         )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def sales_scope_from_row(code_summary: pd.DataFrame, sales_code: str) -> pd.DataFrame:
@@ -8455,7 +8459,10 @@ def render_urgent_request_compact(summary_view: pd.DataFrame) -> None:
             f"<div class='urgent-product'>{escape(clean_str(row.get('제품명', '')))}</div>"
             "</div>"
         )
-    st.markdown(f"<div class='urgent-list'>{''.join(rows)}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='panel-box dashboard-card'><div class='urgent-list'>{''.join(rows)}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def to_report_float(value: Any) -> float:
@@ -11344,10 +11351,8 @@ def render_selectable_table(
     column_order: list[str] | None = None,
 ) -> pd.Series | None:
     render_panel_title(title, sub)
-    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if df.empty:
         st.warning("조건에 맞는 데이터가 없습니다.")
-        st.markdown("</div>", unsafe_allow_html=True)
         return None
     display_df = dataframe_for_streamlit(df)
     column_config = drilldown_column_config()
@@ -11365,7 +11370,6 @@ def render_selectable_table(
         selection_mode="single-row",
         key=key,
     )
-    st.markdown("</div>", unsafe_allow_html=True)
     return get_selected_row(event, df)
 
 
@@ -11762,42 +11766,32 @@ def render_product_summary_tab(
             "제품 분류별 진도 현황",
             "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
         )
-        st.markdown("<div class='panel-box dashboard-card'>", unsafe_allow_html=True)
         render_family_progress_cards(family_view)
-        st.markdown("</div>", unsafe_allow_html=True)
     with lower_cols[1]:
         render_panel_title(
             "미입고 TOP10",
             "미입고 PACK이 큰 제품의 진도를 확인합니다.",
         )
-        st.markdown("<div class='panel-box dashboard-card'>", unsafe_allow_html=True)
         render_top_shortage_compact(top_shortage_view)
-        st.markdown("</div>", unsafe_allow_html=True)
     with lower_cols[2]:
         render_panel_title(
             "요청 긴급 대응",
             f"S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개",
         )
-        st.markdown("<div class='panel-box dashboard-card'>", unsafe_allow_html=True)
         render_urgent_request_compact(urgent_summary_view)
-        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
         st.caption("3Q전체물량은 요청량, 생산지시물량은 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.")
         render_request_instruction_level_cards(category_request_view)
-        st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
         render_category_request_summary_table(category_request_view)
-        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     render_panel_title(
         "생산완료 후 미입고 TOP10",
         "생산은 진행됐지만 용마 입고가 지연되는 제품을 GAP 기준으로 표시합니다.",
     )
-    st.markdown("<div class='panel-box'>", unsafe_allow_html=True)
     render_gap_top_list(gap_top_view)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
@@ -12246,7 +12240,6 @@ def render_drilldown_tab(product_summary: pd.DataFrame, code_summary: pd.DataFra
         "팩 단위 포장 진도",
         f"{strip_pack_unit_suffix(selected_product)} 기준 팩 단위 요청/포장/부족/진도율",
     )
-    st.markdown("<div class='panel-box drill-panel'>", unsafe_allow_html=True)
     if pack_unit_view.empty:
         st.warning("팩 단위 상세 데이터가 없습니다.")
     else:
@@ -12257,7 +12250,6 @@ def render_drilldown_tab(product_summary: pd.DataFrame, code_summary: pd.DataFra
             width="stretch",
             column_config=pack_unit_column_config(),
         )
-    st.markdown("</div>", unsafe_allow_html=True)
 
     production_view = build_production_drilldown_view(product_scope)
     production_view = production_view.sort_values(
