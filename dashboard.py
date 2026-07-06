@@ -2112,6 +2112,47 @@ def add_code_level_supply_basis(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def pcs_per_pack_for_rows(df: pd.DataFrame) -> pd.Series:
+    index = df.index
+    pack_unit = pd.to_numeric(df.get("pack_unit", pd.Series(np.nan, index=index)), errors="coerce")
+    request_pack = pd.to_numeric(df.get("request_pack", pd.Series(0.0, index=index)), errors="coerce").fillna(0.0)
+    request_pcs = pd.to_numeric(df.get("request_pcs", pd.Series(0.0, index=index)), errors="coerce").fillna(0.0)
+    implied_unit = np.where(request_pack > 0, request_pcs / request_pack, np.nan)
+    unit = pack_unit.where(pack_unit > 0, implied_unit)
+    unit = pd.Series(unit, index=index).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    return unit.where(unit > 0, 1.0)
+
+
+def pack_quantity_to_pcs(df: pd.DataFrame, pack_qty: Any) -> pd.Series:
+    index = df.index
+    if isinstance(pack_qty, pd.Series):
+        pack_source = pack_qty.reindex(index)
+    else:
+        pack_source = pd.Series(pack_qty, index=index)
+    pack = pd.to_numeric(pack_source, errors="coerce").fillna(0.0)
+    return (pack.clip(lower=0.0) * pcs_per_pack_for_rows(df)).clip(lower=0.0)
+
+
+def recognized_packing_pcs(df: pd.DataFrame) -> pd.Series:
+    pack = pd.to_numeric(
+        df.get("packing_recognized_pack", df.get("packing_pack", pd.Series(0.0, index=df.index))),
+        errors="coerce",
+    ).fillna(0.0)
+    request_pcs = pd.to_numeric(df.get("request_pcs", pd.Series(0.0, index=df.index)), errors="coerce").fillna(0.0)
+    packing_pcs = pack_quantity_to_pcs(df, pack)
+    return packing_pcs.where(request_pcs <= 0, packing_pcs.clip(upper=request_pcs))
+
+
+def reconcile_production_shortage_with_packing(df: pd.DataFrame, shortage_qty: Any) -> pd.Series:
+    request_pcs = pd.to_numeric(df.get("request_pcs", pd.Series(0.0, index=df.index)), errors="coerce").fillna(0.0)
+    shortage = pd.to_numeric(shortage_qty, errors="coerce").fillna(0.0).clip(lower=0.0)
+    if not isinstance(shortage, pd.Series):
+        shortage = pd.Series(shortage, index=df.index)
+    shortage = shortage.where(request_pcs <= 0, shortage.clip(upper=request_pcs))
+    max_shortage_after_packing = (request_pcs - recognized_packing_pcs(df)).clip(lower=0.0)
+    return pd.Series(np.minimum(shortage, max_shortage_after_packing), index=df.index).clip(lower=0.0)
+
+
 def calc_production_progress_pct(request_qty: Any, production_shortage_qty: Any) -> Any:
     request = pd.to_numeric(request_qty, errors="coerce").fillna(0.0)
     shortage = pd.to_numeric(production_shortage_qty, errors="coerce").fillna(0.0)
@@ -2713,7 +2754,11 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
         out["production_progress_key"] = ""
     out["production_progress_key"] = out["production_progress_key"].map(clean_str)
 
-    out["production_shortage_qty"] = out["production_basis_qty"].clip(lower=0.0)
+    out["production_source_shortage_qty"] = out["production_basis_qty"].clip(lower=0.0)
+    out["production_shortage_qty"] = reconcile_production_shortage_with_packing(
+        out,
+        out["production_source_shortage_qty"],
+    )
     out["production_progress_pct"] = calc_production_progress_pct(request_pcs, out["production_shortage_qty"])
     return out
 
@@ -3217,6 +3262,8 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     work = code_summary.copy()
     if work.empty:
         work["_allocated_production_shortage_qty"] = 0.0
+        work["_allocated_production_source_shortage_qty"] = 0.0
+        work["_basis_difference_pcs"] = 0.0
         work["_allocated_sample_available_pcs"] = 0.0
         return work
 
@@ -3224,10 +3271,16 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
         work["production_basis_qty"] = 0.0
     if "production_shortage_qty" not in work.columns:
         work["production_shortage_qty"] = work["production_basis_qty"]
+    if "production_source_shortage_qty" not in work.columns:
+        work["production_source_shortage_qty"] = work["production_shortage_qty"]
     if "sample_available_pcs" not in work.columns:
         work["sample_available_pcs"] = 0.0
     work["production_basis_qty"] = pd.to_numeric(work["production_basis_qty"], errors="coerce").fillna(0.0)
     work["production_shortage_qty"] = pd.to_numeric(work["production_shortage_qty"], errors="coerce").fillna(0.0)
+    work["production_source_shortage_qty"] = pd.to_numeric(
+        work["production_source_shortage_qty"],
+        errors="coerce",
+    ).fillna(0.0)
     work["sample_available_pcs"] = pd.to_numeric(work["sample_available_pcs"], errors="coerce").fillna(0.0)
 
     progress_key = work.get("production_progress_key", pd.Series("", index=work.index)).map(clean_str)
@@ -3239,12 +3292,25 @@ def add_allocated_production_basis(code_summary: pd.DataFrame) -> pd.DataFrame:
     work["_production_alloc_key"] = work["_production_alloc_key"].where(work["_production_alloc_key"] != "", fallback_key)
 
     raw_shortage = work["production_shortage_qty"].clip(lower=0.0)
+    request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    source_shortage = work["production_source_shortage_qty"].clip(lower=0.0)
+    source_shortage_for_gap = source_shortage.where(request_pcs <= 0, source_shortage.clip(upper=request_pcs))
     duplicated_progress = (
         (work["_production_alloc_key"].map(clean_str) != "")
         & (raw_shortage > 0)
         & work["_production_alloc_key"].duplicated(keep="first")
     )
+    duplicated_source = (
+        (work["_production_alloc_key"].map(clean_str) != "")
+        & (source_shortage > 0)
+        & work["_production_alloc_key"].duplicated(keep="first")
+    )
     work["_allocated_production_shortage_qty"] = raw_shortage.where(~duplicated_progress, 0.0)
+    work["_allocated_production_source_shortage_qty"] = source_shortage.where(~duplicated_source, 0.0)
+    work["_basis_difference_pcs"] = (
+        source_shortage_for_gap.where(~duplicated_source, 0.0)
+        - work["_allocated_production_shortage_qty"]
+    ).clip(lower=0.0)
     work["_allocated_sample_available_pcs"] = work["sample_available_pcs"].clip(lower=0.0).round(0).astype("int64")
     return work
 
@@ -4625,6 +4691,7 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
         "요청합계(PACK)",
         "포장부족(PACK)",
         "생산부족수량(PCS)",
+        "기준차이",
         "포장진도율",
         "생산진도율",
         "최소 납기일",
@@ -4642,6 +4709,7 @@ def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str
         "요청합계(PACK)",
         "포장부족(PACK)",
         "생산부족수량(PCS)",
+        "기준차이",
         "포장진도율",
         "생산진도율",
         "최소 납기일",
@@ -6362,10 +6430,15 @@ def prepare_production_power_rows(code_summary: pd.DataFrame) -> pd.DataFrame:
         work["_allocated_production_shortage_qty"],
         errors="coerce",
     ).fillna(0.0)
+    work["_basis_difference_pcs"] = pd.to_numeric(
+        work.get("_basis_difference_pcs", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
     work["_packing_shortage_pack"] = pd.to_numeric(
         work.get("code_packing_shortage_pack", pd.Series(0.0, index=work.index)),
         errors="coerce",
     ).fillna(0.0)
+    work["_packing_recognized_pcs"] = recognized_packing_pcs(work)
     work["_power_sort"] = pd.to_numeric(work["power_value"], errors="coerce").fillna(999999.0)
     return work
 
@@ -6374,6 +6447,10 @@ def refresh_scope_production_shortage(rows: pd.DataFrame) -> pd.DataFrame:
     work = add_allocated_production_basis(rows)
     work["_production_shortage_pcs"] = pd.to_numeric(
         work["_allocated_production_shortage_qty"],
+        errors="coerce",
+    ).fillna(0.0)
+    work["_basis_difference_pcs"] = pd.to_numeric(
+        work.get("_basis_difference_pcs", pd.Series(0.0, index=work.index)),
         errors="coerce",
     ).fillna(0.0)
     return work
@@ -6462,6 +6539,7 @@ def build_production_power_main_view(
         "요청합계(PACK)",
         "포장부족(PACK)",
         "생산부족수량(PCS)",
+        "기준차이",
         "포장진도율",
         "생산진도율",
         "최소 납기일",
@@ -6472,6 +6550,7 @@ def build_production_power_main_view(
             + [
                 "요청합계(PCS)",
                 "생산부족수량",
+                "기준차이(PCS)",
                 "포장부족수량",
                 "병목 상태",
                 "_production_code_prefix",
@@ -6480,6 +6559,8 @@ def build_production_power_main_view(
         )
 
     work = rows.copy()
+    if "_packing_recognized_pcs" not in work.columns:
+        work["_packing_recognized_pcs"] = recognized_packing_pcs(work)
     work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
     group_cols = ["_production_code_prefix"]
     base = (
@@ -6490,7 +6571,9 @@ def build_production_power_main_view(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
+            packing_pcs=("_packing_recognized_pcs", "sum"),
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
+            basis_difference_pcs=("_basis_difference_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
             min_due_date=("request_due_date", min_datetime),
         )
@@ -6518,8 +6601,8 @@ def build_production_power_main_view(
         grouped[label] = grouped[label].fillna(0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
     grouped["포장진도율"] = np.where(
-        grouped["request_pack"] > 0,
-        grouped["packing_pack"] / grouped["request_pack"] * 100.0,
+        grouped["request_pcs"] > 0,
+        grouped["packing_pcs"] / grouped["request_pcs"] * 100.0,
         0.0,
     )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
@@ -6541,11 +6624,14 @@ def build_production_power_main_view(
             "representative_product": "대표 제품명",
             "request_pack": "요청합계(PACK)",
             "request_pcs": "요청합계(PCS)",
+            "packing_pcs": "포장실적(PCS)",
             "production_shortage_pcs": "생산부족수량",
+            "basis_difference_pcs": "기준차이(PCS)",
             "packing_shortage_pack": "포장부족수량",
         }
     )
     out["생산부족수량(PCS)"] = out["생산부족수량"]
+    out["기준차이"] = np.where(pd.to_numeric(out["기준차이(PCS)"], errors="coerce").fillna(0.0) > 0, "기준차이", "")
     out["포장부족(PACK)"] = out["포장부족수량"]
     out["_production_code_prefix"] = out["생산코드"]
     if shortage_only:
@@ -6562,7 +6648,9 @@ def build_production_power_main_view(
             visible_columns
             + [
                 "요청합계(PCS)",
+                "포장실적(PCS)",
                 "생산부족수량",
+                "기준차이(PCS)",
                 "포장부족수량",
                 "병목 상태",
                 "_production_code_prefix",
@@ -6590,6 +6678,7 @@ def build_production_power_detail_view(
         "요청합계(PACK)",
         "포장부족(PACK)",
         "생산부족수량(PCS)",
+        "기준차이",
         "포장진도율",
         "생산진도율",
         "최소 납기일",
@@ -6600,6 +6689,7 @@ def build_production_power_detail_view(
             + [
                 "요청합계(PCS)",
                 "생산부족수량",
+                "기준차이(PCS)",
                 "포장부족수량",
                 "_production_code_prefix",
                 "_min_due_date_sort",
@@ -6608,6 +6698,8 @@ def build_production_power_detail_view(
         )
 
     work = rows.copy()
+    if "_packing_recognized_pcs" not in work.columns:
+        work["_packing_recognized_pcs"] = recognized_packing_pcs(work)
     work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
     if production_prefix is not None:
         work = work[work["_production_code_prefix"] == production_prefix].copy()
@@ -6626,7 +6718,9 @@ def build_production_power_detail_view(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
+            packing_pcs=("_packing_recognized_pcs", "sum"),
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
+            basis_difference_pcs=("_basis_difference_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
             min_due_date=("request_due_date", min_datetime),
         )
@@ -6653,8 +6747,8 @@ def build_production_power_detail_view(
         grouped[label] = grouped[label].fillna(0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
     grouped["포장진도율"] = np.where(
-        grouped["request_pack"] > 0,
-        grouped["packing_pack"] / grouped["request_pack"] * 100.0,
+        grouped["request_pcs"] > 0,
+        grouped["packing_pcs"] / grouped["request_pcs"] * 100.0,
         0.0,
     )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
@@ -6672,11 +6766,14 @@ def build_production_power_detail_view(
             "representative_product": "대표 제품명",
             "request_pack": "요청합계(PACK)",
             "request_pcs": "요청합계(PCS)",
+            "packing_pcs": "포장실적(PCS)",
             "production_shortage_pcs": "생산부족수량",
+            "basis_difference_pcs": "기준차이(PCS)",
             "packing_shortage_pack": "포장부족수량",
         }
     )
     out["생산부족수량(PCS)"] = out["생산부족수량"]
+    out["기준차이"] = np.where(pd.to_numeric(out["기준차이(PCS)"], errors="coerce").fillna(0.0) > 0, "기준차이", "")
     out["포장부족(PACK)"] = out["포장부족수량"]
     out = out.sort_values(
         ["_min_due_date_sort", "포장부족수량", "생산부족수량"],
@@ -6689,7 +6786,9 @@ def build_production_power_detail_view(
             visible_columns
             + [
                 "요청합계(PCS)",
+                "포장실적(PCS)",
                 "생산부족수량",
+                "기준차이(PCS)",
                 "포장부족수량",
                 "_production_code_prefix",
                 "_min_due_date_sort",
@@ -10333,6 +10432,8 @@ def drilldown_column_config() -> dict[str, Any]:
         "생산필요수량(PCS)": st.column_config.NumberColumn("생산필요수량(PCS)", format=numeric_format),
         "생산부족 PCS": st.column_config.NumberColumn("생산부족 PCS", format=numeric_format),
         "생산부족수량(PCS)": st.column_config.NumberColumn("생산부족수량(PCS)", format=numeric_format),
+        "기준차이": st.column_config.TextColumn("기준차이", width="small"),
+        "기준차이(PCS)": st.column_config.NumberColumn("기준차이(PCS)", format=numeric_format),
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
         "포장부족(PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format),
         "포장부족(재고 PCS)": st.column_config.NumberColumn("포장부족(재고 PCS)", format=numeric_format),
