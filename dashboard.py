@@ -53,6 +53,7 @@ DAILY_INVENTORY_FILE_KEYWORDS = ["클라렌사업본부 재고현황", "재고�
 SAMPLE_KEYWORDS = ["샘플"]
 GROUP_ORDER = ["전체", "본품", "샘플", "PIA", "Clalen", "Toric", "1Day", "Color", "Monthly", "기타"]
 FACTORY_GROUP_ORDER = ["전체", "A관", "C관", "S관"]
+PERIOD_GROUP_ORDER = ["전체", "1-DAY", "FRP"]
 FACTORY_GROUP_BY_CATEGORY = {
     "FRP_Sph": "A관",
     "FRP_Toric": "A관",
@@ -83,7 +84,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 30
+DATA_CACHE_VERSION = 31
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -2421,6 +2422,7 @@ def build_summaries(
     product_summary = finalize_summary(product_summary)
     product_summary["제품분류"] = product_summary["제품명"].map(classify_product_group)
     product_summary["본품분류"] = product_summary["제품명"].map(classify_main_product_family)
+    product_summary = add_period_group_columns(product_summary)
     return product_summary, unmatched_packing_total, matched_code_summary
 
 
@@ -2916,7 +2918,7 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "제품분류",
-                "공장구분",
+                "기간구분",
                 "제품명",
                 "POWER",
                 "요청수량",
@@ -2941,6 +2943,7 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
         work.groupby(["제품분류", "product_name", "power_value", "POWER"], dropna=False)
         .agg(
             factory_group=("factory_group", join_unique),
+            period_group=("period_group", first_nonempty),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
@@ -2950,6 +2953,7 @@ def build_power_detail(code_summary: pd.DataFrame) -> pd.DataFrame:
             columns={
                 "product_name": "제품명",
                 "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "request_pack": "요청수량",
                 "request_pcs": "요청PCS",
                 "packing_pack": "포장수량",
@@ -3569,6 +3573,58 @@ def family_card_section(family: Any) -> str:
     if text in {"부자재/기타", "기타", "샘플"}:
         return "기타"
     return "FRP"
+
+
+def period_group_from_category(value: Any) -> str:
+    normalized = normalize_col(value)
+    if "1day" in normalized:
+        return "1-DAY"
+    if "frp" in normalized:
+        return "FRP"
+    return ""
+
+
+def period_group_from_family(value: Any) -> str:
+    return "1-DAY" if family_card_section(value) == "1DAY" else "FRP"
+
+
+def period_group_from_product_name(value: Any) -> str:
+    category_period = period_group_from_category(value)
+    if category_period:
+        return category_period
+    return period_group_from_family(classify_main_product_family(clean_str(value)))
+
+
+def add_period_group_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df.copy() if df is not None else pd.DataFrame()
+    out = df.copy()
+    period = pd.Series("", index=out.index, dtype="object")
+    for col in ["category_summary", "신규분류요약"]:
+        if col in out.columns:
+            candidate = out[col].map(period_group_from_category)
+            period = period.where(period.map(clean_str) != "", candidate)
+    for col in ["본품분류"]:
+        if col in out.columns:
+            candidate = out[col].map(period_group_from_family)
+            period = period.where(period.map(clean_str) != "", candidate)
+    for col in ["base_product_name", "product_name", "제품명", "대표 제품명", "요청제품명", "마스터제품명", "재고표 제품명"]:
+        if col in out.columns:
+            candidate = out[col].map(period_group_from_product_name)
+            period = period.where(period.map(clean_str) != "", candidate)
+    period = period.map(clean_str).replace("", "FRP").fillna("FRP")
+    out["period_group"] = period
+    out["기간구분"] = period
+    return out
+
+
+def filter_by_period_group(df: pd.DataFrame, period_group: str) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame()
+    if period_group == "전체" or df.empty:
+        return df.copy()
+    work = add_period_group_columns(df)
+    return work[work["period_group"] == period_group].copy()
 
 
 def family_card_html(row: pd.Series) -> str:
@@ -4233,6 +4289,7 @@ def with_operational_columns(code_summary: pd.DataFrame) -> pd.DataFrame:
         work["제품분류"] = work["base_product_name"].map(classify_product_group)
     if "본품분류" not in work.columns:
         work["본품분류"] = work["base_product_name"].map(classify_main_product_family)
+    work = add_period_group_columns(work)
     if "본품/샘플" not in work.columns:
         work["본품/샘플"] = np.where(work["base_product_name"].astype(str).map(is_sample_name), "샘플", "본품")
     if "factory_group" not in work.columns:
@@ -4320,6 +4377,7 @@ def filter_operational_code_summary(
     power_label: str = "전체",
     customer_name: str = "전체",
     factory_group: str = "전체",
+    period_group: str = "전체",
 ) -> pd.DataFrame:
     out = with_operational_columns(code_summary)
     product_q = product_query.strip()
@@ -4347,6 +4405,8 @@ def filter_operational_code_summary(
         out = out[out["customer_name"] == customer_name]
     if factory_group != "전체":
         out = out[out["factory_group"] == factory_group]
+    if period_group != "전체":
+        out = out[out["period_group"] == period_group]
     return out.copy()
 
 
@@ -4671,7 +4731,7 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
 def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit_mode: str) -> list[str]:
     columns = [
         "생산코드",
-        "공장구분",
+        "기간구분",
         "대표 제품명",
         *pack_labels,
         "요청합계(PACK)",
@@ -4688,7 +4748,7 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
 def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str]) -> list[str]:
     columns = [
         "생산코드 전체",
-        "공장구분",
+        "기간구분",
         "대표 제품명",
         "POWER",
         *pack_labels,
@@ -4707,7 +4767,7 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     if unit_mode == UNIT_PCS:
         columns = [
             "우선등급",
-            "공장구분",
+            "기간구분",
             "판매코드",
             "생산코드",
             "제품명",
@@ -4726,7 +4786,7 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     else:
         columns = [
             "우선등급",
-            "공장구분",
+            "기간구분",
             "판매코드",
             "생산코드",
             "제품명",
@@ -4747,7 +4807,7 @@ def sales_group_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     if unit_mode == UNIT_PCS:
         columns = [
             "우선등급",
-            "공장구분",
+            "기간구분",
             "판매코드",
             "대표 제품명",
             "POWER 수",
@@ -4765,7 +4825,7 @@ def sales_group_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     else:
         columns = [
             "우선등급",
-            "공장구분",
+            "기간구분",
             "판매코드",
             "대표 제품명",
             "POWER 수",
@@ -4785,7 +4845,7 @@ def power_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     if unit_mode == UNIT_PCS:
         columns = [
             "POWER",
-            "공장구분",
+            "기간구분",
             "요청합계(PCS)",
             "생산필요수량(PCS)",
             "생산부족수량(PCS)",
@@ -4795,7 +4855,7 @@ def power_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
     else:
         columns = [
             "POWER",
-            "공장구분",
+            "기간구분",
             "요청합계(PACK)",
             "포장 PACK",
             "포장부족(PACK)",
@@ -5170,7 +5230,7 @@ def extract_sales_prefix(value: Any) -> str:
 def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "제품코드",
-        "공장구분",
+        "기간구분",
         "PACK",
         "POWER",
         "요청 PACK",
@@ -5205,6 +5265,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             packing_pack=("packing_recognized_pack", "sum"),
             yongma_in_pack=("yongma_recognized_pack", "sum"),
             factory_group=("factory_group", join_factory_groups),
+            period_group=("period_group", first_nonempty),
             request_pcs=("request_pcs", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
             sample_available_pcs=("_allocated_sample_available_pcs", "sum"),
@@ -5221,6 +5282,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
                 "packing_pack": "포장 PACK",
                 "yongma_in_pack": "용마입고 PACK",
                 "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "request_pcs": "요청 PCS",
                 "production_shortage_pcs": "생산부족 PCS",
                 "sample_available_pcs": "샘플신청가능수량",
@@ -5656,7 +5718,7 @@ def build_daily_inventory_response_view(
     columns = [
         "대응상태",
         "품목코드",
-        "공장구분",
+        "기간구분",
         "제품명",
         "재고표 제품명",
         "제품코드",
@@ -5715,6 +5777,7 @@ def build_daily_inventory_response_view(
     ]
     out["제품명"] = out["요청제품명"].where(out["요청제품명"].map(clean_str) != "", out["마스터제품명"])
     out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["재고표 제품명"])
+    out = add_period_group_columns(out)
     for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "마스터공장구분", "재고표 제품명", "품목코드"]:
         if col in out.columns:
             out[col] = out[col].fillna("")
@@ -5895,7 +5958,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
     visible_columns = [
         "대응상태",
         "품목코드",
-        "공장구분",
+        "기간구분",
         "대표 제품명",
         "긴급요청 수",
         "재고수량",
@@ -5938,7 +6001,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
         work.groupby("_daily_item_code_base", dropna=False)
         .agg(
             status=("대응상태", first_daily_inventory_status),
-            factory_group=("공장구분", join_factory_groups),
+            period_group=("기간구분", first_nonempty),
             product_name=("제품명", first_nonempty),
             detail_count=("품목코드", "count"),
             urgent_count=("긴급요청", "sum"),
@@ -5964,7 +6027,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
         columns={
             "_daily_item_code_base": "품목코드",
             "status": "대응상태",
-            "factory_group": "공장구분",
+            "period_group": "기간구분",
             "product_name": "대표 제품명",
             "detail_count": "상세 건수",
             "urgent_count": "긴급요청 수",
@@ -6007,7 +6070,7 @@ def daily_inventory_detail_column_order(df: pd.DataFrame) -> list[str]:
     columns = [
         "대응상태",
         "품목코드",
-        "공장구분",
+        "기간구분",
         "제품명",
         "제품코드",
         "PACK",
@@ -6112,7 +6175,7 @@ def build_lot_receipt_status_view(
     code_summary: pd.DataFrame,
 ) -> pd.DataFrame:
     columns = [
-        "공장구분",
+        "기간구분",
         "제품코드",
         "제품명",
         "LOTNO",
@@ -6177,6 +6240,8 @@ def build_lot_receipt_status_view(
         if "factory_group" not in code_meta.columns:
             code_meta["factory_group"] = "(미기재)"
         code_factory_by_key = build_first_value_map(code_meta, "sales_code_key", "factory_group")
+        code_meta = add_period_group_columns(code_meta)
+        code_period_by_key = build_first_value_map(code_meta, "sales_code_key", "period_group")
         receipt_only_rows: list[dict[str, Any]] = []
 
         def add_receipt_to_indices(indices: list[int], qty: float) -> None:
@@ -6211,6 +6276,7 @@ def build_lot_receipt_status_view(
                         "packing_product_name": clean_str(receipt.get("yongma_product_name", ""))
                         or code_product_by_key.get(code_key, ""),
                         "factory_group": code_factory_by_key.get(code_key, "(미기재)"),
+                        "period_group": code_period_by_key.get(code_key, "FRP"),
                         "packing_lot": clean_str(receipt.get("yongma_lot", "")) or "(용마 LOT 미기재)",
                         "packing_lot_key": lot_key,
                         "packing_barcode": "",
@@ -6273,19 +6339,31 @@ def build_lot_receipt_status_view(
     grouped["_status_sort"] = grouped["상태"].map({"입고대기": 0, "부분입고": 1, "용마입고만": 2}).fillna(3)
     grouped["포장일"] = grouped["packing_date"].map(display_date_or_dash)
     code_factory = with_operational_columns(code_summary)[["sales_code_key", "factory_group"]].copy()
+    code_period = with_operational_columns(code_summary)[["sales_code_key", "period_group"]].copy()
     code_factory["sales_code_key"] = code_factory["sales_code_key"].map(clean_str)
+    code_period["sales_code_key"] = code_period["sales_code_key"].map(clean_str)
     code_factory = code_factory.drop_duplicates("sales_code_key", keep="first")
+    code_period = code_period.drop_duplicates("sales_code_key", keep="first")
     grouped = grouped.merge(code_factory, on="sales_code_key", how="left")
+    grouped = grouped.merge(code_period, on="sales_code_key", how="left")
     if "factory_group_x" in grouped.columns or "factory_group_y" in grouped.columns:
         grouped["factory_group"] = grouped.get("factory_group_x", "").where(
             grouped.get("factory_group_x", "").map(clean_str) != "",
             grouped.get("factory_group_y", ""),
         )
         grouped = grouped.drop(columns=["factory_group_x", "factory_group_y"], errors="ignore")
+    if "period_group_x" in grouped.columns or "period_group_y" in grouped.columns:
+        grouped["period_group"] = grouped.get("period_group_x", "").where(
+            grouped.get("period_group_x", "").map(clean_str) != "",
+            grouped.get("period_group_y", ""),
+        )
+        grouped = grouped.drop(columns=["period_group_x", "period_group_y"], errors="ignore")
     grouped["factory_group"] = grouped["factory_group"].map(clean_str).replace("", "(미기재)").fillna("(미기재)")
+    grouped["period_group"] = grouped["period_group"].map(clean_str).replace("", "FRP").fillna("FRP")
     grouped = grouped.rename(
         columns={
             "factory_group": "공장구분",
+            "period_group": "기간구분",
             "sales_code": "제품코드",
             "packing_product_name": "제품명",
             "packing_lot": "LOTNO",
@@ -6309,7 +6387,7 @@ def build_lot_receipt_status_view_cached(
     return build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
 
 
-def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_factory: str = "전체") -> None:
+def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
         "세부 포장 진도 현황",
         "LOT 기준 포장실적과 용마입고수량을 비교합니다.",
@@ -6334,8 +6412,7 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_factory: str = 
         )
 
     view = lot_status_df.copy()
-    if selected_factory != "전체" and "공장구분" in view.columns:
-        view = view[view["공장구분"] == selected_factory].copy()
+    view = filter_by_period_group(view, selected_period)
     if query.strip():
         q = query.strip()
         mask = (
@@ -6458,6 +6535,7 @@ def filter_production_power_rows(
     sample_scope: str,
     product_group: str,
     factory_group: str,
+    period_group: str = "전체",
 ) -> pd.DataFrame:
     out = prepare_production_power_rows(code_summary)
     product_q = product_query.strip()
@@ -6480,6 +6558,8 @@ def filter_production_power_rows(
         out = out[out["제품분류"] == product_group]
     if factory_group != "전체":
         out = out[out["factory_group"] == factory_group]
+    if period_group != "전체":
+        out = out[out["period_group"] == period_group]
     return refresh_scope_production_shortage(out).copy()
 
 
@@ -6519,7 +6599,7 @@ def build_production_power_main_view(
 ) -> pd.DataFrame:
     visible_columns = [
         "생산코드",
-        "공장구분",
+        "기간구분",
         "대표 제품명",
         *pack_labels,
         "요청합계(PACK)",
@@ -6554,6 +6634,7 @@ def build_production_power_main_view(
         .agg(
             representative_product=("base_product_name", first_nonempty),
             factory_group=("factory_group", join_unique),
+            period_group=("period_group", first_nonempty),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
@@ -6607,6 +6688,7 @@ def build_production_power_main_view(
         columns={
             "_production_code_prefix": "생산코드",
             "factory_group": "공장구분",
+            "period_group": "기간구분",
             "representative_product": "대표 제품명",
             "request_pack": "요청합계(PACK)",
             "request_pcs": "요청합계(PCS)",
@@ -6657,7 +6739,7 @@ def build_production_power_detail_view(
 ) -> pd.DataFrame:
     visible_columns = [
         "생산코드 전체",
-        "공장구분",
+        "기간구분",
         "대표 제품명",
         "POWER",
         *pack_labels,
@@ -6701,6 +6783,7 @@ def build_production_power_detail_view(
         .agg(
             representative_product=("base_product_name", first_nonempty),
             factory_group=("factory_group", join_unique),
+            period_group=("period_group", first_nonempty),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
@@ -6749,6 +6832,7 @@ def build_production_power_detail_view(
         columns={
             "production_code_display": "생산코드 전체",
             "factory_group": "공장구분",
+            "period_group": "기간구분",
             "representative_product": "대표 제품명",
             "request_pack": "요청합계(PACK)",
             "request_pcs": "요청합계(PCS)",
@@ -7009,7 +7093,7 @@ def build_sales_order_main_view(
                 "우선등급",
                 "판매코드",
                 "생산코드",
-                "공장구분",
+                "기간구분",
                 "제품명",
                 "PACK",
                 "POWER",
@@ -7062,6 +7146,7 @@ def build_sales_order_main_view(
         .agg(
             production_code=("production_code_display", join_unique),
             factory_group=("factory_group", join_unique),
+            period_group=("period_group", first_nonempty),
             product_name=("product_name", join_unique),
             pack_label=("_pack_label", join_unique),
             power=("POWER", first_nonempty),
@@ -7084,6 +7169,7 @@ def build_sales_order_main_view(
                 "sales_code": "판매코드",
                 "production_code": "생산코드",
                 "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "product_name": "제품명",
                 "pack_label": "PACK",
                 "power": "POWER",
@@ -7137,7 +7223,7 @@ def build_sales_order_main_view(
             "우선등급",
             "판매코드",
             "생산코드",
-            "공장구분",
+            "기간구분",
             "제품명",
             "PACK",
             "POWER",
@@ -7189,7 +7275,7 @@ def build_sales_code_group_main_view(
     columns = [
         "우선등급",
         "판매코드",
-        "공장구분",
+        "기간구분",
         "대표 제품명",
         "생산코드",
         "PACK",
@@ -7245,7 +7331,7 @@ def build_sales_code_group_main_view(
     grouped = (
         work.groupby("_sales_code_base", dropna=False)
         .agg(
-            factory_group=("공장구분", join_unique),
+            period_group=("기간구분", first_nonempty),
             product_name=("제품명", first_nonempty),
             production_code=("생산코드", join_unique),
             pack_label=("PACK", join_unique),
@@ -7268,7 +7354,7 @@ def build_sales_code_group_main_view(
         .rename(
             columns={
                 "_sales_code_base": "판매코드",
-                "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "product_name": "대표 제품명",
                 "production_code": "생산코드",
                 "pack_label": "PACK",
@@ -7328,7 +7414,7 @@ def build_sales_code_group_main_view(
 def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20) -> pd.DataFrame:
     columns = [
         "우선등급",
-        "공장구분",
+        "기간구분",
         "판매코드",
         "제품명",
         "POWER",
@@ -7492,7 +7578,7 @@ def build_power_summary_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "POWER",
-                "공장구분",
+                "기간구분",
                 "요청합계(PACK)",
                 "요청합계(PCS)",
                 "포장 PACK",
@@ -7509,6 +7595,7 @@ def build_power_summary_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         work.groupby(["power_value", "POWER"], dropna=False)
         .agg(
             factory_group=("factory_group", join_unique),
+            period_group=("period_group", first_nonempty),
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
@@ -7519,6 +7606,7 @@ def build_power_summary_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             columns={
                 "request_pack": "요청합계(PACK)",
                 "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "request_pcs": "요청합계(PCS)",
                 "packing_pack": "포장 PACK",
                 "production_shortage_pcs": "생산부족수량(PCS)",
@@ -7537,7 +7625,7 @@ def build_power_summary_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     return grouped[
         [
             "POWER",
-            "공장구분",
+            "기간구분",
             "요청합계(PACK)",
             "요청합계(PCS)",
             "포장 PACK",
@@ -7559,7 +7647,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
             columns=[
                 "생산코드",
                 "판매코드",
-                "공장구분",
+                "기간구분",
                 "제품명",
                 "PACK",
                 "요청합계(PACK)",
@@ -7571,7 +7659,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
             ]
         )
     out = (
-        scope.groupby(["production_code_display", "sales_code", "factory_group", "product_name", "_pack_label"], dropna=False)
+        scope.groupby(["production_code_display", "sales_code", "period_group", "product_name", "_pack_label"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
@@ -7584,7 +7672,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
             columns={
                 "production_code_display": "생산코드",
                 "sales_code": "판매코드",
-                "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "product_name": "제품명",
                 "_pack_label": "PACK",
                 "request_pack": "요청합계(PACK)",
@@ -7600,7 +7688,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
         [
             "생산코드",
             "판매코드",
-            "공장구분",
+            "기간구분",
             "제품명",
             "PACK",
             "요청합계(PACK)",
@@ -7617,7 +7705,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
 
 def empty_inventory_detail_view() -> pd.DataFrame:
     return pd.DataFrame(
-        columns=["판매코드", "공장구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]
+        columns=["판매코드", "기간구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]
     )
 
 
@@ -7633,6 +7721,7 @@ def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> 
         scope.groupby("sales_code", dropna=False)
         .agg(
             factory_group=("factory_group", join_unique),
+            period_group=("period_group", first_nonempty),
             inventory_product_name=("inventory_product_name", first_nonempty),
             available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
             inventory_total_stock_pack=("inventory_total_stock_pack", sum_numeric_or_nan),
@@ -7645,6 +7734,7 @@ def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> 
             columns={
                 "sales_code": "판매코드",
                 "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "inventory_product_name": "WMS제품명",
                 "available_stock_pack": "용마창고재고 (PACK)",
                 "inventory_total_stock_pack": "총수량(PACK)",
@@ -7656,7 +7746,7 @@ def build_inventory_detail_view(code_summary: pd.DataFrame, sales_code: str) -> 
     )
     grouped["전송일자"] = grouped["전송일자"].map(display_date_or_dash)
     grouped["매칭여부"] = np.where(grouped["매칭여부"], "매칭", "미매칭")
-    return grouped[["판매코드", "공장구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]]
+    return grouped[["판매코드", "기간구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]]
 
 
 def build_inventory_prefix_detail_view(code_summary: pd.DataFrame, sales_code_prefix: str) -> pd.DataFrame:
@@ -7671,6 +7761,7 @@ def build_inventory_prefix_detail_view(code_summary: pd.DataFrame, sales_code_pr
         scope.groupby("sales_code", dropna=False)
         .agg(
             factory_group=("factory_group", join_unique),
+            period_group=("period_group", first_nonempty),
             inventory_product_name=("inventory_product_name", first_nonempty),
             available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
             inventory_total_stock_pack=("inventory_total_stock_pack", sum_numeric_or_nan),
@@ -7683,6 +7774,7 @@ def build_inventory_prefix_detail_view(code_summary: pd.DataFrame, sales_code_pr
             columns={
                 "sales_code": "판매코드",
                 "factory_group": "공장구분",
+                "period_group": "기간구분",
                 "inventory_product_name": "WMS제품명",
                 "available_stock_pack": "용마창고재고 (PACK)",
                 "inventory_total_stock_pack": "총수량(PACK)",
@@ -7695,7 +7787,7 @@ def build_inventory_prefix_detail_view(code_summary: pd.DataFrame, sales_code_pr
     grouped["전송일자"] = grouped["전송일자"].map(display_date_or_dash)
     grouped["매칭여부"] = np.where(grouped["매칭여부"], "매칭", "미매칭")
     grouped = grouped.sort_values(["판매코드"], kind="stable")
-    return grouped[["판매코드", "공장구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]]
+    return grouped[["판매코드", "기간구분", "WMS제품명", "용마창고재고 (PACK)", "총수량(PACK)", "제품규격", "전송일자", "매칭여부"]]
 
 
 def ppt_rgb(hex_color: str) -> RGBColor:
@@ -10636,6 +10728,7 @@ def render_daily_inventory_tab(
     code_summary: pd.DataFrame,
     sample_available_df: pd.DataFrame | None = None,
     lot_status_df: pd.DataFrame | None = None,
+    selected_period: str = "전체",
 ) -> None:
     render_panel_title(
         "일일 재고 대응",
@@ -10645,25 +10738,13 @@ def render_daily_inventory_tab(
         st.warning("일일 재고현황표를 찾지 못했거나 처리할 데이터가 없습니다.")
         return
 
-    factory_options = available_factory_group_options(code_summary)
-    selected_factory = st.selectbox(
-        "공장구분",
-        options=factory_options,
-        index=0,
-        key="daily_inventory_factory_group",
-    )
     scoped_code_summary = filter_operational_code_summary(
         code_summary,
-        factory_group=selected_factory,
+        period_group=selected_period,
     )
     scoped_lot_status_df = lot_status_df
-    if (
-        selected_factory != "전체"
-        and lot_status_df is not None
-        and not lot_status_df.empty
-        and "공장구분" in lot_status_df.columns
-    ):
-        scoped_lot_status_df = lot_status_df[lot_status_df["공장구분"] == selected_factory].copy()
+    if lot_status_df is not None and not lot_status_df.empty:
+        scoped_lot_status_df = filter_by_period_group(lot_status_df, selected_period)
 
     response_view = build_daily_inventory_response_view(
         daily_inventory_df,
@@ -10671,6 +10752,7 @@ def render_daily_inventory_tab(
         sample_available_df,
         scoped_lot_status_df,
     )
+    response_view = filter_by_period_group(response_view, selected_period)
     if response_view.empty:
         st.warning("표시할 일일 재고 대응 데이터가 없습니다.")
         return
@@ -10760,7 +10842,7 @@ def render_daily_inventory_tab(
         column_order=[
             "대응상태",
             "품목코드",
-            "공장구분",
+            "기간구분",
             "대표 제품명",
             "긴급요청 수",
             "재고수량",
@@ -10813,7 +10895,14 @@ def render_product_summary_tab(
     instruction_df: pd.DataFrame | None = None,
     daily_inventory_df: pd.DataFrame | None = None,
     sample_available_df: pd.DataFrame | None = None,
+    selected_period: str = "전체",
 ) -> None:
+    product_summary = filter_by_period_group(product_summary, selected_period)
+    code_summary = filter_operational_code_summary(code_summary, period_group=selected_period)
+    if request_df is not None and not request_df.empty:
+        request_df = filter_by_period_group(request_df, selected_period)
+    if instruction_df is not None and not instruction_df.empty:
+        instruction_df = filter_by_period_group(instruction_df, selected_period)
     main_products, _ = split_main_sample(product_summary)
     stock_threshold_pack = float(INVENTORY_STOCK_THRESHOLD_DEFAULT)
 
@@ -10945,7 +11034,7 @@ def render_product_summary_tab(
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str = "전체") -> None:
+def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
         "생산코드 상세",
         "P로 시작하는 생산코드 5자리 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
@@ -10961,7 +11050,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str
         integrated_query = st.text_input(
             "통합검색",
             value="",
-            placeholder="예: 소울브라운, S145, P0019, C관",
+            placeholder="예: 소울브라운, S145, P0019",
             key="tab_production_integrated_query",
         )
     with pc2:
@@ -11005,13 +11094,14 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str
         pack_label=selected_pack,
         sample_scope=sample_scope,
         product_group=selected_group,
-        factory_group=selected_factory,
+        factory_group="전체",
+        period_group=selected_period,
     )
     production_source = filter_dataframe_by_terms(
         production_source,
         integrated_query,
         columns=[
-            "factory_group",
+            "period_group",
             "production_code_display",
             "sales_code",
             "product_name",
@@ -11078,24 +11168,16 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_factory: str
     )
 
 
-def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "전체") -> None:
+def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
         "판매코드 상세",
         "출고/오더 관점에서 판매코드별 생산·포장 진도와 납기 상태를 확인합니다.",
     )
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
-    factory_options = available_factory_group_options(code_summary)
 
-    fc1, fc2, fc3, _ = st.columns([1.45, 1.55, 1.25, 2.75], gap="small")
+    fc1, fc2, _ = st.columns([1.55, 1.25, 3.2], gap="small")
     with fc1:
-        selected_factory = st.selectbox(
-            "공장구분 필터",
-            options=factory_options,
-            index=factory_options.index(selected_factory) if selected_factory in factory_options else 0,
-            key="sales_code_factory_group_filter",
-        )
-    with fc2:
         sales_unit_mode = st.radio(
             "조회 단위 선택",
             UNIT_OPTIONS,
@@ -11107,7 +11189,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
             st.caption("포장가능재고·생산부족 기준 조회")
         else:
             st.caption("용마입고·포장부족 기준 조회")
-    with fc3:
+    with fc2:
         stock_threshold_pack = st.number_input(
             "긴급 재고 기준(PACK)",
             min_value=0,
@@ -11116,12 +11198,12 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
             key="sales_inventory_stock_threshold_pack",
         )
 
-    factory_scoped_code_summary = filter_operational_code_summary(
+    period_scoped_code_summary = filter_operational_code_summary(
         code_summary,
-        factory_group=selected_factory,
+        period_group=selected_period,
     )
     sales_base = build_sales_order_main_view(
-        factory_scoped_code_summary,
+        period_scoped_code_summary,
         stock_threshold_pack=float(stock_threshold_pack),
         today_key=pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d"),
     )
@@ -11133,7 +11215,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
         integrated_query = st.text_input(
             "통합검색",
             value="",
-            placeholder="예: 소울브라운, S145, P0019, C관",
+            placeholder="예: 소울브라운, S145, P0019",
             key="tab_sales_integrated_query",
         )
     with sf2:
@@ -11211,7 +11293,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
         kind="stable",
     ).drop(columns=["_pack_sort"], errors="ignore")
     inventory_source = filter_operational_code_summary(
-        factory_scoped_code_summary,
+        period_scoped_code_summary,
         pack_label=selected_pack,
         power_label=selected_power,
     )
@@ -11225,7 +11307,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_factory: str = "�
     )
 
 
-def render_power_tab(code_summary: pd.DataFrame, selected_factory: str = "전체") -> None:
+def render_power_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
         "POWER 상세",
         "렌즈 POWER 기준 요청/생산/포장/부족 현황과 하위 생산·판매코드를 확인합니다.",
@@ -11249,7 +11331,7 @@ def render_power_tab(code_summary: pd.DataFrame, selected_factory: str = "전체
         production_query=production_query,
         sales_query=sales_query,
         power_label=selected_power,
-        factory_group=selected_factory,
+        period_group=selected_period,
     )
     power_detail_for_heatmap = build_power_detail(power_source)
     heatmap = build_power_heatmap(power_detail_for_heatmap)
@@ -11334,7 +11416,7 @@ def render_power_tab(code_summary: pd.DataFrame, selected_factory: str = "전체
             [
                 "생산코드",
                 "판매코드",
-                "공장구분",
+                "기간구분",
                 "제품명",
                 "PACK",
                 "요청합계(PACK)",
@@ -11346,7 +11428,7 @@ def render_power_tab(code_summary: pd.DataFrame, selected_factory: str = "전체
             else [
                 "생산코드",
                 "판매코드",
-                "공장구분",
+                "기간구분",
                 "제품명",
                 "PACK",
                 "요청합계(PCS)",
@@ -11534,21 +11616,10 @@ def render_dashboard_nav() -> str:
     return str(selected or DASHBOARD_TABS[0])
 
 
-def render_factory_group_filter(
-    active_tab: str,
-    code_summary: pd.DataFrame,
-    lot_status_df: pd.DataFrame,
-) -> str:
-    filter_tabs = {"생산코드 상세", "POWER 상세", "포장 LOT 상세"}
-    if active_tab not in filter_tabs:
-        return "전체"
-
-    if active_tab == "포장 LOT 상세":
-        factory_options = ordered_factory_group_options(lot_status_df.get("공장구분", pd.Series(dtype=str)))
-    else:
-        factory_options = available_factory_group_options(code_summary)
-
+def render_period_group_filter(active_tab: str) -> str:
     filter_key_by_tab = {
+        "제품 진도 현황": "product_summary",
+        "일일 재고 대응": "daily_inventory",
         "생산코드 상세": "production_code",
         "판매코드 상세": "sales_code",
         "POWER 상세": "power",
@@ -11557,10 +11628,10 @@ def render_factory_group_filter(
     filter_col, _ = st.columns([1.2, 4.8], gap="small")
     with filter_col:
         selected = st.selectbox(
-            "공장구분 필터",
-            options=factory_options,
+            "기간구분",
+            options=PERIOD_GROUP_ORDER,
             index=0,
-            key=f"{filter_key_by_tab[active_tab]}_factory_group_filter",
+            key=f"{filter_key_by_tab.get(active_tab, 'common')}_period_group_filter",
         )
     return str(selected or "전체")
 
@@ -11597,7 +11668,7 @@ def main() -> None:
         st.error(f"처리 중 오류가 발생했습니다: {exc}")
         st.stop()
 
-    selected_factory = render_factory_group_filter(active_tab, code_summary, lot_status_df)
+    selected_period = render_period_group_filter(active_tab)
 
     if active_tab == "제품 진도 현황":
         render_product_summary_tab(
@@ -11607,17 +11678,18 @@ def main() -> None:
             instruction_df,
             daily_inventory_df,
             sample_available_df,
+            selected_period,
         )
     elif active_tab == "일일 재고 대응":
-        render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df)
+        render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df, selected_period)
     elif active_tab == "생산코드 상세":
-        render_production_code_tab(code_summary, selected_factory)
+        render_production_code_tab(code_summary, selected_period)
     elif active_tab == "판매코드 상세":
-        render_sales_code_tab(code_summary, selected_factory)
+        render_sales_code_tab(code_summary, selected_period)
     elif active_tab == "POWER 상세":
-        render_power_tab(code_summary, selected_factory)
+        render_power_tab(code_summary, selected_period)
     elif active_tab == "포장 LOT 상세":
-        render_packing_lot_tab(lot_status_df, selected_factory)
+        render_packing_lot_tab(lot_status_df, selected_period)
 
 
 if __name__ == "__main__":
