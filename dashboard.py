@@ -84,7 +84,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 32
+DATA_CACHE_VERSION = 33
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -180,6 +180,20 @@ PRODUCT_QUERY_ALIASES = {
     "클린핏": ["CleanFit", "Clean Fit"],
     "리얼썸": ["Realsome", "Real Some"],
 }
+IRIS_PRODUCT_ALIAS_KEYS = {
+    "소울브라운",
+    "수지그레이",
+    "수지브라운",
+    "알리샤브라운",
+    "페즈브라운",
+    "블루문",
+    "재즈블랙",
+    "랩소디",
+    "라틴",
+    "헤일로브라운",
+    "헤일로그레이",
+}
+GENERIC_PRODUCT_ALIAS_KEYS = {"아이리스", "클라렌", "오투오투", "원데이", "토릭", "미셀리아"}
 POWER_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*$")
 CODE_KEY_RE = re.compile(r"[^0-9A-Za-z가-힣]+")
 BASE_P_CODE_RE = re.compile(r"^(P\d+)")
@@ -5694,6 +5708,68 @@ def daily_item_code_base(value: Any) -> str:
     return match.group(1) if match else ""
 
 
+def canonical_product_base_from_alias(value: Any) -> str:
+    text = clean_str(value)
+    compact = compact_search_text(text)
+    if not compact:
+        return ""
+
+    for alias, values in PRODUCT_QUERY_ALIASES.items():
+        if alias in GENERIC_PRODUCT_ALIAS_KEYS:
+            continue
+        alias_compact = compact_search_text(alias)
+        candidates = [candidate for candidate in values if clean_str(candidate)]
+        candidate_compacts = [compact_search_text(candidate) for candidate in candidates]
+        matched = (
+            alias_compact and alias_compact in compact
+        ) or any(candidate and (candidate in compact or compact in candidate) for candidate in candidate_compacts)
+        if not matched:
+            continue
+
+        iris_candidate = next(
+            (candidate for candidate in candidates if clean_str(candidate).lower().startswith("iris ")),
+            "",
+        )
+        if iris_candidate:
+            return clean_str(iris_candidate)
+        if alias in IRIS_PRODUCT_ALIAS_KEYS and candidates:
+            return f"Iris {clean_str(candidates[0])}"
+        if candidates:
+            return clean_str(candidates[0])
+
+    return ""
+
+
+def daily_product_name_needs_standardization(value: Any) -> bool:
+    text = clean_str(value)
+    if not text:
+        return False
+    if PACK_PREFIX_SUFFIX_RE.match(text):
+        return True
+    hangul_marker_text = re.sub(r"(팩|개입)", "", text, flags=re.IGNORECASE)
+    return bool(re.search(r"[가-힣]", hangul_marker_text))
+
+
+def daily_standard_product_name(product_name: Any, pack_label: Any = "", item_code: Any = "") -> str:
+    item_base = daily_item_code_base(item_code)
+    standard_name = clean_str(DAILY_ITEM_STANDARD.get(item_base, {}).get("product_name", ""))
+    if standard_name:
+        return standard_name
+
+    raw_name = clean_str(product_name)
+    if not daily_product_name_needs_standardization(raw_name):
+        return raw_name
+
+    standard_base = canonical_product_base_from_alias(raw_name)
+    if not standard_base:
+        return raw_name
+
+    pack_unit = pack_unit_from_label(pack_label) if clean_str(pack_label) else extract_pack_unit(raw_name)
+    if pd.notna(pack_unit) and float(pack_unit) > 0:
+        return f"{standard_base}_{float(pack_unit):g}팩"
+    return standard_base
+
+
 def apply_daily_item_standard(view: pd.DataFrame, product_col: str = "대표 제품명") -> pd.DataFrame:
     if view.empty or "품목코드" not in view.columns:
         return view
@@ -5707,10 +5783,11 @@ def apply_daily_item_standard(view: pd.DataFrame, product_col: str = "대표 제
         out["공장구분"] = current_factory
         out.loc[factory_mask, "공장구분"] = standard_factory[factory_mask]
     if product_col in out.columns:
-        standard_product = item_codes.map(lambda code: DAILY_ITEM_STANDARD.get(code, {}).get("product_name", ""))
-        current_product = out[product_col].map(clean_str)
-        product_mask = (standard_product.map(clean_str) != "") & (current_product == "")
-        out.loc[product_mask, product_col] = standard_product[product_mask]
+        pack_values = out["PACK"] if "PACK" in out.columns else pd.Series("", index=out.index)
+        out[product_col] = [
+            daily_standard_product_name(product, pack, item_code)
+            for product, pack, item_code in zip(out[product_col], pack_values, out["품목코드"])
+        ]
     return out
 
 
@@ -5984,6 +6061,7 @@ def build_daily_inventory_response_view(
     )
     out["포장가능재고(PCS)"] = pd.to_numeric(out["포장가능재고(PCS)"], errors="coerce").fillna(0.0).round(0)
     out["대응상태"] = out.apply(classify_daily_inventory_status, axis=1)
+    out = apply_daily_item_standard(out, product_col="제품명")
     out["_urgent_sort"] = out["긴급요청"].astype(int)
     out["_negative_sort"] = (out["재고수량"] < 0).astype(int)
     out["_request_sort"] = (out["요청 PACK"] > 0).astype(int)
