@@ -10416,9 +10416,14 @@ def render_style() -> None:
         .section-sub {{
             color: {TEXT_SECONDARY};
             font-size: 12px;
-            line-height: 1.5;
+            line-height: 1.4;
             font-weight: 500;
             margin-bottom: 16px;
+            min-height: 17px;
+            max-height: 17px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }}
         [data-testid="stSegmentedControl"] {{
             margin: 0 0 24px !important;
@@ -10752,11 +10757,16 @@ def render_style() -> None:
             margin-bottom: 24px;
         }}
         .dashboard-card {{
-            min-height: 360px;
+            height: 388px;
+            min-height: 388px;
+            max-height: 388px;
             margin-bottom: 0;
+            overflow: hidden;
         }}
         .family-progress-panel {{
-            min-height: 340px;
+            height: 388px;
+            min-height: 388px;
+            max-height: 388px;
             padding: 16px 18px;
         }}
         .family-table {{
@@ -10768,9 +10778,9 @@ def render_style() -> None:
             grid-template-columns: minmax(118px, 1.25fr) minmax(74px, 0.78fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(86px, 0.82fr);
             align-items: center;
             gap: 14px;
-            height: 38px;
-            min-height: 38px;
-            max-height: 38px;
+            height: 42px;
+            min-height: 42px;
+            max-height: 42px;
             border-bottom: 1px solid {BORDER_LIGHT};
             overflow: hidden;
         }}
@@ -10778,9 +10788,9 @@ def render_style() -> None:
             border-bottom: 0;
         }}
         .family-table-head {{
-            height: 32px;
-            min-height: 32px;
-            max-height: 32px;
+            height: 34px;
+            min-height: 34px;
+            max-height: 34px;
             color: #64748B;
             font-size: 11px;
             line-height: 1.2;
@@ -10960,9 +10970,9 @@ def render_style() -> None:
             grid-template-columns: 22px minmax(92px, 1fr) minmax(52px, 0.75fr) 58px;
             align-items: center;
             gap: 10px;
-            height: 28px;
-            min-height: 28px;
-            max-height: 28px;
+            height: 34px;
+            min-height: 34px;
+            max-height: 34px;
             overflow: hidden;
         }}
         .rank-num {{
@@ -11009,9 +11019,9 @@ def render_style() -> None:
             grid-template-columns: 42px 58px minmax(0, 1fr) 44px;
             align-items: center;
             gap: 8px;
-            height: 38px;
-            min-height: 38px;
-            max-height: 38px;
+            height: 42px;
+            min-height: 42px;
+            max-height: 42px;
             padding: 0 2px;
             border-bottom: 1px solid {BORDER_LIGHT};
             overflow: hidden;
