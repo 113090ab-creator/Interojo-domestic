@@ -10884,9 +10884,9 @@ def render_style() -> None:
             grid-template-columns: minmax(118px, 1.25fr) minmax(74px, 0.78fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(86px, 0.82fr);
             align-items: center;
             gap: 14px;
-            height: 48px;
-            min-height: 48px;
-            max-height: 48px;
+            height: 56px;
+            min-height: 56px;
+            max-height: 56px;
             border-bottom: 1px solid {BORDER_LIGHT};
             overflow: hidden;
         }}
@@ -10894,11 +10894,11 @@ def render_style() -> None:
             border-bottom: 0;
         }}
         .family-table-head {{
-            height: 34px;
-            min-height: 34px;
-            max-height: 34px;
+            height: 40px;
+            min-height: 40px;
+            max-height: 40px;
             color: #64748B;
-            font-size: 11px;
+            font-size: 13px;
             line-height: 1.2;
             font-weight: 700;
         }}
@@ -10908,7 +10908,7 @@ def render_style() -> None:
             gap: 10px;
             min-width: 0;
             color: {TEXT_PRIMARY};
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 700;
         }}
         .family-name b {{
@@ -10918,8 +10918,8 @@ def render_style() -> None:
             text-overflow: ellipsis;
         }}
         .family-dot {{
-            width: 8px;
-            height: 8px;
+            width: 9px;
+            height: 9px;
             border-radius: 999px;
             flex: 0 0 auto;
             background: {COLOR_BLUE};
@@ -10933,7 +10933,7 @@ def render_style() -> None:
         .family-dot.dot-7 {{ background: {COLOR_AMBER}; }}
         .family-num {{
             color: {TEXT_PRIMARY};
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 700;
             text-align: right;
             font-variant-numeric: tabular-nums;
@@ -10973,7 +10973,7 @@ def render_style() -> None:
         }}
         .family-progress-metric span {{
             color: {TEXT_SECONDARY};
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 700;
             text-align: right;
             font-variant-numeric: tabular-nums;
