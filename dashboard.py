@@ -84,7 +84,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 33
+DATA_CACHE_VERSION = 34
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -1462,6 +1462,7 @@ DAILY_INVENTORY_COLUMNS = [
     "제품코드",
     "PACK",
     "POWER",
+    "CP",
     "재고수량",
     "전일재고",
     "재고증감",
@@ -1502,20 +1503,60 @@ def parse_daily_power_tokens(value: Any) -> list[str]:
     return list(dict.fromkeys([power for power in powers if power]))
 
 
+def normalize_toric_cp_label(value: Any) -> str:
+    text = clean_str(value).replace("−", "-").replace("–", "-").replace("—", "-")
+    if not text:
+        return ""
+    text = text.strip()
+    compact_digits = re.sub(r"\D", "", text)
+    if compact_digits in {"075", "125", "175"}:
+        return f"{int(compact_digits) / 100:.2f}"
+
+    number = pd.to_numeric(text, errors="coerce")
+    if pd.notna(number) and abs(float(number)) in {0.75, 1.25, 1.75}:
+        return f"{abs(float(number)):.2f}"
+    return ""
+
+
+def extract_toric_cp_label(value: Any) -> str:
+    text = clean_str(value).replace("−", "-").replace("–", "-").replace("—", "-")
+    if not text:
+        return ""
+    decimal_match = re.search(r"(?<!\d)(0?\.75|1\.25|1\.75)(?!\d)", text)
+    if decimal_match:
+        return normalize_toric_cp_label(decimal_match.group(1))
+    compact_match = re.search(r"(?<!\d)(075|125|175)(?!\d)", text)
+    if compact_match:
+        return normalize_toric_cp_label(compact_match.group(1))
+    return ""
+
+
+def cp_label_from_sales_code(value: Any) -> str:
+    text = clean_str(value).upper().replace("−", "-").replace("–", "-").replace("—", "-")
+    if not text:
+        return ""
+    match = re.match(r"^[A-Z]\d+-\d{1,2}\.\d{2}[-_\s]+((?:0?\.75|1\.25|1\.75)|(?:075|125|175))", text)
+    if match:
+        return normalize_toric_cp_label(match.group(1))
+    return ""
+
+
 def extract_daily_pack_label(value: Any) -> str:
     text = clean_str(value)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:P|p|팩|개입)", text)
+    if match:
+        return base_pack_label(float(match.group(1)))
+    if extract_toric_cp_label(text):
+        return ""
     unit = extract_pack_unit(text)
     if pd.notna(unit) and float(unit) > 0:
         return base_pack_label(unit)
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:P|p|팩|개입)", text)
-    if not match:
-        return ""
-    return base_pack_label(float(match.group(1)))
+    return ""
 
 
-def daily_inventory_key(product_name: Any, pack_label: Any, power_label: Any) -> str:
+def daily_inventory_key(product_name: Any, pack_label: Any, power_label: Any, cp_label: Any = "") -> str:
     product = compact_query_text(product_name)
-    return f"{product}|{clean_str(pack_label).upper()}|{clean_str(power_label)}"
+    return f"{product}|{clean_str(pack_label).upper()}|{clean_str(power_label)}|{clean_str(cp_label)}"
 
 
 def normalize_daily_emergency_requests(xl: pd.ExcelFile) -> pd.DataFrame:
@@ -1548,6 +1589,7 @@ def normalize_daily_emergency_requests(xl: pd.ExcelFile) -> pd.DataFrame:
         target_text = " ".join(clean_str(value) for value in row.iloc[target_start_col:].tolist() if clean_str(value))
         powers = parse_daily_power_tokens(target_text)
         pack_label = extract_daily_pack_label(product_name)
+        cp_label = extract_toric_cp_label(product_name)
         for power in powers:
             rows.append(
                 {
@@ -1555,6 +1597,7 @@ def normalize_daily_emergency_requests(xl: pd.ExcelFile) -> pd.DataFrame:
                     "제품코드": product_code,
                     "PACK": pack_label,
                     "POWER": power,
+                    "CP": cp_label,
                     "재고수량": np.nan,
                     "전일재고": np.nan,
                     "재고증감": np.nan,
@@ -1576,14 +1619,17 @@ def normalize_daily_support_inventory(xl: pd.ExcelFile) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     current_product = ""
     current_pack = ""
+    current_cp = ""
 
     for _, row in raw.iterrows():
         product_candidate = clean_str(row.iloc[1] if len(row) > 1 else "")
         pack_candidate = extract_daily_pack_label(product_candidate)
-        if product_candidate and pack_candidate:
+        cp_candidate = extract_toric_cp_label(product_candidate)
+        if product_candidate and (pack_candidate or cp_candidate):
             current_product = product_candidate
             current_pack = pack_candidate
-        if not current_product or not current_pack:
+            current_cp = cp_candidate
+        if not current_product or (not current_pack and not current_cp):
             continue
 
         for offset in range(18):
@@ -1605,6 +1651,7 @@ def normalize_daily_support_inventory(xl: pd.ExcelFile) -> pd.DataFrame:
                     "제품코드": "",
                     "PACK": current_pack,
                     "POWER": power,
+                    "CP": current_cp,
                     "재고수량": current_stock,
                     "전일재고": previous_stock,
                     "재고증감": current_stock - previous_stock if pd.notna(current_stock) and pd.notna(previous_stock) else np.nan,
@@ -1634,21 +1681,22 @@ def normalize_daily_inventory_file(path: Path | None) -> pd.DataFrame:
     support_work = support.copy()
     emergency_work = emergency.copy()
     support_work["_daily_key"] = [
-        daily_inventory_key(product, pack, power)
-        for product, pack, power in zip(support_work["제품명"], support_work["PACK"], support_work["POWER"])
+        daily_inventory_key(product, pack, power, cp)
+        for product, pack, power, cp in zip(support_work["제품명"], support_work["PACK"], support_work["POWER"], support_work["CP"])
     ]
     emergency_work["_daily_key"] = [
-        daily_inventory_key(product, pack, power)
-        for product, pack, power in zip(emergency_work["제품명"], emergency_work["PACK"], emergency_work["POWER"])
+        daily_inventory_key(product, pack, power, cp)
+        for product, pack, power, cp in zip(emergency_work["제품명"], emergency_work["PACK"], emergency_work["POWER"], emergency_work["CP"])
     ]
 
     merged = support_work.merge(
-        emergency_work[["_daily_key", "제품명", "제품코드", "PACK", "POWER", "긴급요청", "대상품목"]].rename(
+        emergency_work[["_daily_key", "제품명", "제품코드", "PACK", "POWER", "CP", "긴급요청", "대상품목"]].rename(
             columns={
                 "제품명": "_emergency_product_name",
                 "제품코드": "_emergency_product_code",
                 "PACK": "_emergency_pack",
                 "POWER": "_emergency_power",
+                "CP": "_emergency_cp",
                 "긴급요청": "_emergency_flag",
                 "대상품목": "_emergency_target",
             }
@@ -1666,6 +1714,7 @@ def normalize_daily_inventory_file(path: Path | None) -> pd.DataFrame:
         ("제품코드", "_emergency_product_code"),
         ("PACK", "_emergency_pack"),
         ("POWER", "_emergency_power"),
+        ("CP", "_emergency_cp"),
     ]:
         if emergency_col in merged.columns:
             merged[base_col] = merged[base_col].where(
@@ -1728,7 +1777,7 @@ def pack_label_from_inventory_name(product_name: Any, product_spec: Any = "") ->
 
 
 def build_daily_wms_catalog(inventory_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    exact_columns = ["제품코드", "POWER", "_wms_product_name", "_wms_pack", "_wms_stock"]
+    exact_columns = ["제품코드", "POWER", "CP", "_wms_product_name", "_wms_pack", "_wms_stock"]
     prefix_columns = ["제품코드", "_wms_product_name", "_wms_pack"]
     if inventory_df is None or inventory_df.empty:
         return pd.DataFrame(columns=exact_columns), pd.DataFrame(columns=prefix_columns)
@@ -1736,6 +1785,7 @@ def build_daily_wms_catalog(inventory_df: pd.DataFrame) -> tuple[pd.DataFrame, p
     work = inventory_df.copy()
     work["제품코드"] = work["sales_code"].map(extract_sales_prefix)
     work["POWER"] = work["sales_code"].map(inventory_power_label_from_sales_code)
+    work["CP"] = work["sales_code"].map(cp_label_from_sales_code)
     work["_wms_product_name"] = work["inventory_product_name"].map(clean_inventory_product_name)
     work["_wms_pack"] = [
         pack_label_from_inventory_name(product_name, product_spec)
@@ -1751,7 +1801,7 @@ def build_daily_wms_catalog(inventory_df: pd.DataFrame) -> tuple[pd.DataFrame, p
 
     exact = (
         work[work["POWER"].map(clean_str) != ""]
-        .groupby(["제품코드", "POWER"], dropna=False)
+        .groupby(["제품코드", "POWER", "CP"], dropna=False)
         .agg(
             _wms_product_name=("_wms_product_name", first_nonempty),
             _wms_pack=("_wms_pack", first_nonempty),
@@ -1777,6 +1827,7 @@ def fill_daily_product_code_from_wms(out: pd.DataFrame, inventory_df: pd.DataFra
     work = inventory_df.copy()
     work["제품코드"] = work["sales_code"].map(extract_sales_prefix)
     work["POWER"] = work["sales_code"].map(inventory_power_label_from_sales_code)
+    work["CP"] = work["sales_code"].map(cp_label_from_sales_code)
     work["PACK"] = [
         pack_label_from_inventory_name(product_name, product_spec)
         for product_name, product_spec in zip(
@@ -1795,27 +1846,29 @@ def fill_daily_product_code_from_wms(out: pd.DataFrame, inventory_df: pd.DataFra
         return out
 
     catalog = (
-        work.groupby(["제품코드", "PACK", "POWER"], dropna=False)
+        work.groupby(["제품코드", "PACK", "POWER", "CP"], dropna=False)
         .agg(_wms_product_name=("_wms_product_name", first_nonempty))
         .reset_index()
     )
-    catalog_groups: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
-    for code, pack, power, product_name in catalog[["제품코드", "PACK", "POWER", "_wms_product_name"]].itertuples(index=False, name=None):
+    catalog_groups: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
+    for code, pack, power, cp, product_name in catalog[["제품코드", "PACK", "POWER", "CP", "_wms_product_name"]].itertuples(index=False, name=None):
         code_text = clean_str(code)
         pack_text = clean_str(pack)
         power_text = clean_str(power)
+        cp_text = clean_str(cp)
         product_text = clean_str(product_name)
-        catalog_groups.setdefault((pack_text, power_text), []).append((code_text, product_text, product_text.lower()))
+        catalog_groups.setdefault((pack_text, power_text, cp_text), []).append((code_text, product_text, product_text.lower()))
 
     filled = out.copy()
     needs_code = filled["제품코드"].map(clean_str) == ""
     for idx, row in filled[needs_code].iterrows():
         pack = clean_str(row.get("PACK", ""))
         power = clean_str(row.get("POWER", ""))
+        cp = clean_str(row.get("CP", ""))
         terms = expand_product_query_terms(row.get("제품명", ""))
         if not pack or not power or not terms:
             continue
-        candidates = catalog_groups.get((pack, power), [])
+        candidates = catalog_groups.get((pack, power, cp), [])
         if not candidates:
             continue
         lowered_terms = [term.lower() for term in terms if clean_str(term)]
@@ -1841,10 +1894,11 @@ def enrich_daily_inventory_from_wms(daily_inventory_df: pd.DataFrame, inventory_
     out = daily_inventory_df.copy()
     out["제품코드"] = out["제품코드"].map(clean_str).str.upper()
     out["POWER"] = out["POWER"].map(clean_str)
+    out["CP"] = out["CP"].map(clean_str) if "CP" in out.columns else ""
     exact_catalog, prefix_catalog = build_daily_wms_catalog(inventory_df)
 
     if not exact_catalog.empty:
-        out = out.merge(exact_catalog, on=["제품코드", "POWER"], how="left")
+        out = out.merge(exact_catalog, on=["제품코드", "POWER", "CP"], how="left")
         out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["_wms_product_name"])
         out["PACK"] = out["PACK"].where(out["PACK"].map(clean_str) != "", out["_wms_pack"])
         out["재고수량"] = pd.to_numeric(out["재고수량"], errors="coerce")
@@ -5290,6 +5344,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         "기간구분",
         "PACK",
         "POWER",
+        "CP",
         "요청 PACK",
         "포장 PACK",
         "용마입고 PACK",
@@ -5309,6 +5364,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
 
     work = add_allocated_production_basis(with_operational_columns(code_summary))
     work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work["CP"] = work["sales_code"].map(cp_label_from_sales_code)
     work = work[work["_sales_prefix"] != ""].copy()
     if work.empty:
         return pd.DataFrame(columns=columns)
@@ -5316,7 +5372,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         work["yongma_in_pack"] = 0.0
 
     grouped = (
-        work.groupby(["_sales_prefix", "_pack_label", "POWER"], dropna=False)
+        work.groupby(["_sales_prefix", "_pack_label", "POWER", "CP"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
@@ -5362,6 +5418,7 @@ def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataF
     columns = [
         "제품코드",
         "POWER",
+        "CP",
         "_production_request_pack",
         "_production_request_pcs",
         "_production_shortage_pcs",
@@ -5374,6 +5431,7 @@ def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataF
 
     work = add_allocated_production_basis(with_operational_columns(code_summary))
     work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work["CP"] = work["sales_code"].map(cp_label_from_sales_code)
     work["_production_key"] = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
     fallback_key = work.get("sales_code_key", pd.Series("", index=work.index)).map(clean_str)
     work["_production_key"] = work["_production_key"].where(work["_production_key"] != "", fallback_key)
@@ -5391,7 +5449,7 @@ def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataF
         work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
 
     by_production = (
-        work.groupby(["_sales_prefix", "POWER", "_production_key"], dropna=False)
+        work.groupby(["_sales_prefix", "POWER", "CP", "_production_key"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
@@ -5401,7 +5459,7 @@ def build_daily_production_power_catalog(code_summary: pd.DataFrame) -> pd.DataF
         .reset_index()
     )
     grouped = (
-        by_production.groupby(["_sales_prefix", "POWER"], dropna=False)
+        by_production.groupby(["_sales_prefix", "POWER", "CP"], dropna=False)
         .agg(
             _production_request_pack=("request_pack", "sum"),
             _production_request_pcs=("request_pcs", "sum"),
@@ -5435,6 +5493,7 @@ def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.
     columns = [
         "_daily_base_product_name",
         "POWER",
+        "CP",
         "_base_production_request_pack",
         "_base_production_request_pcs",
         "_base_production_shortage_pcs",
@@ -5446,6 +5505,7 @@ def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.
         return pd.DataFrame(columns=columns)
 
     work = add_allocated_production_basis(with_operational_columns(code_summary))
+    work["CP"] = work["sales_code"].map(cp_label_from_sales_code)
     if "base_product_name" in work.columns:
         work["_daily_base_product_name"] = work["base_product_name"].map(clean_str)
     else:
@@ -5467,7 +5527,7 @@ def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.
         work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
 
     by_production = (
-        work.groupby(["_daily_base_product_name", "POWER", "_production_key"], dropna=False)
+        work.groupby(["_daily_base_product_name", "POWER", "CP", "_production_key"], dropna=False)
         .agg(
             request_pack=("request_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
@@ -5477,7 +5537,7 @@ def build_daily_base_power_production_catalog(code_summary: pd.DataFrame) -> pd.
         .reset_index()
     )
     grouped = (
-        by_production.groupby(["_daily_base_product_name", "POWER"], dropna=False)
+        by_production.groupby(["_daily_base_product_name", "POWER", "CP"], dropna=False)
         .agg(
             _base_production_request_pack=("request_pack", "sum"),
             _base_production_request_pcs=("request_pcs", "sum"),
@@ -5517,12 +5577,13 @@ def pack_unit_from_label(value: Any) -> float:
     return number if number > 0 else 1.0
 
 
-def build_item_code_from_prefix_power(product_code: Any, power_label: Any) -> str:
+def build_item_code_from_prefix_power(product_code: Any, power_label: Any, cp_label: Any = "") -> str:
     prefix = clean_str(product_code).upper()
     power = clean_str(power_label)
     if not prefix or not power:
         return ""
-    return f"{prefix}{power}"
+    cp = clean_str(cp_label)
+    return f"{prefix}{power}-{cp}" if cp else f"{prefix}{power}"
 
 
 def replace_power_in_production_code(template: Any, source_power: Any, target_power: Any) -> str:
@@ -5588,18 +5649,19 @@ def build_daily_product_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_daily_code_power_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
-    columns = ["제품코드", "POWER", "_code_pack", "_code_product_name"]
+    columns = ["제품코드", "POWER", "CP", "_code_pack", "_code_product_name"]
     if code_summary.empty:
         return pd.DataFrame(columns=columns)
 
     work = with_operational_columns(code_summary)
     work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work["CP"] = work["sales_code"].map(cp_label_from_sales_code)
     work = work[(work["_sales_prefix"] != "") & (work["POWER"].map(clean_str) != "")].copy()
     if work.empty:
         return pd.DataFrame(columns=columns)
 
     grouped = (
-        work.groupby(["_sales_prefix", "POWER"], dropna=False)
+        work.groupby(["_sales_prefix", "POWER", "CP"], dropna=False)
         .agg(
             pack=("_pack_label", first_nonempty),
             product_name=("product_name", first_nonempty),
@@ -5645,6 +5707,68 @@ def build_daily_code_catalog(code_summary: pd.DataFrame) -> pd.DataFrame:
     return grouped[columns].copy()
 
 
+def fill_daily_product_code_from_code_summary(out: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
+    if out.empty or code_summary.empty:
+        return out
+
+    work = with_operational_columns(code_summary)
+    work["_sales_prefix"] = work["sales_code"].map(extract_sales_prefix)
+    work["CP"] = work["sales_code"].map(cp_label_from_sales_code)
+    work = work[
+        (work["_sales_prefix"].map(clean_str) != "")
+        & (work["POWER"].map(clean_str) != "")
+        & (work["CP"].map(clean_str) != "")
+        & (work["product_name"].map(clean_str) != "")
+    ].copy()
+    if work.empty:
+        return out
+
+    catalog = (
+        work.groupby(["_sales_prefix", "_pack_label", "POWER", "CP"], dropna=False)
+        .agg(product_name=("product_name", first_nonempty))
+        .reset_index()
+        .rename(columns={"_sales_prefix": "제품코드", "_pack_label": "PACK"})
+    )
+    catalog_groups: dict[tuple[str, str], list[tuple[str, str, str, str]]] = {}
+    for code, pack, power, cp, product_name in catalog[["제품코드", "PACK", "POWER", "CP", "product_name"]].itertuples(index=False, name=None):
+        product_text = clean_str(product_name)
+        product_compact = compact_search_text(product_text)
+        catalog_groups.setdefault((clean_str(power), clean_str(cp)), []).append(
+            (clean_str(code), clean_str(pack), product_text, product_compact)
+        )
+
+    filled = out.copy()
+    if "CP" not in filled.columns:
+        filled["CP"] = ""
+    needs_code = filled["제품코드"].map(clean_str) == ""
+    for idx, row in filled[needs_code].iterrows():
+        power = clean_str(row.get("POWER", ""))
+        cp = clean_str(row.get("CP", ""))
+        if not power or not cp:
+            continue
+        candidates = catalog_groups.get((power, cp), [])
+        if not candidates:
+            continue
+        terms = expand_product_query_terms(row.get("제품명", ""))
+        term_compacts = [compact_search_text(term) for term in terms if clean_str(term)]
+        matched = [
+            (code, pack, product_name)
+            for code, pack, product_name, product_compact in candidates
+            if any(term and (term in product_compact or product_compact in term) for term in term_compacts)
+        ]
+        product_codes = list(dict.fromkeys([code for code, _pack, _product_name in matched if clean_str(code)]))
+        if len(product_codes) != 1:
+            continue
+        filled.at[idx, "제품코드"] = product_codes[0]
+        pack = first_nonempty([pack for _code, pack, _product_name in matched])
+        if pack and clean_str(filled.at[idx, "PACK"]) == "":
+            filled.at[idx, "PACK"] = pack
+        product_name = first_nonempty([product_name for _code, _pack, product_name in matched])
+        if product_name and clean_str(filled.at[idx, "제품명"]) == "":
+            filled.at[idx, "제품명"] = product_name
+    return filled
+
+
 def enrich_daily_inventory_from_code_summary(daily_inventory_df: pd.DataFrame, code_summary: pd.DataFrame) -> pd.DataFrame:
     if daily_inventory_df is None or daily_inventory_df.empty or code_summary.empty:
         return daily_inventory_df
@@ -5657,8 +5781,10 @@ def enrich_daily_inventory_from_code_summary(daily_inventory_df: pd.DataFrame, c
     out = daily_inventory_df.copy()
     out["제품코드"] = out["제품코드"].map(clean_str).str.upper()
     out["POWER"] = out["POWER"].map(clean_str)
+    out["CP"] = out["CP"].map(clean_str) if "CP" in out.columns else ""
+    out = fill_daily_product_code_from_code_summary(out, code_summary)
     if not exact_catalog.empty:
-        out = out.merge(exact_catalog, on=["제품코드", "POWER"], how="left")
+        out = out.merge(exact_catalog, on=["제품코드", "POWER", "CP"], how="left")
         catalog_pack = out["_code_pack"].map(clean_str)
         catalog_product = out["_code_product_name"].map(clean_str)
         out["PACK"] = out["_code_pack"].where(catalog_pack != "", out["PACK"])
@@ -5844,6 +5970,7 @@ def build_daily_inventory_response_view(
         "제품코드",
         "PACK",
         "POWER",
+        "CP",
         "재고수량",
         "전일재고",
         "재고증감",
@@ -5872,6 +5999,7 @@ def build_daily_inventory_response_view(
     daily["제품코드"] = daily["제품코드"].map(clean_str).str.upper()
     daily["PACK"] = daily["PACK"].map(clean_str)
     daily["POWER"] = daily["POWER"].map(clean_str)
+    daily["CP"] = daily["CP"].map(clean_str) if "CP" in daily.columns else ""
     daily["_daily_base_product_name"] = daily["제품명"].map(strip_pack_unit_suffix).map(clean_str)
     daily["재고수량"] = pd.to_numeric(daily["재고수량"], errors="coerce")
     daily["전일재고"] = pd.to_numeric(daily["전일재고"], errors="coerce")
@@ -5881,24 +6009,24 @@ def build_daily_inventory_response_view(
     request_match = build_daily_request_match_view(code_summary)
     out = daily.merge(
         request_match,
-        on=["제품코드", "PACK", "POWER"],
+        on=["제품코드", "PACK", "POWER", "CP"],
         how="left",
     )
     production_catalog = build_daily_production_power_catalog(code_summary)
-    out = out.merge(production_catalog, on=["제품코드", "POWER"], how="left")
+    out = out.merge(production_catalog, on=["제품코드", "POWER", "CP"], how="left")
     base_production_catalog = build_daily_base_power_production_catalog(code_summary)
-    out = out.merge(base_production_catalog, on=["_daily_base_product_name", "POWER"], how="left")
+    out = out.merge(base_production_catalog, on=["_daily_base_product_name", "POWER", "CP"], how="left")
     product_catalog = build_daily_product_catalog(code_summary)
     out = out.merge(product_catalog, on=["제품코드", "PACK"], how="left")
     out["재고표 제품명"] = out["제품명"].map(clean_str)
     out["품목코드"] = [
-        build_item_code_from_prefix_power(product_code, power)
-        for product_code, power in zip(out["제품코드"], out["POWER"])
+        build_item_code_from_prefix_power(product_code, power, cp)
+        for product_code, power, cp in zip(out["제품코드"], out["POWER"], out["CP"])
     ]
     out["제품명"] = out["요청제품명"].where(out["요청제품명"].map(clean_str) != "", out["마스터제품명"])
     out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["재고표 제품명"])
     out = add_period_group_columns(out)
-    for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "마스터공장구분", "재고표 제품명", "품목코드"]:
+    for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "마스터공장구분", "재고표 제품명", "품목코드", "CP"]:
         if col in out.columns:
             out[col] = out[col].fillna("")
     if "공장구분" not in out.columns:
@@ -6195,6 +6323,7 @@ def daily_inventory_detail_column_order(df: pd.DataFrame) -> list[str]:
         "제품명",
         "PACK",
         "POWER",
+        "CP",
         "재고수량",
         "긴급요청",
         "요청 PACK",
@@ -6221,6 +6350,10 @@ def daily_inventory_search_variants(token: str) -> list[str]:
     if power_label:
         variants.append(power_label)
 
+    cp_label = normalize_toric_cp_label(normalized) if not normalized.startswith("-") else ""
+    if cp_label:
+        variants.append(cp_label)
+
     return list(dict.fromkeys([variant for variant in variants if clean_str(variant)]))
 
 
@@ -6243,7 +6376,7 @@ def daily_inventory_query_mask(view: pd.DataFrame, query: str) -> pd.Series:
 
     text_cols = [
         col
-        for col in ["품목코드", "제품명", "재고표 제품명", "제품코드", "요청제품명", "대상품목"]
+        for col in ["품목코드", "제품명", "재고표 제품명", "제품코드", "요청제품명", "대상품목", "CP"]
         if col in view.columns
     ]
     mask = pd.Series(True, index=view.index)
@@ -6252,8 +6385,11 @@ def daily_inventory_query_mask(view: pd.DataFrame, query: str) -> pd.Series:
         token_mask = pd.Series(False, index=view.index)
         power_label = daily_power_label(normalized) if is_power_query_token(normalized) else ""
         pack_label = extract_daily_pack_label(normalized)
+        cp_label = normalize_toric_cp_label(normalized) if not normalized.startswith("-") else ""
         if is_item_code_query_token(normalized) and "품목코드" in view.columns:
             token_mask = contains_any_query_term(view["품목코드"].fillna(""), [normalized.upper()])
+        elif cp_label and "CP" in view.columns:
+            token_mask = contains_any_query_term(view["CP"].fillna(""), [cp_label])
         elif power_label and "POWER" in view.columns:
             token_mask = contains_any_query_term(view["POWER"].fillna(""), [power_label])
         elif pack_label and "PACK" in view.columns:
@@ -8960,6 +9096,170 @@ def add_urgent_request_summary_panel(
     )
 
 
+def add_report_progress_bar(
+    slide: Any,
+    value: Any,
+    left: float,
+    top: float,
+    width: float,
+    color: str,
+    text_color: str = REPORT_HEADER,
+) -> None:
+    pct = max(0.0, min(100.0, to_report_float(value)))
+    bar_width = max(0.0, width - 0.55)
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top + 0.09, bar_width, 0.045, REPORT_FAINT)
+    fill_width = bar_width * pct / 100.0
+    if fill_width > 0:
+        add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top + 0.09, fill_width, 0.045, color, color)
+    add_textbox(
+        slide,
+        f"{pct:.1f}%",
+        left + bar_width + 0.07,
+        top,
+        0.48,
+        0.22,
+        6.4,
+        True,
+        text_color,
+        PP_ALIGN.RIGHT,
+        MSO_ANCHOR.MIDDLE,
+    )
+
+
+def add_family_progress_summary_panel(
+    slide: Any,
+    family_view: pd.DataFrame,
+    left: float = 0.45,
+    top: float = 3.56,
+    width: float = 12.45,
+    height: float = 3.47,
+    max_rows: int = 10,
+) -> None:
+    add_report_shape(
+        slide,
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        left,
+        top,
+        width,
+        height,
+        REPORT_PANEL,
+        REPORT_PANEL_LINE,
+        0.5,
+    )
+    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.38, REPORT_NAVY, REPORT_NAVY, 0.5)
+
+    headers = ["제품 분류", "요청 PACK", "생산진도", "포장진도", "용마입고", "생산부족 PCS"]
+    col_widths = [2.05, 1.25, 2.25, 2.25, 2.25, 1.65]
+    col_lefts = [left + 0.16]
+    for col_width in col_widths[:-1]:
+        col_lefts.append(col_lefts[-1] + col_width)
+
+    for idx, header in enumerate(headers):
+        add_textbox(
+            slide,
+            header,
+            col_lefts[idx],
+            top + 0.06,
+            col_widths[idx],
+            0.26,
+            7.5,
+            True,
+            "#FFFFFF",
+            PP_ALIGN.RIGHT if idx in {1, 5} else PP_ALIGN.LEFT,
+            MSO_ANCHOR.MIDDLE,
+        )
+
+    if family_view.empty:
+        add_textbox(
+            slide,
+            "표시할 제품 분류별 진도 데이터가 없습니다.",
+            left + 0.2,
+            top + 0.76,
+            width - 0.4,
+            0.3,
+            8.4,
+            False,
+            REPORT_MUTED,
+            vertical_anchor=MSO_ANCHOR.MIDDLE,
+        )
+        return
+
+    rows = family_view.head(max_rows).copy()
+    hidden_count = max(0, len(family_view) - len(rows))
+    row_height = min(0.29, (height - 0.68) / max(len(rows), 1))
+    for row_idx, (_, row) in enumerate(rows.iterrows(), start=1):
+        row_top = top + 0.4 + (row_idx - 1) * row_height
+        if row_idx % 2 == 0:
+            add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.06, row_top, width - 0.12, row_height, REPORT_ROW_ALT)
+
+        family = truncate_report_text(row.get("본품분류", ""), 24)
+        request_pack = to_report_float(row.get("요청 PACK", 0.0))
+        production_progress = to_report_float(row.get("생산진도율", 0.0))
+        packing_progress = to_report_float(row.get("포장진도율", 0.0))
+        receipt_progress = to_report_float(row.get("용마입고율", 0.0))
+        production_shortage = to_report_float(row.get("생산부족수량", 0.0))
+        shortage_color = COLOR_DANGER if production_shortage > 0 else REPORT_HEADER
+
+        add_textbox(
+            slide,
+            family,
+            col_lefts[0],
+            row_top + 0.03,
+            col_widths[0],
+            row_height - 0.06,
+            7.4,
+            True,
+            REPORT_HEADER,
+            vertical_anchor=MSO_ANCHOR.MIDDLE,
+        )
+        add_textbox(
+            slide,
+            format_report_value(request_pack),
+            col_lefts[1],
+            row_top + 0.03,
+            col_widths[1],
+            row_height - 0.06,
+            7.4,
+            True,
+            REPORT_HEADER,
+            PP_ALIGN.RIGHT,
+            MSO_ANCHOR.MIDDLE,
+        )
+        add_report_progress_bar(slide, production_progress, col_lefts[2], row_top + 0.03, col_widths[2] - 0.12, COLOR_BLUE)
+        add_report_progress_bar(slide, packing_progress, col_lefts[3], row_top + 0.03, col_widths[3] - 0.12, COLOR_ORANGE)
+        add_report_progress_bar(slide, receipt_progress, col_lefts[4], row_top + 0.03, col_widths[4] - 0.12, COLOR_AMBER)
+        add_textbox(
+            slide,
+            format_report_value(production_shortage),
+            col_lefts[5],
+            row_top + 0.03,
+            col_widths[5],
+            row_height - 0.06,
+            7.4,
+            True,
+            shortage_color,
+            PP_ALIGN.RIGHT,
+            MSO_ANCHOR.MIDDLE,
+        )
+        add_report_rule(slide, left + 0.1, row_top + row_height, width - 0.2, REPORT_FAINT)
+
+    note = "제품군별 생산지시 PACK, 생산·포장·용마입고율, 생산부족 PCS 기준"
+    if hidden_count:
+        note = f"{note} / 외 {hidden_count:,}개 분류"
+    add_textbox(
+        slide,
+        note,
+        left + 0.16,
+        top + height - 0.2,
+        width - 0.32,
+        0.16,
+        6.2,
+        False,
+        REPORT_MUTED,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
+
+
 def add_urgent_request_summary_slide(
     prs: Presentation,
     urgent_summary_view: pd.DataFrame,
@@ -9164,6 +9464,8 @@ def build_ppt_report(
     work = add_allocated_production_basis(code_summary)
     work = code_summary_for_products(work, product_names)
     scope_kpis = build_scope_kpis(work)
+    main_products, _ = split_main_sample(product_view)
+    family_view = build_family_progress_view(main_products)
     urgent_summary_view = build_urgent_request_summary_view(
         daily_inventory_df,
         code_summary,
@@ -9290,12 +9592,12 @@ def build_ppt_report(
     add_kpi_card(slide, "본품 KPI", kpi_map.get("본품", {}), COLOR_TEAL, 4.68, 1.9, 4.0, 1.38)
     add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_AMBER, 8.9, 1.9, 4.0, 1.38)
 
-    add_textbox(slide, "요청 긴급 판매코드 요약", 0.45, 3.34, 12.45, 0.22, 8.5, True, REPORT_HEADER)
+    add_textbox(slide, "제품 분류별 진도현황", 0.45, 3.34, 12.45, 0.22, 8.5, True, REPORT_HEADER)
 
-    add_urgent_request_summary_panel(slide, urgent_summary_view, left=0.45, top=3.56, width=12.45)
+    add_family_progress_summary_panel(slide, family_view, left=0.45, top=3.56, width=12.45)
     add_textbox(
         slide,
-        "진도율은 생산요청 기준이며, 요청/긴급 대응 품목은 일일 재고표 기준으로 산출됩니다.",
+        "진도율은 생산요청 기준이며, 제품 분류별 현황은 본품 제품군 기준으로 산출됩니다.",
         0.45,
         7.16,
         12.4,
@@ -11769,6 +12071,7 @@ def drilldown_column_config() -> dict[str, Any]:
     return {
         "품목코드": st.column_config.TextColumn("판매코드"),
         "S코드": st.column_config.TextColumn("판매코드"),
+        "CP": st.column_config.TextColumn("CP"),
         "요청합계(PACK)": st.column_config.NumberColumn("요청합계(PACK)", format=numeric_format),
         "요청합계(PCS)": st.column_config.NumberColumn("요청합계(PCS)", format=numeric_format),
         "생산요청물량": st.column_config.NumberColumn("생산요청물량", format=numeric_format),
@@ -12342,7 +12645,7 @@ def render_product_summary_tab(
 def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
         "생산코드 상세",
-        "P로 시작하는 생산코드 5자리 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
+        "생산코드 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
     )
     production_unit_mode = UNIT_PACK
     pack_options = available_pack_options(code_summary)
@@ -12441,7 +12744,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_production_row = render_selectable_table(
         "생산코드 메인 테이블",
-        f"P로 시작하는 생산코드 5자리 기준 집계 | 납기일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
+        f"생산코드 기준 집계 | 납기일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
         production_view,
         key=f"production_code_main_table_{table_nonce}",
         height=620,
