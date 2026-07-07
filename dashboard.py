@@ -10629,7 +10629,9 @@ def render_style() -> None:
         }}
         .overall-kpi-card {{
             padding: 22px 24px;
-            min-height: 246px;
+            height: 320px;
+            min-height: 320px;
+            max-height: 320px;
             border-color: #93B5FF !important;
             transition: transform 0.2s ease;
         }}
@@ -10826,8 +10828,9 @@ def render_style() -> None:
         .scope-kpi {{
             padding: 18px 20px;
             margin-bottom: 0;
-            min-height: 246px;
-            height: 100%;
+            height: 320px;
+            min-height: 320px;
+            max-height: 320px;
             transition: transform 0.2s ease;
         }}
         .scope-kpi .metric-value {{
