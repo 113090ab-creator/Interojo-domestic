@@ -8484,12 +8484,10 @@ def render_urgent_request_compact(summary_view: pd.DataFrame) -> None:
         scope_class = "in" if scope == "요청내" else "out"
         rows.append(
             "<div class='urgent-list-row'>"
-            "<div class='urgent-row-main'>"
             f"<span class='urgent-code'>{escape(clean_str(row.get('S코드', '')))}</span>"
             f"<span class='request-scope-badge {scope_class}'>{escape(scope)}</span>"
+            f"<span class='urgent-product'>{escape(clean_str(row.get('제품명', '')))}</span>"
             f"<span class='urgent-sku'>SKU {format_int(sku_count)}</span>"
-            "</div>"
-            f"<div class='urgent-product'>{escape(clean_str(row.get('제품명', '')))}</div>"
             "</div>"
         )
     st.markdown(
@@ -11007,22 +11005,19 @@ def render_style() -> None:
             gap: 0;
         }}
         .urgent-list-row {{
-            height: 58px;
-            min-height: 58px;
-            max-height: 58px;
-            padding: 9px 2px;
+            display: grid;
+            grid-template-columns: 42px 58px minmax(0, 1fr) 44px;
+            align-items: center;
+            gap: 8px;
+            height: 38px;
+            min-height: 38px;
+            max-height: 38px;
+            padding: 0 2px;
             border-bottom: 1px solid {BORDER_LIGHT};
             overflow: hidden;
         }}
         .urgent-list-row:last-child {{
             border-bottom: 0;
-        }}
-        .urgent-row-main {{
-            display: grid;
-            grid-template-columns: 44px 58px 1fr;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 5px;
         }}
         .urgent-code {{
             color: {COLOR_BLUE};
@@ -11039,9 +11034,9 @@ def render_style() -> None:
         }}
         .urgent-product {{
             color: #64748B;
-            font-size: 12px;
-            line-height: 1.35;
-            font-weight: 600;
+            font-size: 11px;
+            line-height: 1.2;
+            font-weight: 700;
             overflow: hidden;
             white-space: nowrap;
             text-overflow: ellipsis;
