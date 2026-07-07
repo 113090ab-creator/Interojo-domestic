@@ -47,7 +47,7 @@ STATUS_ORDER = ["미착수", "진행중", "완료"]
 UNIT_PACK = "PACK 기준"
 UNIT_PCS = "PCS 기준"
 UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
-DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세", "POWER 상세", "포장 LOT 상세"]
+DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세", "포장 LOT 상세"]
 DAILY_INVENTORY_FILE_STANDARD = "클라렌사업본부 재고현황_YYMMDD.xlsx"
 DAILY_INVENTORY_FILE_KEYWORDS = ["클라렌사업본부 재고현황", "재고현황_"]
 SAMPLE_KEYWORDS = ["샘플"]
@@ -12873,7 +12873,6 @@ def render_period_group_filter(active_tab: str) -> str:
         "일일 재고 대응": "daily_inventory",
         "생산코드 상세": "production_code",
         "판매코드 상세": "sales_code",
-        "POWER 상세": "power",
         "포장 LOT 상세": "packing_lot",
     }
     if active_tab == "제품 진도 현황":
@@ -12955,8 +12954,6 @@ def main() -> None:
         render_production_code_tab(code_summary, selected_period)
     elif active_tab == "판매코드 상세":
         render_sales_code_tab(code_summary, selected_period)
-    elif active_tab == "POWER 상세":
-        render_power_tab(code_summary, selected_period)
     elif active_tab == "포장 LOT 상세":
         render_packing_lot_tab(lot_status_df, selected_period)
 
