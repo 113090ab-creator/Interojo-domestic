@@ -91,7 +91,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 34
+DATA_CACHE_VERSION = 35
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -13222,6 +13222,15 @@ def file_fingerprint(path: Path | None) -> tuple[str, int, int] | None:
     return (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
 
 
+def dashboard_cache_fingerprint() -> tuple[int, str, int, int]:
+    try:
+        path = Path(__file__).resolve()
+        stat = path.stat()
+        return (DATA_CACHE_VERSION, str(path), int(stat.st_mtime_ns), int(stat.st_size))
+    except Exception:
+        return (DATA_CACHE_VERSION, "dashboard.py", 0, 0)
+
+
 @st.cache_data(show_spinner="데이터 파일을 읽는 중입니다. 잠시만 기다려 주세요.", max_entries=8)
 def load_dashboard_data(
     request_fingerprint: tuple[str, int, int],
@@ -13230,7 +13239,7 @@ def load_dashboard_data(
     inventory_fingerprint: tuple[str, int, int] | None,
     daily_inventory_fingerprint: tuple[str, int, int] | None,
     product_master_fingerprint: tuple[str, int, int] | None,
-    cache_version: int,
+    cache_version: tuple[int, str, int, int] | int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
@@ -13364,7 +13373,7 @@ def main() -> None:
             file_fingerprint(files.inventory_file),
             file_fingerprint(files.daily_inventory_file),
             file_fingerprint(files.product_master_file),
-            DATA_CACHE_VERSION,
+            dashboard_cache_fingerprint(),
         )
         lot_status_df = pd.DataFrame()
     except DashboardConfigError as exc:
