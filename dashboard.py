@@ -10262,8 +10262,18 @@ def render_style() -> None:
         .stApp {{
             background: {BG_PAGE} !important;
         }}
+        [data-testid="stHeader"],
+        .stApp > header {{
+            background: {BG_PAGE} !important;
+            border-bottom: 0 !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"] {{
+            background: transparent !important;
+        }}
         .block-container {{
-            padding: 28px 28px 40px !important;
+            padding: 72px 28px 40px !important;
             max-width: 1720px !important;
         }}
         [data-testid="stSidebar"] {{
@@ -10370,15 +10380,19 @@ def render_style() -> None:
             border: 1px solid {BORDER_LIGHT};
         }}
         .app-header {{
-            margin-bottom: 16px;
+            margin-bottom: 18px;
+            padding-top: 4px;
+            overflow: visible;
         }}
         .app-title {{
             color: {TEXT_PRIMARY};
             font-size: 28px;
-            line-height: 1.2;
+            line-height: 1.45;
             font-weight: 800;
             letter-spacing: 0;
-            margin-bottom: 8px;
+            margin: 0 0 6px;
+            min-height: 42px;
+            overflow: visible;
         }}
         .app-basis {{
             color: {TEXT_SECONDARY};
@@ -10438,9 +10452,20 @@ def render_style() -> None:
             border-color: #CBD5E1 !important;
             color: {TEXT_PRIMARY} !important;
         }}
-        [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
+        [data-testid="stSegmentedControl"] button[aria-pressed="true"],
+        [data-testid="stSegmentedControl"] button[aria-selected="true"],
+        [data-testid="stSegmentedControl"] button[aria-checked="true"],
+        [data-testid="stSegmentedControl"] label:has(input:checked) {{
             background: {COLOR_BLUE} !important;
             border-color: {COLOR_BLUE} !important;
+            color: #FFFFFF !important;
+            border-bottom-color: {COLOR_BLUE} !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stSegmentedControl"] button[aria-pressed="true"] *,
+        [data-testid="stSegmentedControl"] button[aria-selected="true"] *,
+        [data-testid="stSegmentedControl"] button[aria-checked="true"] *,
+        [data-testid="stSegmentedControl"] label:has(input:checked) * {{
             color: #FFFFFF !important;
         }}
         .dashboard-nav-divider {{
