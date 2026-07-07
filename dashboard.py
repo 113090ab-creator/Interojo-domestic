@@ -12502,104 +12502,107 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         stock_threshold_pack=float(stock_threshold_pack),
         today_key=pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d"),
     )
-    render_urgent_sales_packing_list(sales_base)
+    priority_tab, detail_tab = st.tabs(["포장 우선순위", "판매코드 세부리스트"])
 
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    sf1, sf2, sf3, _ = st.columns([3.8, 1.2, 1.2, 1.8], gap="small")
-    with sf1:
-        integrated_query = st.text_input(
-            "통합검색",
-            value="",
-            placeholder="예: 소울브라운, S145, P0019",
-            key="tab_sales_integrated_query",
-        )
-    with sf2:
-        selected_pack = st.selectbox("PACK 선택", options=pack_options, index=0, key="tab_sales_pack")
-    with sf3:
-        selected_power = st.selectbox("POWER 선택", options=power_options, index=0, key="tab_sales_power")
+    with priority_tab:
+        render_urgent_sales_packing_list(sales_base)
 
-    sales_detail_view = filter_sales_order_view(
-        sales_base,
-        pack_label=selected_pack,
-        power_label=selected_power,
-    )
-    sales_main_unfiltered = build_sales_code_group_main_view(
-        sales_detail_view,
-        stock_threshold_pack=float(stock_threshold_pack),
-    )
-    sales_search_columns = list(
-        dict.fromkeys(
-            sales_group_column_order(sales_main_unfiltered, sales_unit_mode)
-            + ["생산코드", "생산요청물량(PCS)", "용마입고수량(PCS)", "포장부족(PCS)"]
+    with detail_tab:
+        sf1, sf2, sf3, _ = st.columns([3.8, 1.2, 1.2, 1.8], gap="small")
+        with sf1:
+            integrated_query = st.text_input(
+                "통합검색",
+                value="",
+                placeholder="예: 소울브라운, S145, P0019",
+                key="tab_sales_integrated_query",
+            )
+        with sf2:
+            selected_pack = st.selectbox("PACK 선택", options=pack_options, index=0, key="tab_sales_pack")
+        with sf3:
+            selected_power = st.selectbox("POWER 선택", options=power_options, index=0, key="tab_sales_power")
+
+        sales_detail_view = filter_sales_order_view(
+            sales_base,
+            pack_label=selected_pack,
+            power_label=selected_power,
         )
-    )
-    sales_main_view = filter_dataframe_by_terms(
-        sales_main_unfiltered,
-        integrated_query,
-        columns=sales_search_columns,
-    )
-    visible_sales_codes = set(sales_main_view.get("_sales_code_base", sales_main_view.get("판매코드", pd.Series(dtype=str))).map(clean_str))
-    if integrated_query.strip():
-        if visible_sales_codes:
-            sales_detail_export_view = sales_detail_view[
-                sales_detail_view["판매코드"].map(sales_code_base).isin(visible_sales_codes)
-            ].copy()
+        sales_main_unfiltered = build_sales_code_group_main_view(
+            sales_detail_view,
+            stock_threshold_pack=float(stock_threshold_pack),
+        )
+        sales_search_columns = list(
+            dict.fromkeys(
+                sales_group_column_order(sales_main_unfiltered, sales_unit_mode)
+                + ["생산코드", "생산요청물량(PCS)", "용마입고수량(PCS)", "포장부족(PCS)"]
+            )
+        )
+        sales_main_view = filter_dataframe_by_terms(
+            sales_main_unfiltered,
+            integrated_query,
+            columns=sales_search_columns,
+        )
+        visible_sales_codes = set(sales_main_view.get("_sales_code_base", sales_main_view.get("판매코드", pd.Series(dtype=str))).map(clean_str))
+        if integrated_query.strip():
+            if visible_sales_codes:
+                sales_detail_export_view = sales_detail_view[
+                    sales_detail_view["판매코드"].map(sales_code_base).isin(visible_sales_codes)
+                ].copy()
+            else:
+                sales_detail_export_view = sales_detail_view.iloc[0:0].copy()
         else:
-            sales_detail_export_view = sales_detail_view.iloc[0:0].copy()
-    else:
-        sales_detail_export_view = sales_detail_view
-    dl_col, _ = st.columns([1.2, 4.8], gap="small")
-    with dl_col:
-        render_excel_download(
-            "엑셀 다운로드",
-            "판매코드_상세",
-            {
-                "긴급 포장 리스트": build_urgent_sales_packing_view(sales_base),
-                "판매코드 집계": sales_main_view,
-                "POWER 상세": sales_detail_export_view,
-            },
-            key="download_sales_code_excel",
+            sales_detail_export_view = sales_detail_view
+        dl_col, _ = st.columns([1.2, 4.8], gap="small")
+        with dl_col:
+            render_excel_download(
+                "엑셀 다운로드",
+                "판매코드_상세",
+                {
+                    "긴급 포장 리스트": build_urgent_sales_packing_view(sales_base),
+                    "판매코드 집계": sales_main_view,
+                    "POWER 상세": sales_detail_export_view,
+                },
+                key="download_sales_code_excel",
+            )
+        table_nonce_key = "sales_code_main_table_nonce"
+        table_nonce = int(st.session_state.get(table_nonce_key, 0))
+        selected_sales_row = render_selectable_table(
+            "판매코드",
+            f"판매코드 S### 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_export_view):,}",
+            sales_main_view,
+            key=f"sales_code_main_table_{table_nonce}",
+            height=620,
+            column_order=sales_group_column_order(sales_main_view, sales_unit_mode),
         )
-    table_nonce_key = "sales_code_main_table_nonce"
-    table_nonce = int(st.session_state.get(table_nonce_key, 0))
-    selected_sales_row = render_selectable_table(
-        "판매코드",
-        f"판매코드 S### 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_export_view):,}",
-        sales_main_view,
-        key=f"sales_code_main_table_{table_nonce}",
-        height=620,
-        column_order=sales_group_column_order(sales_main_view, sales_unit_mode),
-    )
-    if selected_sales_row is None:
-        return
+        if selected_sales_row is None:
+            return
 
-    selected_sales = clean_str(selected_sales_row.get("_sales_code_base", selected_sales_row.get("판매코드", "")))
-    detail_scope = sales_detail_view[sales_detail_view["판매코드"].map(sales_code_base) == selected_sales].copy()
-    detail_scope["_pack_sort"] = detail_scope["PACK"].map(pack_sort_rank) if "PACK" in detail_scope.columns else 0.0
-    if "power_value" not in detail_scope.columns:
-        detail_scope["power_value"] = pd.to_numeric(
-            detail_scope.get("POWER", pd.Series(0.0, index=detail_scope.index)),
-            errors="coerce",
-        ).fillna(999999.0)
-    detail_scope = detail_scope.sort_values(
-        ["_priority_sort", "_request_due_date_sort", "power_value", "_pack_sort", "포장부족(PACK)"],
-        ascending=[True, True, True, True, False],
-        na_position="last",
-        kind="stable",
-    ).drop(columns=["_pack_sort"], errors="ignore")
-    inventory_source = filter_operational_code_summary(
-        period_scoped_code_summary,
-        pack_label=selected_pack,
-        power_label=selected_power,
-    )
-    inventory_view = build_inventory_prefix_detail_view(inventory_source, selected_sales)
-    render_sales_code_detail_dialog(
-        selected_sales_row,
-        detail_scope,
-        inventory_view,
-        sales_unit_mode,
-        table_nonce_key,
-    )
+        selected_sales = clean_str(selected_sales_row.get("_sales_code_base", selected_sales_row.get("판매코드", "")))
+        detail_scope = sales_detail_view[sales_detail_view["판매코드"].map(sales_code_base) == selected_sales].copy()
+        detail_scope["_pack_sort"] = detail_scope["PACK"].map(pack_sort_rank) if "PACK" in detail_scope.columns else 0.0
+        if "power_value" not in detail_scope.columns:
+            detail_scope["power_value"] = pd.to_numeric(
+                detail_scope.get("POWER", pd.Series(0.0, index=detail_scope.index)),
+                errors="coerce",
+            ).fillna(999999.0)
+        detail_scope = detail_scope.sort_values(
+            ["_priority_sort", "_request_due_date_sort", "power_value", "_pack_sort", "포장부족(PACK)"],
+            ascending=[True, True, True, True, False],
+            na_position="last",
+            kind="stable",
+        ).drop(columns=["_pack_sort"], errors="ignore")
+        inventory_source = filter_operational_code_summary(
+            period_scoped_code_summary,
+            pack_label=selected_pack,
+            power_label=selected_power,
+        )
+        inventory_view = build_inventory_prefix_detail_view(inventory_source, selected_sales)
+        render_sales_code_detail_dialog(
+            selected_sales_row,
+            detail_scope,
+            inventory_view,
+            sales_unit_mode,
+            table_nonce_key,
+        )
 
 
 def render_power_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
