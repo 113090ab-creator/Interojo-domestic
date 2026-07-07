@@ -10369,6 +10369,8 @@ def render_style() -> None:
             gap: 4px;
         }}
         [data-testid="stSidebar"] [data-testid="stRadio"] label {{
+            display: flex !important;
+            align-items: center !important;
             min-height: 42px;
             padding: 0 10px !important;
             border-radius: 8px;
@@ -10389,8 +10391,14 @@ def render_style() -> None:
             font-size: 13px !important;
             font-weight: 700 !important;
         }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] input {{
-            display: none;
+        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"],
+        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] + div,
+        [data-testid="stSidebar"] [data-testid="stRadio"] div:has(> input[type="radio"]) {{
+            display: none !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] > div {{
+            gap: 0 !important;
+            padding-left: 0 !important;
         }}
         .sidebar-section-title {{
             color: {COLOR_BLUE};
