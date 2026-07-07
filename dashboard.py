@@ -9386,6 +9386,7 @@ def render_style() -> None:
             --text-tertiary: {TEXT_TERTIARY};
             --border-default: {BORDER_DEFAULT};
             --border-light: {BORDER_LIGHT};
+            --kpi-card-height: 320px;
         }}
         .block-container {{
             padding: 24px 32px 32px !important;
@@ -10675,10 +10676,10 @@ def render_style() -> None:
             box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
         }}
         .overall-kpi-card {{
-            padding: 22px 24px;
-            height: 348px;
-            min-height: 348px;
-            max-height: 348px;
+            padding: 20px 24px;
+            height: var(--kpi-card-height);
+            min-height: var(--kpi-card-height);
+            max-height: var(--kpi-card-height);
             border-color: #93B5FF !important;
             transition: transform 0.2s ease;
         }}
@@ -10883,9 +10884,9 @@ def render_style() -> None:
         .scope-kpi {{
             padding: 16px 20px;
             margin-bottom: 0;
-            height: 320px;
-            min-height: 320px;
-            max-height: 320px;
+            height: var(--kpi-card-height);
+            min-height: var(--kpi-card-height);
+            max-height: var(--kpi-card-height);
             transition: transform 0.2s ease;
         }}
         .scope-kpi .kpi-divider-grid {{
