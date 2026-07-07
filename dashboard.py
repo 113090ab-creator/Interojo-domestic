@@ -10352,61 +10352,48 @@ def render_style() -> None:
             font-weight: 600;
             margin-top: 4px;
         }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] {{
-            margin-bottom: 20px;
+        .sidebar-menu-label {{
+            color: #64748B;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 0 10px 8px;
         }}
-        [data-testid="stSidebar"] [role="radiogroup"] {{
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
+        [data-testid="stSidebar"] [data-testid="stButton"] {{
+            margin: 0 0 4px;
         }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] label {{
-            display: flex !important;
-            align-items: center !important;
-            min-height: 42px;
+        [data-testid="stSidebar"] [data-testid="stButton"] button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            width: 100% !important;
+            height: 42px !important;
+            min-height: 42px !important;
             padding: 0 10px !important;
-            border-radius: 8px;
+            border: 0 !important;
+            border-radius: 8px !important;
+            background: #FFFFFF !important;
             color: #475569 !important;
             font-size: 13px !important;
             font-weight: 700 !important;
-            transition: background 0.18s ease, color 0.18s ease;
+            box-shadow: none !important;
+            transform: none !important;
         }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {{
-            background: #F1F5F9;
+        [data-testid="stSidebar"] [data-testid="stButton"] button:hover {{
+            background: #F1F5F9 !important;
             color: {TEXT_PRIMARY} !important;
+            border: 0 !important;
+            transform: none !important;
         }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {{
-            background: #EAF2FF;
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"],
+        [data-testid="stSidebar"] [data-testid="stButton"] [data-testid="baseButton-primary"],
+        [data-testid="stSidebar"] [data-testid="stButton"] [data-testid="stBaseButton-primary"] {{
+            background: #EAF2FF !important;
             color: {COLOR_BLUE} !important;
+            border: 0 !important;
         }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {{
-            font-size: 13px !important;
-            font-weight: 700 !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {{
-            appearance: none !important;
-            -webkit-appearance: none !important;
-            position: absolute !important;
-            width: 0 !important;
-            height: 0 !important;
-            min-width: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] + div {{
-            display: none !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] > div {{
-            gap: 0 !important;
-            padding-left: 0 !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"],
-        [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {{
-            display: block !important;
-            visibility: visible !important;
-            opacity: 1 !important;
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] *,
+        [data-testid="stSidebar"] [data-testid="stButton"] [data-testid="baseButton-primary"] *,
+        [data-testid="stSidebar"] [data-testid="stButton"] [data-testid="stBaseButton-primary"] * {{
+            color: {COLOR_BLUE} !important;
         }}
         .sidebar-section-title {{
             color: {COLOR_BLUE};
@@ -12849,13 +12836,21 @@ def render_dashboard_nav() -> str:
             """,
             unsafe_allow_html=True,
         )
-        selected = st.radio(
-            "메뉴",
-            options=DASHBOARD_TABS,
-            index=0,
-            label_visibility="collapsed",
-            key="dashboard_active_tab_sidebar",
-        )
+        selected = str(st.session_state.get("dashboard_active_tab_sidebar", DASHBOARD_TABS[0]))
+        if selected not in DASHBOARD_TABS:
+            selected = DASHBOARD_TABS[0]
+            st.session_state["dashboard_active_tab_sidebar"] = selected
+        st.markdown("<div class='sidebar-menu-label'>메뉴</div>", unsafe_allow_html=True)
+        for idx, tab in enumerate(DASHBOARD_TABS):
+            if st.button(
+                tab,
+                key=f"dashboard_nav_button_{idx}",
+                type="primary" if tab == selected else "secondary",
+                width="stretch",
+            ):
+                st.session_state["dashboard_active_tab_sidebar"] = tab
+                selected = tab
+                st.rerun()
         st.markdown(
             """
             <div class="sidebar-section-title">분석 · 리포트</div>
