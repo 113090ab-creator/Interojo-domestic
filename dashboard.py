@@ -11921,13 +11921,6 @@ def render_product_summary_tab(
         render_request_instruction_level_cards(category_request_view)
         render_category_request_summary_table(category_request_view)
 
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    render_panel_title(
-        "생산완료 후 미입고 TOP10",
-        "생산은 진행됐지만 용마 입고가 지연되는 제품을 GAP 기준으로 표시합니다.",
-    )
-    render_gap_top_list(gap_top_view)
-
 
 def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
