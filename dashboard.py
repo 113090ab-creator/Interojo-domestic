@@ -10763,6 +10763,11 @@ def render_style() -> None:
             margin-bottom: 0;
             overflow: hidden;
         }}
+        .lower-card-control-spacer {{
+            height: 64px;
+            min-height: 64px;
+            max-height: 64px;
+        }}
         .family-progress-panel {{
             height: 388px;
             min-height: 388px;
@@ -11959,12 +11964,14 @@ def render_product_summary_tab(
             "미입고 TOP10",
             "미입고 PACK이 큰 제품의 진도를 확인합니다.",
         )
+        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
         render_top_shortage_compact(top_shortage_view)
     with lower_cols[2]:
         render_panel_title(
             "요청 긴급 대응",
             f"S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개",
         )
+        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
         render_urgent_request_compact(urgent_summary_view)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
