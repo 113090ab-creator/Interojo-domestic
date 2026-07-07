@@ -10458,7 +10458,12 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] button[aria-pressed="true"],
         [data-testid="stSegmentedControl"] button[aria-selected="true"],
         [data-testid="stSegmentedControl"] button[aria-checked="true"],
-        [data-testid="stSegmentedControl"] label:has(input:checked) {{
+        [data-testid="stSegmentedControl"] [role="radio"][aria-checked="true"],
+        [data-testid="stSegmentedControl"] [data-checked="true"],
+        [data-testid="stSegmentedControl"] [data-selected="true"],
+        [data-testid="stSegmentedControl"] label:has(input:checked),
+        [data-testid="stSegmentedControl"] input:checked + div,
+        [data-testid="stSegmentedControl"] input:checked ~ div {{
             background: {COLOR_BLUE} !important;
             border-color: {COLOR_BLUE} !important;
             color: #FFFFFF !important;
@@ -10468,8 +10473,18 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] *,
         [data-testid="stSegmentedControl"] button[aria-selected="true"] *,
         [data-testid="stSegmentedControl"] button[aria-checked="true"] *,
-        [data-testid="stSegmentedControl"] label:has(input:checked) * {{
+        [data-testid="stSegmentedControl"] [role="radio"][aria-checked="true"] *,
+        [data-testid="stSegmentedControl"] [data-checked="true"] *,
+        [data-testid="stSegmentedControl"] [data-selected="true"] *,
+        [data-testid="stSegmentedControl"] label:has(input:checked) *,
+        [data-testid="stSegmentedControl"] input:checked + div *,
+        [data-testid="stSegmentedControl"] input:checked ~ div * {{
             color: #FFFFFF !important;
+        }}
+        [data-testid="stSegmentedControl"] [role="radio"][aria-checked="false"],
+        [data-testid="stSegmentedControl"] [role="radio"]:not([aria-checked="true"]) {{
+            border-color: {BORDER_DEFAULT} !important;
+            color: {TEXT_PRIMARY} !important;
         }}
         .dashboard-nav-divider {{
             height: 1px;
