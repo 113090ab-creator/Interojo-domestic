@@ -10383,14 +10383,30 @@ def render_style() -> None:
             font-size: 13px !important;
             font-weight: 700 !important;
         }}
-        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"],
-        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] + div,
-        [data-testid="stSidebar"] [data-testid="stRadio"] div:has(> input[type="radio"]) {{
+        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {{
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            position: absolute !important;
+            width: 0 !important;
+            height: 0 !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] + div {{
             display: none !important;
         }}
         [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] > div {{
             gap: 0 !important;
             padding-left: 0 !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"],
+        [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {{
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
         }}
         .sidebar-section-title {{
             color: {COLOR_BLUE};
