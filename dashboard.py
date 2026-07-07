@@ -4643,6 +4643,7 @@ def calc_operation_kpis(
     stock = pd.to_numeric(product_priority["current_stock_pack"], errors="coerce")
     stock_shortage_mask = stock.notna() & (stock <= float(stock_threshold_pack))
     priority_mask = product_priority["우선등급"].isin(["A 긴급", "B 주의"])
+    # 전체/본품/샘플 KPI는 모두 같은 생산코드 요약 기준을 사용해 진도율 흔들림을 막는다.
     progress_kpi = calc_kpi_from_code_summary(code_summary)
     request_pack = float(progress_kpi.get("request_pack", 0.0))
     request_pcs = float(progress_kpi.get("request_pcs", 0.0))
@@ -12743,8 +12744,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         render_urgent_sales_packing_list(sales_base)
 
     with detail_tab:
-        group_options = available_product_group_options(period_scoped_code_summary)
-        sf1, sf2, sf3, sf4, sf5 = st.columns([3.7, 1.55, 1.1, 1.1, 0.95], gap="small")
+        sf1, sf2, sf3, sf4 = st.columns([4.5, 1.25, 1.25, 0.95], gap="small")
         with sf1:
             integrated_query = st.text_input(
                 "통합검색",
@@ -12753,18 +12753,15 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
                 key="tab_sales_integrated_query",
             )
         with sf2:
-            selected_group = st.selectbox("분류 선택", options=group_options, index=0, key="tab_sales_group")
-        with sf3:
             selected_pack = st.selectbox("PACK 선택", options=pack_options, index=0, key="tab_sales_pack")
-        with sf4:
+        with sf3:
             selected_power = st.selectbox("POWER 선택", options=power_options, index=0, key="tab_sales_power")
-        with sf5:
+        with sf4:
             shortage_only = st.checkbox("부족품만 보기", value=False, key="tab_sales_shortage_only")
 
         sales_detail_view = filter_sales_order_view(
             sales_base,
             pack_label=selected_pack,
-            product_group=selected_group,
             power_label=selected_power,
         )
         sales_main_unfiltered = build_sales_code_group_main_view(
@@ -12838,7 +12835,6 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         inventory_source = filter_operational_code_summary(
             period_scoped_code_summary,
             pack_label=selected_pack,
-            product_group=selected_group,
             power_label=selected_power,
         )
         inventory_view = build_inventory_prefix_detail_view(inventory_source, selected_sales)
