@@ -194,17 +194,17 @@ PACK_SUFFIX_RE = re.compile(
 PACK_PREFIX_SUFFIX_RE = re.compile(r"^\d+(?:\.\d+)?\s*(?:P|팩)_", re.IGNORECASE)
 
 COLOR_BLUE = "#2563EB"
-COLOR_TEAL = "#16A34A"
+COLOR_TEAL = "#64748B"
 COLOR_ORANGE = "#F97316"
 COLOR_AMBER = "#7C3AED"
 COLOR_DANGER = "#DC2626"
 COLOR_ALERT_BG = "#FEF2F2"
 COLOR_ALERT_BD = "#FECACA"
-BG_PAGE = "#F7F8FA"
+BG_PAGE = "#F8FAFC"
 BG_CARD = "#FFFFFF"
 BG_SECTION = "#F3F4F6"
 TEXT_PRIMARY = "#111827"
-TEXT_SECONDARY = "#4B5563"
+TEXT_SECONDARY = "#6B7280"
 TEXT_TERTIARY = "#9CA3AF"
 BORDER_DEFAULT = "#E5E7EB"
 BORDER_LIGHT = "#EEF0F3"
@@ -9516,6 +9516,14 @@ def render_style() -> None:
         [data-testid="stDataFrame"] tr:hover td {{
             background: {BG_PAGE} !important;
         }}
+        [data-testid="stDataFrame"] [role="row"] {{
+            min-height: 48px !important;
+        }}
+        [data-testid="stDataFrame"] [role="columnheader"],
+        [data-testid="stDataFrame"] [role="gridcell"] {{
+            min-height: 48px !important;
+            align-items: center !important;
+        }}
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input,
         [data-testid="stSelectbox"] > div > div,
@@ -9544,7 +9552,7 @@ def render_style() -> None:
         }}
         [data-testid="stButton"] button,
         [data-testid="stDownloadButton"] button {{
-            border-radius: 8px !important;
+            border-radius: 10px !important;
             font-size: 13px !important;
             font-weight: 500 !important;
             border: 0.5px solid rgba(0,0,0,0.15) !important;
@@ -9718,7 +9726,7 @@ def render_style() -> None:
         .status-head strong {{
             color: {TEXT_PRIMARY};
             font-size: 14px;
-            font-weight: 800;
+            font-weight: 700;
         }}
         .status-pill {{
             display: inline-flex;
@@ -9742,7 +9750,7 @@ def render_style() -> None:
             color: {TEXT_PRIMARY};
             font-size: 34px;
             line-height: 1;
-            font-weight: 900;
+            font-weight: 700;
             font-variant-numeric: tabular-nums;
             margin-bottom: 12px;
         }}
@@ -10295,14 +10303,14 @@ def render_style() -> None:
             width: 24px;
             height: 24px;
             border-radius: 999px;
-            background: linear-gradient(135deg, {COLOR_BLUE}, #60A5FA);
-            box-shadow: inset 0 0 0 6px rgba(255,255,255,0.72);
+            background: {COLOR_BLUE};
+            box-shadow: none;
         }}
         .sidebar-brand-title {{
             color: {TEXT_PRIMARY};
             font-size: 18px;
             line-height: 1;
-            font-weight: 800;
+            font-weight: 700;
             letter-spacing: 0.02em;
         }}
         .sidebar-brand-sub {{
@@ -10348,7 +10356,7 @@ def render_style() -> None:
             color: {COLOR_BLUE};
             font-size: 11px;
             line-height: 1.2;
-            font-weight: 800;
+            font-weight: 700;
             padding: 14px 8px 8px;
             border-top: 1px solid {BORDER_LIGHT};
             margin-top: 12px;
@@ -10386,12 +10394,12 @@ def render_style() -> None:
         }}
         .app-title {{
             color: {TEXT_PRIMARY};
-            font-size: 28px;
+            font-size: 34px;
             line-height: 1.45;
-            font-weight: 800;
+            font-weight: 700;
             letter-spacing: 0;
             margin: 0 0 6px;
-            min-height: 42px;
+            min-height: 50px;
             overflow: visible;
         }}
         .app-basis {{
@@ -10429,8 +10437,11 @@ def render_style() -> None:
             color: {COLOR_BLUE};
             font-size: 11px;
             line-height: 1.2;
-            font-weight: 800;
+            font-weight: 700;
             white-space: nowrap;
+        }}
+        .section-gap {{
+            height: 32px;
         }}
         .section-sub {{
             color: {TEXT_SECONDARY};
@@ -10567,7 +10578,7 @@ def render_style() -> None:
         [data-testid="stButton"] button,
         [data-testid="stDownloadButton"] button {{
             min-height: 40px !important;
-            border-radius: 8px !important;
+            border-radius: 10px !important;
             border: 1px solid {BORDER_DEFAULT} !important;
             background: {BG_CARD} !important;
             color: {TEXT_PRIMARY} !important;
@@ -10589,7 +10600,7 @@ def render_style() -> None:
         .kpi-dashboard-label {{
             color: {TEXT_PRIMARY};
             font-size: 14px;
-            font-weight: 800;
+            font-weight: 700;
             margin: 4px 0 10px;
         }}
         .kpi-dashboard-block.status-board {{
@@ -10614,7 +10625,7 @@ def render_style() -> None:
             background: {BG_CARD} !important;
             border: 1px solid {BORDER_DEFAULT} !important;
             border-radius: 12px !important;
-            box-shadow: 0 8px 26px rgba(15,23,42,0.04) !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
         }}
         .overall-kpi-card {{
             padding: 22px 24px;
@@ -10640,17 +10651,17 @@ def render_style() -> None:
             color: {COLOR_BLUE};
             font-size: 15px;
             line-height: 1.35;
-            font-weight: 800;
+            font-weight: 700;
             margin: 0;
         }}
         .scope-kpi .kpi-title {{
-            color: {COLOR_TEAL};
+            color: {TEXT_PRIMARY};
         }}
         .scope-kpi.main-kpi .kpi-title {{
-            color: {COLOR_TEAL};
+            color: {TEXT_PRIMARY};
         }}
         .scope-kpi.sample-kpi .kpi-title {{
-            color: {COLOR_AMBER};
+            color: {TEXT_PRIMARY};
         }}
         .overall-kpi-title b {{
             color: {TEXT_SECONDARY};
@@ -10662,6 +10673,19 @@ def render_style() -> None:
             font-size: 11px;
             font-weight: 700;
             white-space: nowrap;
+        }}
+        .scope-kpi .kpi-card-link {{
+            color: {TEXT_TERTIARY};
+        }}
+        .scope-kpi .metric-value,
+        .scope-kpi .metric-value.primary,
+        .scope-kpi .metric-value.warning,
+        .scope-kpi .metric-value.warn,
+        .scope-kpi .metric-value.mid,
+        .scope-kpi .metric-value.purple,
+        .scope-kpi .metric-value.danger,
+        .scope-kpi .metric-value.risk {{
+            color: {TEXT_PRIMARY};
         }}
         .kpi-rating.large {{
             font-size: 13px;
@@ -10695,7 +10719,7 @@ def render_style() -> None:
             color: {TEXT_PRIMARY};
             font-size: 22px;
             line-height: 1.1;
-            font-weight: 800;
+            font-weight: 700;
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }}
@@ -10784,6 +10808,11 @@ def render_style() -> None:
         .progress-fill.active {{
             background: {COLOR_TEAL};
         }}
+        .scope-kpi .kpi-progress-fill.production,
+        .scope-kpi .kpi-progress-fill.packing,
+        .scope-kpi .kpi-progress-fill.receipt {{
+            background: #64748B;
+        }}
         .overall-kpi-foot {{
             display: flex;
             flex-wrap: wrap;
@@ -10826,9 +10855,9 @@ def render_style() -> None:
             margin-bottom: 24px;
         }}
         .dashboard-card {{
-            height: 388px;
-            min-height: 388px;
-            max-height: 388px;
+            height: auto;
+            min-height: 0;
+            max-height: none;
             margin-bottom: 0;
             overflow: hidden;
         }}
@@ -10838,10 +10867,10 @@ def render_style() -> None:
             max-height: 64px;
         }}
         .family-progress-panel {{
-            height: 388px;
-            min-height: 388px;
-            max-height: 388px;
-            padding: 16px 18px;
+            height: auto;
+            min-height: 0;
+            max-height: none;
+            padding: 24px;
         }}
         .family-table {{
             display: grid;
@@ -10852,9 +10881,9 @@ def render_style() -> None:
             grid-template-columns: minmax(118px, 1.25fr) minmax(74px, 0.78fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(86px, 0.82fr);
             align-items: center;
             gap: 14px;
-            height: 42px;
-            min-height: 42px;
-            max-height: 42px;
+            height: 48px;
+            min-height: 48px;
+            max-height: 48px;
             border-bottom: 1px solid {BORDER_LIGHT};
             overflow: hidden;
         }}
@@ -10868,7 +10897,7 @@ def render_style() -> None:
             color: #64748B;
             font-size: 11px;
             line-height: 1.2;
-            font-weight: 800;
+            font-weight: 700;
         }}
         .family-name {{
             display: flex;
@@ -10877,7 +10906,7 @@ def render_style() -> None:
             min-width: 0;
             color: {TEXT_PRIMARY};
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 700;
         }}
         .family-name b {{
             min-width: 0;
@@ -10897,12 +10926,12 @@ def render_style() -> None:
         .family-dot.dot-3 {{ background: #334155; }}
         .family-dot.dot-4 {{ background: {COLOR_DANGER}; }}
         .family-dot.dot-5 {{ background: {COLOR_ORANGE}; }}
-        .family-dot.dot-6 {{ background: #14B8A6; }}
+        .family-dot.dot-6 {{ background: {COLOR_AMBER}; }}
         .family-dot.dot-7 {{ background: {COLOR_AMBER}; }}
         .family-num {{
             color: {TEXT_PRIMARY};
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 700;
             text-align: right;
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
@@ -10942,7 +10971,7 @@ def render_style() -> None:
         .family-progress-metric span {{
             color: {TEXT_SECONDARY};
             font-size: 11px;
-            font-weight: 800;
+            font-weight: 700;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }}
@@ -10986,7 +11015,7 @@ def render_style() -> None:
             border: 1px solid {BORDER_DEFAULT};
             border-radius: 12px;
             background: {BG_CARD};
-            box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
         }}
         .ops-table th {{
             position: sticky;
@@ -11052,7 +11081,7 @@ def render_style() -> None:
         .rank-num {{
             color: #64748B;
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 700;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }}
@@ -11080,7 +11109,7 @@ def render_style() -> None:
         .rank-value {{
             color: {COLOR_DANGER};
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 700;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }}
@@ -11106,13 +11135,13 @@ def render_style() -> None:
         .urgent-code {{
             color: {COLOR_BLUE};
             font-size: 12px;
-            font-weight: 800;
+            font-weight: 700;
             font-variant-numeric: tabular-nums;
         }}
         .urgent-sku {{
             color: #64748B;
             font-size: 11px;
-            font-weight: 800;
+            font-weight: 700;
             text-align: right;
             white-space: nowrap;
         }}
@@ -11135,8 +11164,8 @@ def render_style() -> None:
             border: 1px solid transparent;
         }}
         .response-badge {{
-            background: #DCFCE7;
-            color: #166534;
+            background: #EEF2F7;
+            color: #475569;
             min-width: 56px;
         }}
         .response-badge.partial,
@@ -11155,9 +11184,9 @@ def render_style() -> None:
         }}
         .request-scope-badge.in,
         .status-badge.done {{
-            background: #DCFCE7;
-            color: #166534;
-            border-color: #BBF7D0;
+            background: #EEF2F7;
+            color: #475569;
+            border-color: #CBD5E1;
         }}
         .status-badge.active {{
             background: #DBEAFE;
@@ -11345,6 +11374,27 @@ def build_product_drilldown_view(product_summary: pd.DataFrame) -> pd.DataFrame:
     return out[
         ["제품명", "요청수량", "생산진도율", "포장진도율", "생산부족수량", "포장부족수량", "상태"]
     ]
+
+
+def render_product_detail_table(product_summary: pd.DataFrame) -> None:
+    product_view = build_product_drilldown_view(product_summary)
+    if product_view.empty:
+        st.warning("제품 상세 테이블에 표시할 데이터가 없습니다.")
+        return
+    sort_cols = [col for col in ["포장부족수량", "생산부족수량", "요청수량"] if col in product_view.columns]
+    if sort_cols:
+        product_view = product_view.sort_values(
+            sort_cols,
+            ascending=[False] * len(sort_cols),
+            kind="stable",
+        )
+    st.dataframe(
+        dataframe_for_streamlit(product_view),
+        hide_index=True,
+        height=min(560, 56 + 48 * min(len(product_view), 10)),
+        width="stretch",
+        column_config=drilldown_column_config(),
+    )
 
 
 def build_pack_unit_view(code_summary: pd.DataFrame, product_name: str) -> pd.DataFrame:
@@ -12003,7 +12053,7 @@ def render_product_summary_tab(
         for name, kpi in build_scope_kpis(add_allocated_production_basis(code_summary))
         if name in {"본품", "샘플"}
     }
-    kpi_cols = st.columns([1.55, 1.0, 1.0], gap="small")
+    kpi_cols = st.columns([5.5, 2.25, 2.25], gap="large")
     with kpi_cols[0]:
         render_status_board(
             product_summary,
@@ -12018,36 +12068,19 @@ def render_product_summary_tab(
     with kpi_cols[2]:
         render_kpi_panel("샘플 KPI", scope_kpis.get("샘플", calc_kpi_from_code_summary(pd.DataFrame())))
 
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    urgent_sku_count = int(
-        pd.to_numeric(urgent_summary_view.get("SKU 수", pd.Series(dtype=float)), errors="coerce")
-        .fillna(0)
-        .sum()
+    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "제품 분류별 진도 현황",
+        "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
     )
-    lower_cols = st.columns([1.55, 0.85, 0.85], gap="small")
-    with lower_cols[0]:
-        render_panel_title(
-            "제품 분류별 진도 현황",
-            "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
-            "전체 보기 >",
-        )
-        render_family_progress_cards(family_view)
-    with lower_cols[1]:
-        render_panel_title(
-            "미입고 TOP10",
-            "미입고 PACK이 큰 제품의 진도를 확인합니다.",
-            "전체 보기 >",
-        )
-        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
-        render_top_shortage_compact(top_shortage_view)
-    with lower_cols[2]:
-        render_panel_title(
-            "요청 긴급 대응",
-            f"S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개",
-            "전체 보기 >",
-        )
-        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
-        render_urgent_request_compact(urgent_summary_view)
+    render_family_progress_cards(family_view)
+
+    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "제품 상세 테이블",
+        f"제품 기준 생산·포장·입고 진도와 부족 수량을 확인합니다. 표시 건수: {len(product_summary):,}",
+    )
+    render_product_detail_table(product_summary)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
