@@ -9450,9 +9450,9 @@ def render_style() -> None:
             box-shadow: none !important;
         }}
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
-            color: {COLOR_ORANGE} !important;
-            font-weight: 500 !important;
-            border-bottom: 2px solid {COLOR_ORANGE} !important;
+            color: {TEXT_PRIMARY} !important;
+            font-weight: 600 !important;
+            border-bottom: 1px solid #CBD5E1 !important;
         }}
         .dashboard-nav-divider {{
             height: 1.5px;
@@ -10443,7 +10443,7 @@ def render_style() -> None:
             border: 1px solid {BORDER_DEFAULT} !important;
             border-radius: 8px !important;
             background: {BG_CARD} !important;
-            color: {TEXT_SECONDARY} !important;
+            color: {TEXT_PRIMARY} !important;
             font-size: 14px !important;
             font-weight: 600 !important;
             padding: 9px 18px !important;
@@ -10464,10 +10464,10 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked),
         [data-testid="stSegmentedControl"] input:checked + div,
         [data-testid="stSegmentedControl"] input:checked ~ div {{
-            background: {COLOR_BLUE} !important;
-            border-color: {COLOR_BLUE} !important;
-            color: #FFFFFF !important;
-            border-bottom-color: {COLOR_BLUE} !important;
+            background: {BG_CARD} !important;
+            border-color: #CBD5E1 !important;
+            color: {TEXT_PRIMARY} !important;
+            border-bottom-color: #CBD5E1 !important;
             box-shadow: none !important;
         }}
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] *,
@@ -10479,7 +10479,34 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked) *,
         [data-testid="stSegmentedControl"] input:checked + div *,
         [data-testid="stSegmentedControl"] input:checked ~ div * {{
-            color: #FFFFFF !important;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        [data-testid="stSegmentedControl"] [data-baseweb="button-group"] button,
+        [data-testid="stSegmentedControl"] [role="radio"],
+        [data-testid="stSegmentedControl"] label[data-baseweb="radio"],
+        [data-testid="stSegmentedControl"] label[data-baseweb="radio"] > div,
+        [data-testid="stSegmentedControl"] label:has(input) > div,
+        [data-testid="stSegmentedControl"] input:checked + div,
+        [data-testid="stSegmentedControl"] input:checked ~ div {{
+            background: {BG_CARD} !important;
+            border-color: {BORDER_DEFAULT} !important;
+            color: {TEXT_PRIMARY} !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stSegmentedControl"] [data-baseweb="button-group"] button[aria-pressed="true"],
+        [data-testid="stSegmentedControl"] [role="radio"][aria-checked="true"],
+        [data-testid="stSegmentedControl"] label[data-baseweb="radio"]:has(input:checked),
+        [data-testid="stSegmentedControl"] label[data-baseweb="radio"]:has(input:checked) > div,
+        [data-testid="stSegmentedControl"] label:has(input:checked) > div {{
+            background: {BG_CARD} !important;
+            border-color: #CBD5E1 !important;
+            color: {TEXT_PRIMARY} !important;
+        }}
+        [data-testid="stSegmentedControl"] [data-baseweb="button-group"] button *,
+        [data-testid="stSegmentedControl"] [role="radio"] *,
+        [data-testid="stSegmentedControl"] label[data-baseweb="radio"] *,
+        [data-testid="stSegmentedControl"] label:has(input) * {{
+            color: {TEXT_PRIMARY} !important;
         }}
         [data-testid="stSegmentedControl"] [role="radio"][aria-checked="false"],
         [data-testid="stSegmentedControl"] [role="radio"]:not([aria-checked="true"]) {{
