@@ -9496,10 +9496,10 @@ def render_style() -> None:
             border: 0.5px solid {BORDER_DEFAULT} !important;
             border-radius: 12px !important;
             overflow: hidden;
-            background: {BG_CARD};
+            background: {BG_CARD} !important;
         }}
         [data-testid="stDataFrame"] th {{
-            background: {BG_PAGE} !important;
+            background: {BG_CARD} !important;
             font-size: 11px !important;
             font-weight: 500 !important;
             color: {TEXT_SECONDARY} !important;
@@ -9513,8 +9513,20 @@ def render_style() -> None:
             padding: 7px 12px !important;
             border-bottom: 0.5px solid {BORDER_LIGHT} !important;
         }}
+        [data-testid="stDataFrame"] table,
+        [data-testid="stDataFrame"] thead,
+        [data-testid="stDataFrame"] tbody,
+        [data-testid="stDataFrame"] tr,
+        [data-testid="stDataFrame"] td,
+        [data-testid="stDataFrame"] [role="grid"],
+        [data-testid="stDataFrame"] [role="rowgroup"],
+        [data-testid="stDataFrame"] [role="row"],
+        [data-testid="stDataFrame"] [role="gridcell"],
+        [data-testid="stDataFrame"] [role="columnheader"] {{
+            background: {BG_CARD} !important;
+        }}
         [data-testid="stDataFrame"] tr:hover td {{
-            background: {BG_PAGE} !important;
+            background: #F9FAFB !important;
         }}
         [data-testid="stDataFrame"] [role="row"] {{
             min-height: 48px !important;
@@ -9543,10 +9555,10 @@ def render_style() -> None:
             color: {TEXT_SECONDARY} !important;
         }}
         [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
-            background: {COLOR_ALERT_BG} !important;
+            background: {BG_CARD} !important;
             color: #993C1D !important;
             border-radius: 20px !important;
-            border: 0 !important;
+            border: 1px solid {COLOR_ALERT_BD} !important;
             font-size: 12px !important;
             font-weight: 500 !important;
         }}
@@ -10466,7 +10478,7 @@ def render_style() -> None:
         }}
         [data-testid="stSegmentedControl"] div[role="radiogroup"] {{
             gap: 8px !important;
-            background: transparent !important;
+            background: {BG_CARD} !important;
         }}
         [data-testid="stSegmentedControl"] button {{
             min-height: 40px !important;
@@ -10482,7 +10494,7 @@ def render_style() -> None:
         }}
         [data-testid="stSegmentedControl"] button:hover {{
             transform: translateY(-1px);
-            background: #F9FAFB !important;
+            background: {BG_CARD} !important;
             border-color: #CBD5E1 !important;
             color: {TEXT_PRIMARY} !important;
         }}
@@ -10548,6 +10560,7 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] [role="radio"][aria-checked="false"],
         [data-testid="stSegmentedControl"] [role="radio"]:not([aria-checked="true"]) {{
             border-color: {BORDER_DEFAULT} !important;
+            background: {BG_CARD} !important;
             color: {TEXT_PRIMARY} !important;
         }}
         .dashboard-nav-divider {{
@@ -10564,6 +10577,11 @@ def render_style() -> None:
             border: 1px solid {BORDER_DEFAULT} !important;
             background: {BG_CARD} !important;
             box-shadow: none !important;
+        }}
+        [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
+            background: {BG_CARD} !important;
+            border: 1px solid {COLOR_ALERT_BD} !important;
+            color: #993C1D !important;
         }}
         [data-testid="stTextInput"] label,
         [data-testid="stNumberInput"] label,
