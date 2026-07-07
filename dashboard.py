@@ -11995,34 +11995,12 @@ def render_product_summary_tab(
     with kpi_cols[2]:
         render_kpi_panel("샘플 KPI", scope_kpis.get("샘플", calc_kpi_from_code_summary(pd.DataFrame())))
 
-    urgent_sku_count = int(
-        pd.to_numeric(urgent_summary_view.get("SKU 수", pd.Series(dtype=float)), errors="coerce")
-        .fillna(0)
-        .sum()
-    )
-
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    lower_cols = st.columns([1.55, 0.85, 0.85], gap="small")
-    with lower_cols[0]:
-        render_panel_title(
-            "제품 분류별 진도 현황",
-            "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
-        )
-        render_family_progress_cards(family_view)
-    with lower_cols[1]:
-        render_panel_title(
-            "미입고 TOP10",
-            "미입고 PACK이 큰 제품의 진도를 확인합니다.",
-        )
-        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
-        render_top_shortage_compact(top_shortage_view)
-    with lower_cols[2]:
-        render_panel_title(
-            "요청 긴급 대응",
-            f"S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개",
-        )
-        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
-        render_urgent_request_compact(urgent_summary_view)
+    render_panel_title(
+        "제품 분류별 진도 현황",
+        "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
+    )
+    render_family_progress_cards(family_view)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
