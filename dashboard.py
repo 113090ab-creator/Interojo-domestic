@@ -2055,7 +2055,7 @@ def classify_status(packing_pack: float, packing_progress_pct: float) -> str:
 def finalize_summary(summary: pd.DataFrame) -> pd.DataFrame:
     out = summary.copy()
     if "용마입고 PACK" not in out.columns:
-        out["용마입고 PACK"] = out["포장 PACK"] if "포장 PACK" in out.columns else 0.0
+        out["용마입고 PACK"] = 0.0
     out["포장부족수량"] = (out["요청 PACK"] - out["포장 PACK"]).clip(lower=0.0)
     out["미입고수량"] = (out["요청 PACK"] - out["용마입고 PACK"]).clip(lower=0.0)
     out["입고대기수량"] = (out["포장 PACK"] - out["용마입고 PACK"]).clip(lower=0.0)
@@ -2278,19 +2278,9 @@ def build_summaries(
             .reset_index()
         )
     if yongma_df is None or yongma_df.empty:
-        if packing_df.empty or "sales_code_key" not in packing_df.columns:
-            yongma_by_key = pd.DataFrame(
-                columns=["sales_code_key", "yongma_sales_code", "yongma_product_name", "yongma_in_pack"]
-            )
-        else:
-            yongma_by_key = (
-                packing_df.groupby("sales_code_key", dropna=False)["packing_pack"]
-                .sum()
-                .reset_index()
-                .rename(columns={"packing_pack": "yongma_in_pack"})
-            )
-            yongma_by_key["yongma_sales_code"] = ""
-            yongma_by_key["yongma_product_name"] = ""
+        yongma_by_key = pd.DataFrame(
+            columns=["sales_code_key", "yongma_sales_code", "yongma_product_name", "yongma_in_pack"]
+        )
     else:
         yongma_by_key = (
             yongma_df.copy()
@@ -3204,7 +3194,7 @@ def calc_kpi(df: pd.DataFrame) -> dict[str, float]:
     request_pack = float(df["요청 PACK"].sum()) if not df.empty else 0.0
     packing_pack = float(df["포장 PACK"].sum()) if not df.empty else 0.0
     yongma_in_pack = (
-        float(df["용마입고 PACK"].sum()) if "용마입고 PACK" in df.columns and not df.empty else packing_pack
+        float(df["용마입고 PACK"].sum()) if "용마입고 PACK" in df.columns and not df.empty else 0.0
     )
     shortage_pack = float(df["미입고수량"].sum()) if "미입고수량" in df.columns and not df.empty else max(0.0, request_pack - yongma_in_pack)
     progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
@@ -3414,10 +3404,13 @@ def render_ops_table(
         st.warning("조건에 맞는 데이터가 없습니다.")
         return
 
-    receipt_shortage_col = "미입고수량" if "미입고수량" in df.columns else "포장부족수량"
-    receipt_progress_col = "용마입고율" if "용마입고율" in df.columns else "포장진도율"
+    source = df.copy()
+    if "용마입고율" not in source.columns:
+        source["용마입고율"] = 0.0
+    receipt_shortage_col = "미입고수량" if "미입고수량" in source.columns else "포장부족수량"
+    receipt_progress_col = "용마입고율"
 
-    ordered = df.sort_values(
+    ordered = source.sort_values(
         [receipt_shortage_col, "생산부족수량", "요청 PACK"],
         ascending=[False, False, False],
         kind="stable",
@@ -3646,7 +3639,7 @@ def family_progress_row_html(row: pd.Series, idx: int) -> str:
     request_pack = format_int(float(row["요청 PACK"]))
     production_progress = float(row["생산진도율"])
     packing_progress = float(row.get("포장진도율", 0.0))
-    receipt_progress = float(row.get("용마입고율", packing_progress))
+    receipt_progress = float(row.get("용마입고율", 0.0))
     production_shortage_value = float(row["생산부족수량"])
     production_shortage = format_int(production_shortage_value)
     shortage_class = "danger" if production_shortage_value > 0 else "normal"
@@ -3945,7 +3938,7 @@ def build_gap_top_view(product_df: pd.DataFrame, top_n: int = 10) -> pd.DataFram
     if "생산진도율" not in source.columns:
         source["생산진도율"] = 0.0
     if "용마입고율" not in source.columns:
-        source["용마입고율"] = source.get("포장진도율", 0.0)
+        source["용마입고율"] = 0.0
     if "미입고수량" not in source.columns:
         source["미입고수량"] = 0.0
     if "요청 PACK" not in source.columns:
@@ -4043,7 +4036,7 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
             ("요청 PCS", format_int(kpi.get("request_pcs", 0.0)), "normal"),
             ("생산부족 PCS", format_int(kpi.get("production_shortage_pcs", 0.0)), production_shortage_tone),
             ("생산진도율", f"{production_progress:.1f}%", "primary"),
-            ("용마입고 PACK", format_int(kpi.get("yongma_in_pack", kpi["packing_pack"])), "normal"),
+            ("용마입고 PACK", format_int(kpi.get("yongma_in_pack", 0.0)), "normal"),
             ("용마입고율", f"{progress:.1f}%", "purple"),
         ]
     else:
@@ -4158,7 +4151,7 @@ def render_status_board(
     missing_pack = float(kpi.get("packing_shortage_pack", 0.0))
     production_shortage = float(kpi.get("production_shortage_pcs", 0.0))
     packing_progress = float(kpi.get("packing_progress_pct", 0.0))
-    receipt_progress = float(kpi.get("receipt_progress_pct", kpi.get("packing_progress_pct", 0.0)))
+    receipt_progress = float(kpi.get("receipt_progress_pct", 0.0))
     production_progress = float(kpi.get("production_progress_pct", 0.0))
     packing_todo_pack = float(kpi.get("packing_todo_pack", 0.0))
     receipt_wait_pack = float(kpi.get("receipt_wait_pack", 0.0))
@@ -4586,7 +4579,7 @@ def calc_operation_kpis(
     if "available_stock_pack" not in work.columns:
         work["available_stock_pack"] = np.nan
     if "yongma_in_pack" not in work.columns:
-        work["yongma_in_pack"] = work["packing_pack"]
+        work["yongma_in_pack"] = 0.0
     work["_packing_shortage_pack"] = pd.to_numeric(
         work.get("code_packing_shortage_pack", pd.Series(0.0, index=work.index)),
         errors="coerce",
@@ -8237,7 +8230,7 @@ def build_priority_report_view(product_view: pd.DataFrame, max_rows: int = 6) ->
 
     view = product_view.copy()
     if "용마입고율" not in view.columns:
-        view["용마입고율"] = view.get("포장진도율", 0.0)
+        view["용마입고율"] = 0.0
     if "미입고수량" not in view.columns:
         view["미입고수량"] = view.get("포장부족수량", 0.0)
     for col in columns:
@@ -9321,10 +9314,9 @@ def build_product_progress_gap_chart(df: pd.DataFrame, top_n: int = 18) -> px.ba
     ).head(top_n)
     if source.empty:
         return None
-    receipt_progress_col = "용마입고율" if "용마입고율" in source.columns else "포장진도율"
-    chart_source = source[["제품명", "생산진도율", receipt_progress_col]].rename(
-        columns={receipt_progress_col: "용마입고율"}
-    )
+    if "용마입고율" not in source.columns:
+        source["용마입고율"] = 0.0
+    chart_source = source[["제품명", "생산진도율", "용마입고율"]]
     chart_df = chart_source.melt(
         id_vars="제품명",
         value_vars=["생산진도율", "용마입고율"],
