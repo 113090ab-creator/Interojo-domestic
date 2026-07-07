@@ -9450,10 +9450,11 @@ def render_style() -> None:
             box-shadow: none !important;
         }}
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
-            color: {COLOR_DANGER} !important;
+            background: {COLOR_BLUE} !important;
+            color: #FFFFFF !important;
             font-weight: 600 !important;
-            border-color: {COLOR_DANGER} !important;
-            border-bottom-color: {COLOR_DANGER} !important;
+            border-color: {COLOR_BLUE} !important;
+            border-bottom-color: {COLOR_BLUE} !important;
         }}
         .dashboard-nav-divider {{
             height: 1.5px;
@@ -10414,6 +10415,23 @@ def render_style() -> None:
             margin: 0 0 6px;
             letter-spacing: 0;
         }}
+        .section-title-row {{
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 0 0 4px;
+        }}
+        .section-title-row .section-title {{
+            margin: 0;
+        }}
+        .section-view-link {{
+            color: {COLOR_BLUE};
+            font-size: 11px;
+            line-height: 1.2;
+            font-weight: 800;
+            white-space: nowrap;
+        }}
         .section-sub {{
             color: {TEXT_SECONDARY};
             font-size: 12px;
@@ -10466,10 +10484,10 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked),
         [data-testid="stSegmentedControl"] input:checked + div,
         [data-testid="stSegmentedControl"] input:checked ~ div {{
-            background: {BG_CARD} !important;
-            border-color: {COLOR_DANGER} !important;
-            color: {COLOR_DANGER} !important;
-            border-bottom-color: {COLOR_DANGER} !important;
+            background: {COLOR_BLUE} !important;
+            border-color: {COLOR_BLUE} !important;
+            color: #FFFFFF !important;
+            border-bottom-color: {COLOR_BLUE} !important;
             box-shadow: none !important;
         }}
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] *,
@@ -10481,7 +10499,7 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked) *,
         [data-testid="stSegmentedControl"] input:checked + div *,
         [data-testid="stSegmentedControl"] input:checked ~ div * {{
-            color: {COLOR_DANGER} !important;
+            color: #FFFFFF !important;
         }}
         [data-testid="stSegmentedControl"] [data-baseweb="button-group"] button,
         [data-testid="stSegmentedControl"] [role="radio"],
@@ -10498,9 +10516,9 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label[data-baseweb="radio"]:has(input:checked),
         [data-testid="stSegmentedControl"] label[data-baseweb="radio"]:has(input:checked) > div,
         [data-testid="stSegmentedControl"] label:has(input:checked) > div {{
-            background: {BG_CARD} !important;
-            border-color: {COLOR_DANGER} !important;
-            color: {COLOR_DANGER} !important;
+            background: {COLOR_BLUE} !important;
+            border-color: {COLOR_BLUE} !important;
+            color: #FFFFFF !important;
         }}
         [data-testid="stSegmentedControl"] [data-baseweb="button-group"] button *,
         [data-testid="stSegmentedControl"] [role="radio"] *,
@@ -10514,7 +10532,7 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked) *,
         [data-testid="stSegmentedControl"] input:checked + div *,
         [data-testid="stSegmentedControl"] input:checked ~ div * {{
-            color: {COLOR_DANGER} !important;
+            color: #FFFFFF !important;
         }}
         [data-testid="stSegmentedControl"] [role="radio"][aria-checked="false"],
         [data-testid="stSegmentedControl"] [role="radio"]:not([aria-checked="true"]) {{
@@ -10600,7 +10618,8 @@ def render_style() -> None:
         }}
         .overall-kpi-card {{
             padding: 22px 24px;
-            min-height: 212px;
+            min-height: 246px;
+            border-color: #93B5FF !important;
             transition: transform 0.2s ease;
         }}
         .overall-kpi-card:hover,
@@ -10778,7 +10797,7 @@ def render_style() -> None:
         .scope-kpi {{
             padding: 18px 20px;
             margin-bottom: 0;
-            min-height: 212px;
+            min-height: 246px;
             height: 100%;
             transition: transform 0.2s ease;
         }}
@@ -11189,9 +11208,13 @@ def render_style() -> None:
     )
 
 
-def render_panel_title(title: str, sub: str) -> None:
+def render_panel_title(title: str, sub: str, link_label: str = "") -> None:
+    link_html = f"<div class='section-view-link'>{escape(link_label)}</div>" if link_label else ""
     st.markdown(
+        "<div class='section-title-row'>"
         f"<div class='section-title'>{escape(title)}</div>"
+        f"{link_html}"
+        "</div>"
         f"<div class='section-sub'>{escape(sub)}</div>",
         unsafe_allow_html=True,
     )
@@ -11920,13 +11943,11 @@ def render_product_summary_tab(
         response_view=daily_response_view,
     )
 
-    kpi_head_title_col, kpi_head_period_col, kpi_head_action_col = st.columns(
-        [0.72, 1.2, 2.4],
+    kpi_head_period_col, kpi_head_spacer_col, kpi_head_action_col = st.columns(
+        [1.35, 1.1, 2.15],
         gap="small",
         vertical_alignment="center",
     )
-    with kpi_head_title_col:
-        st.markdown("<div class='kpi-dashboard-label'>KPI Dashboard</div>", unsafe_allow_html=True)
     with kpi_head_period_col:
         st.segmented_control(
             "기간구분",
@@ -11935,6 +11956,8 @@ def render_product_summary_tab(
             label_visibility="visible",
             key="product_summary_period_group_filter",
         )
+    with kpi_head_spacer_col:
+        st.empty()
     with kpi_head_action_col:
         action_cols = st.columns([1, 1], gap="small")
         with action_cols[0]:
@@ -11996,11 +12019,35 @@ def render_product_summary_tab(
         render_kpi_panel("샘플 KPI", scope_kpis.get("샘플", calc_kpi_from_code_summary(pd.DataFrame())))
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    render_panel_title(
-        "제품 분류별 진도 현황",
-        "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
+    urgent_sku_count = int(
+        pd.to_numeric(urgent_summary_view.get("SKU 수", pd.Series(dtype=float)), errors="coerce")
+        .fillna(0)
+        .sum()
     )
-    render_family_progress_cards(family_view)
+    lower_cols = st.columns([1.55, 0.85, 0.85], gap="small")
+    with lower_cols[0]:
+        render_panel_title(
+            "제품 분류별 진도 현황",
+            "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
+            "전체 보기 >",
+        )
+        render_family_progress_cards(family_view)
+    with lower_cols[1]:
+        render_panel_title(
+            "미입고 TOP10",
+            "미입고 PACK이 큰 제품의 진도를 확인합니다.",
+            "전체 보기 >",
+        )
+        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
+        render_top_shortage_compact(top_shortage_view)
+    with lower_cols[2]:
+        render_panel_title(
+            "요청 긴급 대응",
+            f"S코드 {len(urgent_summary_view):,}개 / SKU {urgent_sku_count:,}개",
+            "전체 보기 >",
+        )
+        st.markdown("<div class='lower-card-control-spacer'></div>", unsafe_allow_html=True)
+        render_urgent_request_compact(urgent_summary_view)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
