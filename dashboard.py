@@ -11309,6 +11309,58 @@ def render_style() -> None:
                 grid-template-columns: 56px minmax(100px, 1fr) 52px;
             }}
         }}
+        /* Enterprise table reset: remove legacy tinted cell and empty-area backgrounds. */
+        .table-wrap,
+        .ops-table,
+        .ops-table tbody,
+        .ops-table tr,
+        .ops-table td,
+        .ops-table tbody tr:nth-child(odd) td,
+        .ops-table tbody tr:nth-child(even) td {{
+            background: #FFFFFF !important;
+        }}
+        .ops-table th {{
+            background: #FAFAFA !important;
+            font-weight: 600 !important;
+            border-bottom: 1px solid #E5E7EB !important;
+        }}
+        .ops-table td {{
+            height: 48px !important;
+            border-bottom: 1px solid #E5E7EB !important;
+        }}
+        .ops-table tbody tr:hover td {{
+            background: #F8FAFC !important;
+        }}
+        [data-testid="stDataFrame"],
+        [data-testid="stDataFrame"] table,
+        [data-testid="stDataFrame"] thead,
+        [data-testid="stDataFrame"] tbody,
+        [data-testid="stDataFrame"] tr,
+        [data-testid="stDataFrame"] td,
+        [data-testid="stDataFrame"] canvas,
+        [data-testid="stDataFrame"] [role="grid"],
+        [data-testid="stDataFrame"] [role="rowgroup"],
+        [data-testid="stDataFrame"] [role="row"],
+        [data-testid="stDataFrame"] [role="gridcell"],
+        [data-testid="stDataFrame"] [data-testid="stElementToolbar"],
+        [data-testid="stDataFrame"] [data-testid="stTable"] {{
+            background: #FFFFFF !important;
+        }}
+        [data-testid="stDataFrame"] th,
+        [data-testid="stDataFrame"] [role="columnheader"] {{
+            background: #FAFAFA !important;
+            font-weight: 600 !important;
+            border-bottom: 1px solid #E5E7EB !important;
+        }}
+        [data-testid="stDataFrame"] td,
+        [data-testid="stDataFrame"] [role="gridcell"] {{
+            min-height: 48px !important;
+            border-bottom: 1px solid #E5E7EB !important;
+        }}
+        [data-testid="stDataFrame"] tr:hover td,
+        [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] {{
+            background: #F8FAFC !important;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
