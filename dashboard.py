@@ -7214,6 +7214,7 @@ def build_sales_order_main_view(
                 "판매코드",
                 "생산코드",
                 "기간구분",
+                "제품분류",
                 "제품명",
                 "PACK",
                 "POWER",
@@ -7267,6 +7268,7 @@ def build_sales_order_main_view(
             production_code=("production_code_display", join_unique),
             factory_group=("factory_group", join_unique),
             period_group=("period_group", first_nonempty),
+            product_group=("제품분류", first_nonempty),
             product_name=("product_name", join_unique),
             pack_label=("_pack_label", join_unique),
             power=("POWER", first_nonempty),
@@ -7290,6 +7292,7 @@ def build_sales_order_main_view(
                 "production_code": "생산코드",
                 "factory_group": "공장구분",
                 "period_group": "기간구분",
+                "product_group": "제품분류",
                 "product_name": "제품명",
                 "pack_label": "PACK",
                 "power": "POWER",
@@ -7344,6 +7347,7 @@ def build_sales_order_main_view(
             "판매코드",
             "생산코드",
             "기간구분",
+            "제품분류",
             "제품명",
             "PACK",
             "POWER",
@@ -7396,6 +7400,7 @@ def build_sales_code_group_main_view(
         "우선등급",
         "판매코드",
         "기간구분",
+        "제품분류",
         "대표 제품명",
         "생산코드",
         "PACK",
@@ -7452,6 +7457,7 @@ def build_sales_code_group_main_view(
         work.groupby("_sales_code_base", dropna=False)
         .agg(
             period_group=("기간구분", first_nonempty),
+            product_group=("제품분류", first_nonempty),
             product_name=("제품명", first_nonempty),
             production_code=("생산코드", join_unique),
             pack_label=("PACK", join_unique),
@@ -7475,6 +7481,7 @@ def build_sales_code_group_main_view(
             columns={
                 "_sales_code_base": "판매코드",
                 "period_group": "기간구분",
+                "product_group": "제품분류",
                 "product_name": "대표 제품명",
                 "production_code": "생산코드",
                 "pack_label": "PACK",
@@ -7568,6 +7575,7 @@ def filter_sales_order_view(
     production_query: str = "",
     sales_query: str = "",
     pack_label: str = "전체",
+    product_group: str = "전체",
     power_label: str = "전체",
 ) -> pd.DataFrame:
     if sales_view.empty:
@@ -7585,6 +7593,8 @@ def filter_sales_order_view(
         out = out[out["판매코드"].astype(str).str.contains(sales_q, case=False, na=False, regex=False)]
     if pack_label != "전체" and "PACK" in out.columns:
         out = out[out["PACK"] == pack_label]
+    if product_group != "전체" and "제품분류" in out.columns:
+        out = out[out["제품분류"] == product_group]
     if power_label != "전체" and "POWER" in out.columns:
         out = out[out["POWER"] == power_label]
     return out.copy()
@@ -12499,7 +12509,8 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         render_urgent_sales_packing_list(sales_base)
 
     with detail_tab:
-        sf1, sf2, sf3, _ = st.columns([3.8, 1.2, 1.2, 1.8], gap="small")
+        group_options = available_product_group_options(period_scoped_code_summary)
+        sf1, sf2, sf3, sf4, sf5 = st.columns([3.7, 1.55, 1.1, 1.1, 0.95], gap="small")
         with sf1:
             integrated_query = st.text_input(
                 "통합검색",
@@ -12508,13 +12519,18 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
                 key="tab_sales_integrated_query",
             )
         with sf2:
-            selected_pack = st.selectbox("PACK 선택", options=pack_options, index=0, key="tab_sales_pack")
+            selected_group = st.selectbox("분류 선택", options=group_options, index=0, key="tab_sales_group")
         with sf3:
+            selected_pack = st.selectbox("PACK 선택", options=pack_options, index=0, key="tab_sales_pack")
+        with sf4:
             selected_power = st.selectbox("POWER 선택", options=power_options, index=0, key="tab_sales_power")
+        with sf5:
+            shortage_only = st.checkbox("부족품만 보기", value=False, key="tab_sales_shortage_only")
 
         sales_detail_view = filter_sales_order_view(
             sales_base,
             pack_label=selected_pack,
+            product_group=selected_group,
             power_label=selected_power,
         )
         sales_main_unfiltered = build_sales_code_group_main_view(
@@ -12524,7 +12540,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         sales_search_columns = list(
             dict.fromkeys(
                 sales_group_column_order(sales_main_unfiltered, sales_unit_mode)
-                + ["생산코드", "생산요청물량(PCS)", "용마입고수량(PCS)", "포장부족(PCS)"]
+                + ["제품분류", "생산코드", "생산요청물량(PCS)", "용마입고수량(PCS)", "포장부족(PCS)"]
             )
         )
         sales_main_view = filter_dataframe_by_terms(
@@ -12532,8 +12548,12 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
             integrated_query,
             columns=sales_search_columns,
         )
+        if shortage_only and "포장부족(PACK)" in sales_main_view.columns:
+            sales_main_view = sales_main_view[
+                pd.to_numeric(sales_main_view["포장부족(PACK)"], errors="coerce").fillna(0.0) > 0
+            ].copy()
         visible_sales_codes = set(sales_main_view.get("_sales_code_base", sales_main_view.get("판매코드", pd.Series(dtype=str))).map(clean_str))
-        if integrated_query.strip():
+        if integrated_query.strip() or shortage_only:
             if visible_sales_codes:
                 sales_detail_export_view = sales_detail_view[
                     sales_detail_view["판매코드"].map(sales_code_base).isin(visible_sales_codes)
@@ -12584,6 +12604,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         inventory_source = filter_operational_code_summary(
             period_scoped_code_summary,
             pack_label=selected_pack,
+            product_group=selected_group,
             power_label=selected_power,
         )
         inventory_view = build_inventory_prefix_detail_view(inventory_source, selected_sales)
