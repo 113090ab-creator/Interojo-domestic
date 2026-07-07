@@ -1984,8 +1984,8 @@ def normalize_progress(path: Path | None, request_df: pd.DataFrame) -> tuple[pd.
 
     out["match_source"] = ""
     out.loc[name_match, "match_source"] = "제품명"
-    out.loc[base_p_match, "match_source"] = "P코드(생산)"
-    out.loc[exact_p_match, "match_source"] = "P코드(생산)"
+    out.loc[base_p_match, "match_source"] = "생산코드"
+    out.loc[exact_p_match, "match_source"] = "생산코드"
     out.loc[exact_production_match, "match_source"] = "생산코드"
 
     filtered = out[domestic_match].copy()
@@ -2672,16 +2672,16 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
         progress_key = first_nonempty([product_code_key, product_base_p_key])
 
         matched = by_sales_code.get(product_code_key, pd.DataFrame())
-        match_source = "품목코드"
+        match_source = "판매코드"
         if matched.empty:
             matched = by_production_code.get(product_code_key, pd.DataFrame())
             match_source = "생산코드"
         if matched.empty:
             matched = by_derived_progress_code.get(product_code_key, pd.DataFrame())
-            match_source = "P/S코드규칙"
+            match_source = "생산코드/판매코드 규칙"
         if matched.empty and product_code_key in by_p_code:
             matched = by_p_code[product_code_key]
-            match_source = "P코드"
+            match_source = "생산코드"
         if matched.empty and product_base_p_key in by_p_code:
             matched = by_p_code[product_base_p_key]
             match_source = "P대표코드"
@@ -6193,7 +6193,6 @@ def daily_inventory_detail_column_order(df: pd.DataFrame) -> list[str]:
         "품목코드",
         "기간구분",
         "제품명",
-        "제품코드",
         "PACK",
         "POWER",
         "재고수량",
@@ -6297,7 +6296,7 @@ def build_lot_receipt_status_view(
 ) -> pd.DataFrame:
     columns = [
         "기간구분",
-        "제품코드",
+        "판매코드",
         "제품명",
         "LOTNO",
         "포장일",
@@ -6485,7 +6484,7 @@ def build_lot_receipt_status_view(
         columns={
             "factory_group": "공장구분",
             "period_group": "기간구분",
-            "sales_code": "제품코드",
+            "sales_code": "판매코드",
             "packing_product_name": "제품명",
             "packing_lot": "LOTNO",
         }
@@ -6520,7 +6519,7 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_period: str = "
     f1, f2 = st.columns([2.4, 1.2], gap="small")
     with f1:
         query = st.text_input(
-            "제품코드/제품명/LOTNO 검색",
+            "판매코드/제품명/LOTNO 검색",
             value="",
             key="packing_lot_query",
         )
@@ -6537,7 +6536,7 @@ def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_period: str = "
     if query.strip():
         q = query.strip()
         mask = (
-            view["제품코드"].astype(str).str.contains(q, case=False, na=False)
+            view["판매코드"].astype(str).str.contains(q, case=False, na=False)
             | view["제품명"].astype(str).str.contains(q, case=False, na=False)
             | view["LOTNO"].astype(str).str.contains(q, case=False, na=False)
         )
@@ -8171,6 +8170,23 @@ def dataframe_for_excel(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def apply_code_display_terms(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df.copy()
+
+    out = df.copy()
+    rename_map: dict[str, str] = {}
+    if "품목코드" in out.columns and "판매코드" not in out.columns:
+        rename_map["품목코드"] = "판매코드"
+    if "S코드" in out.columns and "판매코드" not in out.columns:
+        rename_map["S코드"] = "판매코드"
+    if "제품코드" in out.columns:
+        rename_map["제품코드"] = "판매코드(기본)" if "판매코드" in out.columns or "품목코드" in out.columns or "S코드" in out.columns else "판매코드"
+    if rename_map:
+        out = out.rename(columns=rename_map)
+    return out
+
+
 def excel_text_length(value: Any) -> int:
     if value is None:
         return 0
@@ -8210,7 +8226,7 @@ def build_excel_download_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
                 sheet_name = f"{base_name[:28]}_{suffix}"
             used_names.add(sheet_name)
 
-            excel_df = dataframe_for_excel(df)
+            excel_df = apply_code_display_terms(dataframe_for_excel(df))
             if excel_df.empty:
                 excel_df = pd.DataFrame({"내용": ["조건에 맞는 데이터가 없습니다."]})
             excel_df = excel_df.copy()
@@ -8380,7 +8396,7 @@ def build_urgent_request_summary_view(
     sample_available_df: pd.DataFrame | None = None,
     response_view: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    columns = ["S코드", "요청구분", "제품명", "SKU 수"]
+    columns = ["판매코드", "요청구분", "제품명", "SKU 수"]
     if response_view is None and (daily_inventory_df is None or daily_inventory_df.empty):
         return pd.DataFrame(columns=columns)
 
@@ -8396,14 +8412,14 @@ def build_urgent_request_summary_view(
     if urgent.empty:
         return pd.DataFrame(columns=columns)
 
-    urgent["S코드"] = [
+    urgent["판매코드"] = [
         extract_sales_prefix(product_code) or extract_sales_prefix(item_code)
         for product_code, item_code in zip(
             urgent.get("제품코드", pd.Series("", index=urgent.index)),
             urgent.get("품목코드", pd.Series("", index=urgent.index)),
         )
     ]
-    urgent = urgent[urgent["S코드"].map(lambda value: bool(re.fullmatch(r"S\d{3}", clean_str(value))))].copy()
+    urgent = urgent[urgent["판매코드"].map(lambda value: bool(re.fullmatch(r"S\d{3}", clean_str(value))))].copy()
     if urgent.empty:
         return pd.DataFrame(columns=columns)
 
@@ -8412,7 +8428,7 @@ def build_urgent_request_summary_view(
         or "|".join([clean_str(product_code), clean_str(pack), clean_str(power)])
         for item_code, product_code, pack, power in zip(
             urgent.get("품목코드", pd.Series("", index=urgent.index)),
-            urgent["S코드"],
+            urgent["판매코드"],
             urgent.get("PACK", pd.Series("", index=urgent.index)),
             urgent.get("POWER", pd.Series("", index=urgent.index)),
         )
@@ -8425,7 +8441,7 @@ def build_urgent_request_summary_view(
     urgent["_request_in_sku_key"] = urgent["_sku_key"].where(urgent["_request_scope"] == "요청내", "")
     urgent["_request_out_sku_key"] = urgent["_sku_key"].where(urgent["_request_scope"] == "요청외", "")
     grouped = (
-        urgent.groupby("S코드", dropna=False)
+        urgent.groupby("판매코드", dropna=False)
         .agg(
             제품명=("제품명", join_unique),
             request_in_count=("_request_in_sku_key", lambda series: len({clean_str(value) for value in series if clean_str(value)})),
@@ -8445,7 +8461,7 @@ def build_urgent_request_summary_view(
         grouped[col] = pd.to_numeric(grouped[col], errors="coerce").fillna(0).astype(int)
     grouped["요청구분"] = np.where(grouped["요청외 SKU"] > 0, "요청외", "요청내")
     grouped["SKU 수"] = pd.to_numeric(grouped["SKU 수"], errors="coerce").fillna(0).astype(int)
-    return grouped.sort_values(["SKU 수", "S코드"], ascending=[False, True], kind="stable")[columns].copy()
+    return grouped.sort_values(["SKU 수", "판매코드"], ascending=[False, True], kind="stable")[columns].copy()
 
 
 def classify_exception_response(available_pcs: Any, shortage_pcs: Any) -> str:
@@ -8465,7 +8481,7 @@ def render_exception_summary_table(exception_detail: pd.DataFrame) -> None:
         st.warning("요청외 긴급 품목이 없습니다.")
         return
 
-    headers = ["품목코드", "제품명", "현재 재고수량", "부족수량", "포장가능재고(PCS)", "대응가능 여부"]
+    headers = ["판매코드", "제품명", "현재 재고수량", "부족수량", "포장가능재고(PCS)", "대응가능 여부"]
     rows: list[str] = []
     for _, row in exception_detail.iterrows():
         stock = pd.to_numeric(row.get("현재 재고수량", np.nan), errors="coerce")
@@ -8514,7 +8530,7 @@ def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
         scope_class = "in" if scope == "요청내" else "out"
         rows.append(
             "<tr>"
-            f"<td class='left code-cell'>{escape(clean_str(row.get('S코드', '')))}</td>"
+            f"<td class='left code-cell'>{escape(clean_str(row.get('판매코드', '')))}</td>"
             f"<td class='left'><span class='request-scope-badge {scope_class}'>{escape(scope)}</span></td>"
             f"<td class='left'>{escape(clean_str(row.get('제품명', '')))}</td>"
             f"<td class='num shortage'>{format_int(sku_count)}</td>"
@@ -8530,7 +8546,7 @@ def render_urgent_request_summary_table(summary_view: pd.DataFrame) -> None:
         "<col class='summary-number-col'>"
         "</colgroup>"
         "<thead><tr>"
-        "<th class='left'>S코드</th>"
+        "<th class='left'>판매코드</th>"
         "<th class='left'>요청구분</th>"
         "<th class='left'>제품명</th>"
         "<th class='num'>SKU 수</th>"
@@ -8554,7 +8570,7 @@ def render_urgent_request_compact(summary_view: pd.DataFrame) -> None:
         scope_class = "in" if scope == "요청내" else "out"
         rows.append(
             "<div class='urgent-list-row'>"
-            f"<span class='urgent-code'>{escape(clean_str(row.get('S코드', '')))}</span>"
+            f"<span class='urgent-code'>{escape(clean_str(row.get('판매코드', '')))}</span>"
             f"<span class='request-scope-badge {scope_class}'>{escape(scope)}</span>"
             f"<span class='urgent-product'>{escape(clean_str(row.get('제품명', '')))}</span>"
             f"<span class='urgent-sku'>SKU {format_int(sku_count)}</span>"
@@ -8743,8 +8759,8 @@ def add_daily_exception_report_panel(
     )
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.38, REPORT_NAVY, REPORT_NAVY, 0.5)
 
-    headers = ["품목", "제품명", "재고", "가용 PCS"]
-    col_widths = [0.72, 1.62, 0.56, 0.78]
+    headers = ["판매코드", "제품명", "재고", "가용 PCS"]
+    col_widths = [0.9, 1.44, 0.56, 0.78]
     col_lefts = [left + 0.12]
     for col_width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + col_width)
@@ -8835,7 +8851,7 @@ def add_urgent_request_summary_panel(
     )
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.36, REPORT_NAVY, REPORT_NAVY, 0.5)
 
-    headers = ["S코드", "구분", "제품명", "SKU"]
+    headers = ["판매코드", "구분", "제품명", "SKU"]
     content_width = max(0.0, width - 0.24)
     if width >= 8.0:
         col_widths = [1.0, 1.1, max(1.0, content_width - 2.85), 0.75]
@@ -8893,7 +8909,7 @@ def add_urgent_request_summary_panel(
         scope = clean_str(row.get("요청구분", ""))
         scope_color = REPORT_ACCENT if scope == "요청외" else COLOR_TEAL
         values = [
-            clean_str(row.get("S코드", "")),
+            clean_str(row.get("판매코드", "")),
             scope,
             truncate_report_text(row.get("제품명", ""), product_max_chars),
             format_report_value(row.get("SKU 수", 0.0)),
@@ -8917,7 +8933,7 @@ def add_urgent_request_summary_panel(
             )
         add_report_rule(slide, left + 0.08, row_top + row_height, width - 0.16, REPORT_FAINT)
 
-    note = "요청외 SKU 포함 시 S코드 전체 요청외"
+    note = "요청외 SKU 포함 시 판매코드 전체 요청외"
     if hidden_count:
         note = f"{note} / 외 {hidden_count:,}개"
     add_textbox(
@@ -8948,7 +8964,7 @@ def add_urgent_request_summary_slide(
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, 0.0, 0.86, 13.333, 0.03, REPORT_ACCENT, REPORT_ACCENT)
     add_textbox(
         slide,
-        "요청 긴급 S코드 요약",
+        "요청 긴급 판매코드 요약",
         0.45,
         0.16,
         6.8,
@@ -8960,7 +8976,7 @@ def add_urgent_request_summary_slide(
     )
     add_textbox(
         slide,
-        "일일 재고표 기준 긴급요청 품목을 S코드 단위로 집계",
+        "일일 재고표 기준 긴급요청 품목을 판매코드 단위로 집계",
         0.45,
         0.51,
         7.2,
@@ -8988,7 +9004,7 @@ def add_urgent_request_summary_slide(
     request_out_count = int((urgent_summary_view.get("요청구분", pd.Series(dtype=str)).astype(str) == "요청외").sum())
     add_textbox(
         slide,
-        f"S코드 {len(urgent_summary_view):,}개 / SKU {total_sku:,}개 / 요청외 S코드 {request_out_count:,}개",
+        f"판매코드 {len(urgent_summary_view):,}개 / SKU {total_sku:,}개 / 요청외 판매코드 {request_out_count:,}개",
         0.62,
         1.12,
         8.0,
@@ -9000,7 +9016,7 @@ def add_urgent_request_summary_slide(
     )
     add_textbox(
         slide,
-        "요청외는 해당 S코드 안에 요청외 긴급 SKU가 1개 이상 포함된 경우로 분류합니다.",
+        "요청외는 해당 판매코드 안에 요청외 긴급 SKU가 1개 이상 포함된 경우로 분류합니다.",
         0.62,
         6.98,
         11.8,
@@ -9018,7 +9034,7 @@ def add_urgent_request_summary_slide(
     add_report_shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height, REPORT_PANEL, REPORT_PANEL_LINE, 0.5)
     add_report_shape(slide, MSO_SHAPE.RECTANGLE, left, top, width, 0.42, REPORT_NAVY, REPORT_NAVY, 0.5)
 
-    headers = ["S코드", "요청구분", "제품명", "SKU 수"]
+    headers = ["판매코드", "요청구분", "제품명", "SKU 수"]
     col_widths = [1.05, 1.25, 8.55, 0.95]
     col_lefts = [left + 0.16]
     for col_width in col_widths[:-1]:
@@ -9063,7 +9079,7 @@ def add_urgent_request_summary_slide(
         scope = clean_str(row.get("요청구분", ""))
         scope_color = REPORT_ACCENT if scope == "요청외" else COLOR_TEAL
         values = [
-            clean_str(row.get("S코드", "")),
+            clean_str(row.get("판매코드", "")),
             scope,
             truncate_report_text(row.get("제품명", ""), 64),
             format_report_value(row.get("SKU 수", 0.0)),
@@ -9090,7 +9106,7 @@ def add_urgent_request_summary_slide(
     if hidden_count:
         add_textbox(
             slide,
-            f"외 {hidden_count:,}개 S코드는 대시보드와 엑셀 다운로드에서 확인 가능합니다.",
+            f"외 {hidden_count:,}개 판매코드는 대시보드와 엑셀 다운로드에서 확인 가능합니다.",
             left + 0.2,
             top + height - 0.36,
             width - 0.4,
@@ -9264,7 +9280,7 @@ def build_ppt_report(
     add_kpi_card(slide, "본품 KPI", kpi_map.get("본품", {}), COLOR_TEAL, 4.68, 1.9, 4.0, 1.38)
     add_kpi_card(slide, "샘플 KPI", kpi_map.get("샘플", {}), COLOR_AMBER, 8.9, 1.9, 4.0, 1.38)
 
-    add_textbox(slide, "요청 긴급 S코드 요약", 0.45, 3.34, 12.45, 0.22, 8.5, True, REPORT_HEADER)
+    add_textbox(slide, "요청 긴급 판매코드 요약", 0.45, 3.34, 12.45, 0.22, 8.5, True, REPORT_HEADER)
 
     add_urgent_request_summary_panel(slide, urgent_summary_view, left=0.45, top=3.56, width=12.45)
     add_textbox(
@@ -11741,6 +11757,8 @@ def build_power_drilldown_view(code_summary: pd.DataFrame) -> pd.DataFrame:
 def drilldown_column_config() -> dict[str, Any]:
     numeric_format = "%,.0f"
     return {
+        "품목코드": st.column_config.TextColumn("판매코드"),
+        "S코드": st.column_config.TextColumn("판매코드"),
         "요청합계(PACK)": st.column_config.NumberColumn("요청합계(PACK)", format=numeric_format),
         "요청합계(PCS)": st.column_config.NumberColumn("요청합계(PCS)", format=numeric_format),
         "생산요청물량": st.column_config.NumberColumn("생산요청물량", format=numeric_format),
@@ -11947,7 +11965,7 @@ def render_daily_inventory_detail_dialog(
 ) -> None:
     item_code = clean_str(selected_row.get("_daily_item_code_base", selected_row.get("품목코드", "")))
     product_name = clean_str(selected_row.get("대표 제품명", selected_row.get("제품명", "")))
-    title = f"품목코드 {item_code} 상세 - {product_name}"
+    title = f"판매코드 {item_code} 상세 - {product_name}"
 
     @st.dialog(title, width="large")
     def _dialog() -> None:
@@ -12071,7 +12089,7 @@ def render_daily_inventory_tab(
     f1, f2, f3 = st.columns([2.4, 1.7, 1.2], gap="small")
     with f1:
         query = st.text_input(
-            "제품명/제품코드/POWER 검색",
+            "제품명/판매코드/POWER 검색",
             value="",
             placeholder="예: 소울브라운, 40P, -06.50",
             key="daily_inventory_query",
@@ -12127,7 +12145,7 @@ def render_daily_inventory_tab(
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_daily_row = render_selectable_table(
         "일일 재고 대응 테이블",
-        f"품목코드 S### 기준 집계 | 표시 건수: {len(main_view):,} | 상세 건수: {len(view):,}",
+        f"판매코드 S### 기준 집계 | 표시 건수: {len(main_view):,} | 상세 건수: {len(view):,}",
         main_view,
         key=f"daily_inventory_table_{table_nonce}",
         height=560,
