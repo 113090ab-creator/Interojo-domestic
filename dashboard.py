@@ -10770,14 +10770,19 @@ def render_style() -> None:
             grid-template-columns: minmax(118px, 1.25fr) minmax(74px, 0.78fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(86px, 0.82fr);
             align-items: center;
             gap: 14px;
-            min-height: 36px;
+            height: 38px;
+            min-height: 38px;
+            max-height: 38px;
             border-bottom: 1px solid {BORDER_LIGHT};
+            overflow: hidden;
         }}
         .family-table-row:last-child {{
             border-bottom: 0;
         }}
         .family-table-head {{
-            min-height: 30px;
+            height: 32px;
+            min-height: 32px;
+            max-height: 32px;
             color: #64748B;
             font-size: 11px;
             line-height: 1.2;
@@ -10957,7 +10962,10 @@ def render_style() -> None:
             grid-template-columns: 22px minmax(92px, 1fr) minmax(52px, 0.75fr) 58px;
             align-items: center;
             gap: 10px;
-            min-height: 22px;
+            height: 28px;
+            min-height: 28px;
+            max-height: 28px;
+            overflow: hidden;
         }}
         .rank-num {{
             color: #64748B;
@@ -10999,8 +11007,12 @@ def render_style() -> None:
             gap: 0;
         }}
         .urgent-list-row {{
-            padding: 12px 2px;
+            height: 58px;
+            min-height: 58px;
+            max-height: 58px;
+            padding: 9px 2px;
             border-bottom: 1px solid {BORDER_LIGHT};
+            overflow: hidden;
         }}
         .urgent-list-row:last-child {{
             border-bottom: 0;
@@ -11848,51 +11860,61 @@ def render_product_summary_tab(
         response_view=daily_response_view,
     )
 
-    title_col, download_col = st.columns([4.8, 1.2], gap="small", vertical_alignment="center")
-    with title_col:
-        render_panel_title(
-            "제품 진도 현황",
-            "생산지시물량이 생산 → 포장 → 용마 입고까지 정상적으로 진행되고 있는지 확인하고, 부족 및 지연 품목을 우선 대응하기 위한 화면입니다.",
+    kpi_head_title_col, kpi_head_period_col, kpi_head_action_col = st.columns(
+        [0.72, 1.2, 2.4],
+        gap="small",
+        vertical_alignment="center",
+    )
+    with kpi_head_title_col:
+        st.markdown("<div class='kpi-dashboard-label'>KPI Dashboard</div>", unsafe_allow_html=True)
+    with kpi_head_period_col:
+        st.segmented_control(
+            "기간구분",
+            options=PERIOD_GROUP_ORDER,
+            default=selected_period if selected_period in PERIOD_GROUP_ORDER else "전체",
+            label_visibility="visible",
+            key="product_summary_period_group_filter",
         )
-    with download_col:
-        render_lazy_binary_download(
-            "PPT 보고서 다운로드",
-            "PPT 보고서 준비",
-            f"국내_제품_포장현황_운영보고서_{pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y%m%d_%H%M')}.pptx",
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            build_bytes=lambda: build_ppt_report(
-                product_view=product_summary,
-                code_summary=code_summary,
-                product_names=product_summary["제품명"],
-                scope_label="전체",
-                daily_inventory_df=daily_inventory_df,
-                sample_available_df=sample_available_df,
-            ),
-            signature=(
-                dataframe_light_signature(product_summary),
-                dataframe_light_signature(code_summary),
-                dataframe_light_signature(daily_inventory_df) if daily_inventory_df is not None else ("none",),
-                dataframe_light_signature(sample_available_df) if sample_available_df is not None else ("none",),
-            ),
-            key="download_ppt_report",
-            width="stretch",
-        )
-        render_excel_download(
-            "엑셀 다운로드",
-            "제품_진도_현황",
-            {
-                "제품 요약": product_summary,
-                "신규분류요약별 요청지시율": category_request_view,
-                "미입고 TOP10": top_shortage_view,
-                "본품 분류별 진도": family_view,
-                "생산완료 후 미입고 TOP10": gap_top_view,
-                "요청 긴급 요약": urgent_summary_view,
-                "요청 긴급 상세": exception_detail,
-            },
-            key="download_product_progress_excel",
-        )
-
-    st.markdown("<div class='kpi-dashboard-label'>KPI Dashboard</div>", unsafe_allow_html=True)
+    with kpi_head_action_col:
+        action_cols = st.columns([1, 1], gap="small")
+        with action_cols[0]:
+            render_lazy_binary_download(
+                "PPT 다운로드",
+                "PPT 보고서 준비",
+                f"국내_제품_포장현황_운영보고서_{pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y%m%d_%H%M')}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                build_bytes=lambda: build_ppt_report(
+                    product_view=product_summary,
+                    code_summary=code_summary,
+                    product_names=product_summary["제품명"],
+                    scope_label="전체",
+                    daily_inventory_df=daily_inventory_df,
+                    sample_available_df=sample_available_df,
+                ),
+                signature=(
+                    dataframe_light_signature(product_summary),
+                    dataframe_light_signature(code_summary),
+                    dataframe_light_signature(daily_inventory_df) if daily_inventory_df is not None else ("none",),
+                    dataframe_light_signature(sample_available_df) if sample_available_df is not None else ("none",),
+                ),
+                key="download_ppt_report",
+                width="stretch",
+            )
+        with action_cols[1]:
+            render_excel_download(
+                "엑셀 다운로드",
+                "제품_진도_현황",
+                {
+                    "제품 요약": product_summary,
+                    "신규분류요약별 요청지시율": category_request_view,
+                    "미입고 TOP10": top_shortage_view,
+                    "본품 분류별 진도": family_view,
+                    "생산완료 후 미입고 TOP10": gap_top_view,
+                    "요청 긴급 요약": urgent_summary_view,
+                    "요청 긴급 상세": exception_detail,
+                },
+                key="download_product_progress_excel",
+            )
     scope_kpis = {
         name: kpi
         for name, kpi in build_scope_kpis(add_allocated_production_basis(code_summary))
@@ -12561,6 +12583,10 @@ def render_period_group_filter(active_tab: str) -> str:
         "POWER 상세": "power",
         "포장 LOT 상세": "packing_lot",
     }
+    if active_tab == "제품 진도 현황":
+        key = f"{filter_key_by_tab[active_tab]}_period_group_filter"
+        selected = st.session_state.get(key, "전체")
+        return str(selected if selected in PERIOD_GROUP_ORDER else "전체")
     filter_col, _ = st.columns([1.6, 4.4], gap="small")
     with filter_col:
         selected = st.segmented_control(
