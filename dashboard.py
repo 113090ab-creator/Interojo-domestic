@@ -13248,19 +13248,6 @@ def render_dashboard_nav() -> str:
                 st.session_state["dashboard_active_tab_sidebar"] = tab
                 selected = tab
                 st.rerun()
-        st.markdown(
-            """
-            <div class="sidebar-section-title">분석 · 리포트</div>
-            <div class="sidebar-muted-menu">
-              <span>긴급 대응 목록</span>
-              <span>이슈 & 알림</span>
-              <span>보고서 관리</span>
-            </div>
-            <div class="sidebar-section-title">필터</div>
-            <div class="sidebar-filter-note">상세 필터는 각 화면 상단 조건 영역에서 조정합니다.</div>
-            """,
-            unsafe_allow_html=True,
-        )
     return str(selected or DASHBOARD_TABS[0])
 
 
