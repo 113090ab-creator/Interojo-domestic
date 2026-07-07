@@ -12596,7 +12596,7 @@ def render_daily_inventory_tab(
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_daily_row = render_selectable_table(
         "일일 재고 대응 테이블",
-        f"판매코드 S### 기준 집계 | 표시 건수: {len(main_view):,} | 상세 건수: {len(view):,}",
+        f"판매코드 기준 집계 | 표시 건수: {len(main_view):,} | 상세 건수: {len(view):,}",
         main_view,
         key=f"daily_inventory_table_{table_nonce}",
         height=560,
@@ -13015,7 +13015,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         table_nonce = int(st.session_state.get(table_nonce_key, 0))
         selected_sales_row = render_selectable_table(
             "판매코드",
-            f"판매코드 S### 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_export_view):,}",
+            f"판매코드 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_export_view):,}",
             sales_main_view,
             key=f"sales_code_main_table_{table_nonce}",
             height=620,
