@@ -12340,7 +12340,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
     power_options = available_production_power_options(code_summary)
     group_options = available_product_group_options(code_summary)
 
-    pc1, pc2, pc3, _ = st.columns([3.8, 1.2, 1.2, 1.8], gap="small")
+    pc1, pc2, pc3, pc4, pc5 = st.columns([3.7, 1.55, 1.1, 1.1, 0.95], gap="small")
     with pc1:
         integrated_query = st.text_input(
             "통합검색",
@@ -12349,36 +12349,27 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
             key="tab_production_integrated_query",
         )
     with pc2:
-        selected_pack = st.selectbox(
-            "PACK 선택",
-            options=pack_options,
-            index=0,
-            key="tab_production_pack",
-        )
-    with pc3:
-        selected_power = st.selectbox(
-            "POWER 선택",
-            options=power_options,
-            index=0,
-            key="tab_production_power",
-        )
-
-    pc5, pc6, pc7 = st.columns([1.2, 1.5, 1.2], gap="small")
-    with pc5:
-        sample_scope = st.selectbox(
-            "본품/샘플 선택",
-            options=["전체", "본품", "샘플"],
-            index=0,
-            key="tab_production_sample_scope",
-        )
-    with pc6:
         selected_group = st.selectbox(
             "분류 선택",
             options=group_options,
             index=0,
             key="tab_production_group",
         )
-    with pc7:
+    with pc3:
+        selected_pack = st.selectbox(
+            "PACK 선택",
+            options=pack_options,
+            index=0,
+            key="tab_production_pack",
+        )
+    with pc4:
+        selected_power = st.selectbox(
+            "POWER 선택",
+            options=power_options,
+            index=0,
+            key="tab_production_power",
+        )
+    with pc5:
         shortage_only = st.checkbox("부족품만 보기", value=False, key="tab_production_shortage_only")
 
     production_source = filter_production_power_rows(
@@ -12387,7 +12378,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
         production_query="",
         power_label=selected_power,
         pack_label=selected_pack,
-        sample_scope=sample_scope,
+        sample_scope="전체",
         product_group=selected_group,
         factory_group="전체",
         period_group=selected_period,
