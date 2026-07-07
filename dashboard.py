@@ -4215,7 +4215,6 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
     <div class='kpi-panel scope-kpi {scope_class}'>
       <div class='kpi-panel-head'>
         <div class='kpi-title'>{escape(title)}</div>
-        <div class='kpi-card-link'>전일 대비</div>
       </div>
       <div class='kpi-divider-grid'>{metric_html}</div>
       <div class='kpi-progress-stack'>
@@ -11264,15 +11263,6 @@ def render_style() -> None:
             color: {TEXT_SECONDARY};
             font-size: 11px;
             font-weight: 600;
-        }}
-        .kpi-card-link {{
-            color: {COLOR_BLUE};
-            font-size: 11px;
-            font-weight: 700;
-            white-space: nowrap;
-        }}
-        .scope-kpi .kpi-card-link {{
-            color: {TEXT_TERTIARY};
         }}
         .scope-kpi .metric-value,
         .scope-kpi .metric-value.primary,
