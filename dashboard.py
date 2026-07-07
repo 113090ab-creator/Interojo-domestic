@@ -49,13 +49,13 @@ UNIT_PCS = "PCS 기준"
 UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
 DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세", "포장 LOT 상세"]
 SIDEBAR_NAV_ITEMS = [
-    ("제품 진도 현황", "product_progress", "layout_dashboard"),
-    ("일일 재고 대응", "daily_inventory", "package_search"),
-    ("생산코드 상세", "production_code", "boxes"),
-    ("판매코드 상세", "sales_code", "table_2"),
-    ("포장 LOT 상세", "packing_lot", "scan_line"),
+    ("제품 진도 현황", "product_progress"),
+    ("일일 재고 대응", "daily_inventory"),
+    ("생산코드 상세", "production_code"),
+    ("판매코드 상세", "sales_code"),
+    ("포장 LOT 상세", "packing_lot"),
 ]
-SIDEBAR_NAV_KEY_TO_TAB = {key: tab for tab, key, _icon in SIDEBAR_NAV_ITEMS}
+SIDEBAR_NAV_KEY_TO_TAB = {key: tab for tab, key in SIDEBAR_NAV_ITEMS}
 DAILY_INVENTORY_FILE_STANDARD = "클라렌사업본부 재고현황_YYMMDD.xlsx"
 DAILY_INVENTORY_FILE_KEYWORDS = ["클라렌사업본부 재고현황", "재고현황_"]
 SAMPLE_KEYWORDS = ["샘플"]
@@ -10901,9 +10901,8 @@ def render_style() -> None:
             position: relative;
             display: flex;
             align-items: center;
-            gap: 12px;
             height: 48px;
-            padding: 0 14px 0 16px;
+            padding: 0 16px 0 20px;
             border-radius: 10px;
             color: #374151 !important;
             text-decoration: none !important;
@@ -10935,14 +10934,6 @@ def render_style() -> None:
         }}
         .sidebar-nav-item.active::before {{
             background: {COLOR_BLUE};
-        }}
-        .sidebar-nav-icon {{
-            width: 18px;
-            height: 18px;
-            flex: 0 0 18px;
-            color: #6B7280;
-            stroke: currentColor;
-            stroke-width: 1.75;
         }}
         .sidebar-nav-item span {{
             color: inherit;
@@ -13357,60 +13348,6 @@ def load_dashboard_data(
     return product_summary, code_summary, packing_df, yongma_df, daily_inventory_df, sample_available_df, instruction_df, request_df
 
 
-def sidebar_lucide_icon(icon_name: str) -> str:
-    icons = {
-        "layout_dashboard": (
-            '<rect width="7" height="9" x="3" y="3" rx="1"></rect>'
-            '<rect width="7" height="5" x="14" y="3" rx="1"></rect>'
-            '<rect width="7" height="9" x="14" y="12" rx="1"></rect>'
-            '<rect width="7" height="5" x="3" y="16" rx="1"></rect>'
-        ),
-        "package_search": (
-            '<path d="m7.5 4.27 9 5.15"></path>'
-            '<path d="m3.3 7 8.7 5 8.7-5"></path>'
-            '<path d="M12 22V12"></path>'
-            '<path d="M21 13.5V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l1.4-.8"></path>'
-            '<circle cx="18.5" cy="15.5" r="2.5"></circle>'
-            '<path d="m20.3 17.3 1.7 1.7"></path>'
-        ),
-        "boxes": (
-            '<path d="M2.97 12.92 7 10.5l4.03 2.42"></path>'
-            '<path d="M7 10.5v5"></path>'
-            '<path d="M2.97 12.92v4.95a2 2 0 0 0 .97 1.71l2.03 1.22a2 2 0 0 0 2.06 0l2.03-1.22a2 2 0 0 0 .97-1.71v-4.95"></path>'
-            '<path d="m12.97 12.92 4.03-2.42 4.03 2.42"></path>'
-            '<path d="M17 10.5v5"></path>'
-            '<path d="M12.97 12.92v4.95a2 2 0 0 0 .97 1.71l2.03 1.22a2 2 0 0 0 2.06 0l2.03-1.22a2 2 0 0 0 .97-1.71v-4.95"></path>'
-            '<path d="M7.97 3.42 12 1l4.03 2.42"></path>'
-            '<path d="M12 1v5"></path>'
-            '<path d="M7.97 3.42v4.16L12 10l4.03-2.42V3.42"></path>'
-        ),
-        "table_2": (
-            '<path d="M9 3H5a2 2 0 0 0-2 2v4"></path>'
-            '<path d="M9 3h10a2 2 0 0 1 2 2v4"></path>'
-            '<path d="M3 9h18"></path>'
-            '<path d="M3 9v10a2 2 0 0 0 2 2h4"></path>'
-            '<path d="M21 9v10a2 2 0 0 1-2 2H9"></path>'
-            '<path d="M9 3v18"></path>'
-        ),
-        "scan_line": (
-            '<path d="M3 7V5a2 2 0 0 1 2-2h2"></path>'
-            '<path d="M17 3h2a2 2 0 0 1 2 2v2"></path>'
-            '<path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>'
-            '<path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>'
-            '<path d="M7 12h10"></path>'
-            '<path d="M7 16h6"></path>'
-        ),
-    }
-    body = icons.get(icon_name, "")
-    return (
-        '<svg class="sidebar-nav-icon" xmlns="http://www.w3.org/2000/svg" '
-        'width="18" height="18" viewBox="0 0 24 24" fill="none" '
-        'stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" '
-        'aria-hidden="true">'
-        f"{body}</svg>"
-    )
-
-
 def get_sidebar_tab_from_query() -> str | None:
     try:
         value = st.query_params.get("tab")
@@ -13422,11 +13359,10 @@ def get_sidebar_tab_from_query() -> str | None:
     return SIDEBAR_NAV_KEY_TO_TAB.get(key)
 
 
-def sidebar_nav_item_html(tab: str, nav_key: str, icon_name: str, active_tab: str) -> str:
+def sidebar_nav_item_html(tab: str, nav_key: str, active_tab: str) -> str:
     active_class = " active" if tab == active_tab else ""
     return (
         f'<a class="sidebar-nav-item{active_class}" href="?tab={escape(nav_key)}" target="_self">'
-        f'{sidebar_lucide_icon(icon_name)}'
         f'<span>{escape(tab)}</span>'
         "</a>"
     )
@@ -13453,8 +13389,8 @@ def render_dashboard_nav() -> str:
             selected = DASHBOARD_TABS[0]
         st.session_state["dashboard_active_tab_sidebar"] = selected
         nav_html = "".join(
-            sidebar_nav_item_html(tab, nav_key, icon_name, selected)
-            for tab, nav_key, icon_name in SIDEBAR_NAV_ITEMS
+            sidebar_nav_item_html(tab, nav_key, selected)
+            for tab, nav_key in SIDEBAR_NAV_ITEMS
         )
         st.markdown(f"<nav class='sidebar-nav'>{nav_html}</nav>", unsafe_allow_html=True)
     return str(selected or DASHBOARD_TABS[0])
