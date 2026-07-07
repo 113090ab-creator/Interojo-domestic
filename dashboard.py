@@ -301,6 +301,15 @@ YONGMA_COLS = {
     "receipt_qty": ["수량", "입고수량", "용마입고수량", "receipt_qty"],
 }
 
+SAMPLE_MOVEMENT_COLS = {
+    "sales_code": ["품목코드", "제품코드", "제품 코드", "판매코드", "판매 코드", "sales_code"],
+    "product_name": ["품명", "제품명", "제품 명", "product_name"],
+    "lot_no": ["Lot No.", "LotNo", "LOTNO", "LOT NO", "LOT", "lot_no"],
+    "movement_qty": ["이동수량", "이동 수량", "입고수량", "수량", "receipt_qty"],
+    "status": ["상태", "처리상태", "status"],
+    "inbound_warehouse": ["입고창고", "입고 창고", "입고처", "warehouse"],
+}
+
 SAMPLE_AVAILABLE_COLS = {
     "product_code": ["제품코드", "제품 코드", "품목코드", "생산코드", "production_code", "product_code"],
     "sample_available_qty": [
@@ -1247,6 +1256,58 @@ def normalize_yongma_movement(path: Path) -> pd.DataFrame:
     return normalize_yongma_movement_frame(raw, f"{path.name}:{sheet_name}")
 
 
+def normalize_sample_movement_frame(raw: pd.DataFrame, file_label: str) -> pd.DataFrame:
+    cols = resolve_columns(
+        raw,
+        SAMPLE_MOVEMENT_COLS,
+        required_keys=["sales_code", "movement_qty"],
+        file_label=file_label,
+    )
+    out = pd.DataFrame(
+        {
+            "sales_code": raw[cols["sales_code"]].map(clean_str),
+            "yongma_in_pack": to_number(raw[cols["movement_qty"]]),
+        }
+    )
+    out["sales_code_key"] = out["sales_code"].map(normalize_match_key)
+    out["yongma_product_name"] = raw[cols["product_name"]].map(clean_str) if "product_name" in cols else ""
+    out["yongma_lot"] = raw[cols["lot_no"]].map(clean_str) if "lot_no" in cols else ""
+    out["yongma_lot_key"] = out["yongma_lot"].map(normalize_match_key)
+
+    keep = pd.Series(True, index=raw.index)
+    if "status" in cols:
+        status = raw[cols["status"]].map(clean_str)
+        keep &= (status == "") | status.str.contains("확인|완료", regex=True, na=False)
+    if "inbound_warehouse" in cols:
+        inbound = raw[cols["inbound_warehouse"]].map(clean_str)
+        if inbound.str.contains("샘플", regex=False, na=False).any():
+            keep &= inbound.str.contains("샘플", regex=False, na=False)
+
+    out = out[keep].copy()
+    return out[(out["sales_code_key"] != "") & (out["yongma_in_pack"] > 0)].copy()
+
+
+def normalize_sample_movement(path: Path) -> pd.DataFrame:
+    sheet_name = "샘플이동"
+    if not has_excel_sheet(path, sheet_name):
+        return empty_yongma_movement_df()
+
+    try:
+        xl = pd.ExcelFile(path)
+        raw = read_resolved_excel_sheet(
+            xl,
+            sheet_name,
+            SAMPLE_MOVEMENT_COLS,
+            required_keys=["sales_code", "movement_qty"],
+            file_label=f"{path.name}:{sheet_name}",
+        )
+    except DashboardConfigError:
+        raise
+    except Exception:
+        raw = pd.read_excel(path, sheet_name=sheet_name)
+    return normalize_sample_movement_frame(raw, f"{path.name}:{sheet_name}")
+
+
 def empty_sample_available_df() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -1378,7 +1439,10 @@ def normalize_packing_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, 
     except Exception:
         return (
             normalize_packing(path),
-            normalize_yongma_movement(path),
+            pd.concat(
+                [normalize_yongma_movement(path), normalize_sample_movement(path)],
+                ignore_index=True,
+            ),
             normalize_sample_available(path),
         )
 
@@ -1404,6 +1468,22 @@ def normalize_packing_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, 
         yongma_df = normalize_yongma_movement_frame(yongma_raw, f"{path.name}:{yongma_sheet}")
     else:
         yongma_df = empty_yongma_movement_df()
+
+    sample_movement_sheet = "샘플이동"
+    if sample_movement_sheet in xl.sheet_names:
+        sample_movement_raw = read_resolved_excel_sheet(
+            xl,
+            sample_movement_sheet,
+            SAMPLE_MOVEMENT_COLS,
+            required_keys=["sales_code", "movement_qty"],
+            file_label=f"{path.name}:{sample_movement_sheet}",
+        )
+        sample_movement_df = normalize_sample_movement_frame(
+            sample_movement_raw,
+            f"{path.name}:{sample_movement_sheet}",
+        )
+        if not sample_movement_df.empty:
+            yongma_df = pd.concat([yongma_df, sample_movement_df], ignore_index=True)
 
     sample_sheet = "샘플신청가능수량"
     if sample_sheet in xl.sheet_names:
