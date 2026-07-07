@@ -47,13 +47,12 @@ STATUS_ORDER = ["미착수", "진행중", "완료"]
 UNIT_PACK = "PACK 기준"
 UNIT_PCS = "PCS 기준"
 UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
-DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세", "포장 LOT 상세"]
+DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세"]
 SIDEBAR_NAV_ITEMS = [
     ("제품 진도 현황", "product_progress"),
     ("일일 재고 대응", "daily_inventory"),
     ("생산코드 상세", "production_code"),
     ("판매코드 상세", "sales_code"),
-    ("포장 LOT 상세", "packing_lot"),
 ]
 SIDEBAR_NAV_KEY_TO_TAB = {key: tab for tab, key in SIDEBAR_NAV_ITEMS}
 DAILY_INVENTORY_FILE_STANDARD = "클라렌사업본부 재고현황_YYMMDD.xlsx"
@@ -6652,79 +6651,6 @@ def build_lot_receipt_status_view(
         ascending=[True, False, False],
         kind="stable",
     )[columns].copy()
-
-
-@st.cache_data(show_spinner=False, max_entries=8)
-def build_lot_receipt_status_view_cached(
-    packing_df: pd.DataFrame,
-    yongma_df: pd.DataFrame,
-    code_summary: pd.DataFrame,
-    cache_version: int,
-) -> pd.DataFrame:
-    return build_lot_receipt_status_view(packing_df, yongma_df, code_summary)
-
-
-def render_packing_lot_tab(lot_status_df: pd.DataFrame, selected_period: str = "전체") -> None:
-    render_panel_title(
-        "세부 포장 진도 현황",
-        "LOT 기준 포장실적과 용마입고수량을 비교합니다.",
-    )
-    if lot_status_df.empty:
-        st.warning("표시할 포장 LOT 데이터가 없습니다.")
-        return
-
-    f1, f2 = st.columns([2.4, 1.2], gap="small")
-    with f1:
-        query = st.text_input(
-            "판매코드/제품명/LOTNO 검색",
-            value="",
-            key="packing_lot_query",
-        )
-    with f2:
-        statuses = st.multiselect(
-            "상태 필터",
-            ["입고대기", "입고완료"],
-            default=["입고대기", "입고완료"],
-            key="packing_lot_status",
-        )
-
-    view = lot_status_df.copy()
-    view = filter_by_period_group(view, selected_period)
-    if query.strip():
-        q = query.strip()
-        mask = (
-            view["판매코드"].astype(str).str.contains(q, case=False, na=False)
-            | view["제품명"].astype(str).str.contains(q, case=False, na=False)
-            | view["LOTNO"].astype(str).str.contains(q, case=False, na=False)
-        )
-        view = view[mask].copy()
-    if statuses:
-        view = view[view["상태"].isin(statuses)].copy()
-
-    waiting_qty = float(view["입고대기수량"].sum()) if not view.empty else 0.0
-    render_metric_card_grid(
-        [
-            ("포장실적수량", format_int(float(view["포장실적수량"].sum()) if not view.empty else 0.0), "normal"),
-            ("용마입고수량", format_int(float(view["용마입고수량"].sum()) if not view.empty else 0.0), "normal"),
-            ("입고대기수량", format_int(waiting_qty), "warn" if waiting_qty > 0 else "normal"),
-        ]
-    )
-    dl_col, _ = st.columns([1.2, 4.8], gap="small")
-    with dl_col:
-        render_excel_download(
-            "엑셀 다운로드",
-            "포장_LOT_상세",
-            {"포장 LOT 상세": view},
-            key="download_packing_lot_excel",
-        )
-
-    st.dataframe(
-        view,
-        hide_index=True,
-        height=620,
-        width="stretch",
-        column_config=drilldown_column_config(),
-    )
 
 
 def build_production_progress_main_view(code_summary: pd.DataFrame, pack_labels: list[str]) -> pd.DataFrame:
@@ -13392,7 +13318,6 @@ def render_period_group_filter(active_tab: str) -> str:
         "일일 재고 대응": "daily_inventory",
         "생산코드 상세": "production_code",
         "판매코드 상세": "sales_code",
-        "포장 LOT 상세": "packing_lot",
     }
     if active_tab == "제품 진도 현황":
         key = f"{filter_key_by_tab[active_tab]}_period_group_filter"
@@ -13441,11 +13366,7 @@ def main() -> None:
             file_fingerprint(files.product_master_file),
             DATA_CACHE_VERSION,
         )
-        lot_status_df = (
-            build_lot_receipt_status_view_cached(packing_df, yongma_df, code_summary, DATA_CACHE_VERSION)
-            if active_tab == "포장 LOT 상세"
-            else pd.DataFrame()
-        )
+        lot_status_df = pd.DataFrame()
     except DashboardConfigError as exc:
         st.error("데이터 설정 오류")
         for msg in exc.messages:
@@ -13473,8 +13394,6 @@ def main() -> None:
         render_production_code_tab(code_summary, selected_period)
     elif active_tab == "판매코드 상세":
         render_sales_code_tab(code_summary, selected_period)
-    elif active_tab == "포장 LOT 상세":
-        render_packing_lot_tab(lot_status_df, selected_period)
 
 
 if __name__ == "__main__":
