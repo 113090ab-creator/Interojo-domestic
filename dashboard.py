@@ -4230,45 +4230,6 @@ def render_status_board(
     priority_products = int(kpi.get("priority_products", 0.0))
     request_out_count = int(exception_kpis.get("request_out_count", 0.0))
 
-    # Guard the headline KPI against stale Streamlit/session state: the status
-    # board must always use the current code-level receipt aggregate when present.
-    direct_code_summary = (
-        add_code_level_supply_basis(code_summary)
-        if code_summary is not None and not code_summary.empty
-        else pd.DataFrame()
-    )
-    direct_request_pack = (
-        float(pd.to_numeric(direct_code_summary.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-        if not direct_code_summary.empty
-        else 0.0
-    )
-    direct_packing_pack = (
-        float(
-            pd.to_numeric(direct_code_summary.get("packing_recognized_pack", pd.Series(dtype=float)), errors="coerce")
-            .fillna(0.0)
-            .sum()
-        )
-        if not direct_code_summary.empty
-        else 0.0
-    )
-    direct_yongma_in_pack = (
-        float(
-            pd.to_numeric(direct_code_summary.get("yongma_recognized_pack", pd.Series(dtype=float)), errors="coerce")
-            .fillna(0.0)
-            .sum()
-        )
-        if not direct_code_summary.empty
-        else 0.0
-    )
-    if direct_request_pack > 0:
-        request_pack = direct_request_pack
-    if direct_packing_pack > 0:
-        packing_progress = direct_packing_pack / request_pack * 100.0 if request_pack > 0 else 0.0
-    if direct_yongma_in_pack > 0:
-        yongma_in_pack = direct_yongma_in_pack
-        missing_pack = max(0.0, request_pack - yongma_in_pack)
-        receipt_progress = yongma_in_pack / request_pack * 100.0 if request_pack > 0 else 0.0
-
     receipt_width = max(0.0, min(100.0, receipt_progress))
     missing_width = max(0.0, min(100.0 - receipt_width, 100.0))
     emergency_count = request_out_count
@@ -4682,33 +4643,12 @@ def calc_operation_kpis(
     stock = pd.to_numeric(product_priority["current_stock_pack"], errors="coerce")
     stock_shortage_mask = stock.notna() & (stock <= float(stock_threshold_pack))
     priority_mask = product_priority["우선등급"].isin(["A 긴급", "B 주의"])
-    code_request_pack = float(pd.to_numeric(work.get("request_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-    code_request_pcs = float(pd.to_numeric(work.get("request_pcs", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
-    code_packing_pack = float(
-        pd.to_numeric(work.get("packing_recognized_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()
-    )
-    request_pack = code_request_pack or (
-        float(product_summary["요청 PACK"].sum()) if "요청 PACK" in product_summary.columns and not product_summary.empty else 0.0
-    )
-    request_pcs = code_request_pcs or (
-        float(product_summary["요청 PCS"].sum()) if "요청 PCS" in product_summary.columns and not product_summary.empty else 0.0
-    )
-    packing_pack = code_packing_pack or (
-        float(product_summary["포장 PACK"].sum()) if "포장 PACK" in product_summary.columns and not product_summary.empty else 0.0
-    )
-    product_yongma_in_pack = (
-        float(product_summary["용마입고 PACK"].sum())
-        if "용마입고 PACK" in product_summary.columns and not product_summary.empty
-        else 0.0
-    )
-    code_yongma_in_pack = (
-        float(pd.to_numeric(work["yongma_recognized_pack"], errors="coerce").fillna(0.0).sum())
-        if not work.empty and "yongma_recognized_pack" in work.columns
-        else 0.0
-    )
-    yongma_in_pack = code_yongma_in_pack if code_yongma_in_pack > 0 else product_yongma_in_pack
+    progress_kpi = calc_kpi_from_code_summary(code_summary)
+    request_pack = float(progress_kpi.get("request_pack", 0.0))
+    request_pcs = float(progress_kpi.get("request_pcs", 0.0))
+    packing_pack = float(progress_kpi.get("packing_pack", 0.0))
+    yongma_in_pack = float(progress_kpi.get("yongma_in_pack", 0.0))
     code_packing_shortage_pack = float(pd.to_numeric(work["_packing_shortage_pack"], errors="coerce").fillna(0.0).sum())
-    code_receipt_shortage_pack = float(pd.to_numeric(work["_receipt_shortage_pack"], errors="coerce").fillna(0.0).sum())
     code_receipt_wait_pack = float(
         pd.to_numeric(work.get("code_receipt_wait_pack", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()
     )
@@ -4717,30 +4657,17 @@ def calc_operation_kpis(
         if "포장부족수량" in product_summary.columns and not product_summary.empty
         else max(0.0, request_pack - packing_pack)
     )
-    receipt_shortage_pack = code_receipt_shortage_pack or max(0.0, request_pack - yongma_in_pack)
+    receipt_shortage_pack = float(progress_kpi.get("shortage_pack", max(0.0, request_pack - yongma_in_pack)))
     receipt_wait_pack = code_receipt_wait_pack or (
         float(product_summary["입고대기수량"].sum())
         if "입고대기수량" in product_summary.columns and not product_summary.empty
         else max(0.0, packing_pack - yongma_in_pack)
     )
-    code_production_shortage_pcs = float(
-        pd.to_numeric(work.get("_allocated_production_shortage_qty", pd.Series(dtype=float)), errors="coerce")
-        .fillna(0.0)
-        .sum()
-    )
-    production_shortage_pcs = code_production_shortage_pcs or (
-        float(product_summary["생산부족수량"].sum())
-        if "생산부족수량" in product_summary.columns and not product_summary.empty
-        else 0.0
-    )
-    packable_pcs = max(0.0, request_pcs - production_shortage_pcs)
-    packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
-    receipt_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
-    production_progress = (
-        (request_pcs - production_shortage_pcs) / request_pcs * 100.0
-        if request_pcs > 0
-        else 0.0
-    )
+    production_shortage_pcs = float(progress_kpi.get("production_shortage_pcs", 0.0))
+    packable_pcs = float(progress_kpi.get("packable_pcs", max(0.0, request_pcs - production_shortage_pcs)))
+    packing_progress = float(progress_kpi.get("packing_progress_pct", 0.0))
+    receipt_progress = float(progress_kpi.get("progress_pct", 0.0))
+    production_progress = float(progress_kpi.get("production_progress_pct", 0.0))
     return {
         "priority_products": float((shortage_mask & priority_mask).sum()),
         "urgent_products": float((shortage_mask & due_mask).sum()),
