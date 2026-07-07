@@ -11376,27 +11376,6 @@ def build_product_drilldown_view(product_summary: pd.DataFrame) -> pd.DataFrame:
     ]
 
 
-def render_product_detail_table(product_summary: pd.DataFrame) -> None:
-    product_view = build_product_drilldown_view(product_summary)
-    if product_view.empty:
-        st.warning("제품 상세 테이블에 표시할 데이터가 없습니다.")
-        return
-    sort_cols = [col for col in ["포장부족수량", "생산부족수량", "요청수량"] if col in product_view.columns]
-    if sort_cols:
-        product_view = product_view.sort_values(
-            sort_cols,
-            ascending=[False] * len(sort_cols),
-            kind="stable",
-        )
-    st.dataframe(
-        dataframe_for_streamlit(product_view),
-        hide_index=True,
-        height=min(560, 56 + 48 * min(len(product_view), 10)),
-        width="stretch",
-        column_config=drilldown_column_config(),
-    )
-
-
 def build_pack_unit_view(code_summary: pd.DataFrame, product_name: str) -> pd.DataFrame:
     if code_summary.empty:
         return pd.DataFrame(columns=["팩 단위", "요청수량", "포장수량", "부족수량", "진도율", "_sort"])
@@ -12074,13 +12053,6 @@ def render_product_summary_tab(
         "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
     )
     render_family_progress_cards(family_view)
-
-    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
-    render_panel_title(
-        "제품 상세 테이블",
-        f"제품 기준 생산·포장·입고 진도와 부족 수량을 확인합니다. 표시 건수: {len(product_summary):,}",
-    )
-    render_product_detail_table(product_summary)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
