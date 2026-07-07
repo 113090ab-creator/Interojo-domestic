@@ -200,9 +200,9 @@ COLOR_AMBER = "#7C3AED"
 COLOR_DANGER = "#DC2626"
 COLOR_ALERT_BG = "#FEF2F2"
 COLOR_ALERT_BD = "#FECACA"
-BG_PAGE = "#F8FAFC"
+BG_PAGE = "#FFFFFF"
 BG_CARD = "#FFFFFF"
-BG_SECTION = "#F3F4F6"
+BG_SECTION = "#FFFFFF"
 TEXT_PRIMARY = "#111827"
 TEXT_SECONDARY = "#6B7280"
 TEXT_TERTIARY = "#9CA3AF"
@@ -9450,11 +9450,11 @@ def render_style() -> None:
             box-shadow: none !important;
         }}
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] {{
-            background: {COLOR_BLUE} !important;
-            color: #FFFFFF !important;
+            background: {BG_CARD} !important;
+            color: {COLOR_DANGER} !important;
             font-weight: 600 !important;
-            border-color: {COLOR_BLUE} !important;
-            border-bottom-color: {COLOR_BLUE} !important;
+            border-color: {COLOR_DANGER} !important;
+            border-bottom-color: {COLOR_DANGER} !important;
         }}
         .dashboard-nav-divider {{
             height: 1.5px;
@@ -9701,7 +9701,7 @@ def render_style() -> None:
         }}
         .shortage-card {{
             border-color: {COLOR_ALERT_BD};
-            background: {COLOR_ALERT_BG};
+            background: {BG_CARD};
         }}
         .status-board {{
             display: grid;
@@ -9748,15 +9748,18 @@ def render_style() -> None:
             font-size: 11px;
             font-weight: 700;
             color: {TEXT_SECONDARY};
-            background: {BG_SECTION};
+            background: {BG_CARD};
+            border: 1px solid {BORDER_DEFAULT};
         }}
         .status-pill.warn {{
             color: {COLOR_AMBER};
-            background: #F7EFE3;
+            background: {BG_CARD};
+            border-color: {COLOR_AMBER};
         }}
         .status-pill.risk {{
             color: {COLOR_ORANGE};
-            background: {COLOR_ALERT_BG};
+            background: {BG_CARD};
+            border-color: {COLOR_ALERT_BD};
         }}
         .status-main-value {{
             color: {TEXT_PRIMARY};
@@ -10092,23 +10095,20 @@ def render_style() -> None:
             font-size: 11px;
             font-weight: 700;
             border: 0.5px solid {BORDER_DEFAULT};
-            background: {BG_SECTION};
+            background: {BG_CARD};
             color: {TEXT_SECONDARY};
             white-space: nowrap;
         }}
         .request-scope-badge.in {{
             color: {COLOR_TEAL};
-            background: #E8F5F0;
             border-color: #B9E3D4;
         }}
         .request-scope-badge.out {{
             color: {COLOR_ORANGE};
-            background: {COLOR_ALERT_BG};
             border-color: {COLOR_ALERT_BD};
         }}
         .request-scope-badge.mixed {{
             color: {COLOR_AMBER};
-            background: #F7EFE3;
             border-color: #E4B968;
         }}
         .response-badge {{
@@ -10120,16 +10120,17 @@ def render_style() -> None:
             padding: 3px 8px;
             font-size: 11px;
             font-weight: 600;
-            background: {BG_SECTION};
+            background: {BG_CARD};
             color: {TEXT_SECONDARY};
+            border: 1px solid {BORDER_DEFAULT};
         }}
         .response-badge.partial {{
-            background: #F7EFE3;
             color: {COLOR_AMBER};
+            border-color: #E4B968;
         }}
         .response-badge.need {{
-            background: {COLOR_ALERT_BG};
             color: {COLOR_ORANGE};
+            border-color: {COLOR_ALERT_BD};
         }}
         .ops-table td.power-cell {{
             text-align: center;
@@ -10201,25 +10202,30 @@ def render_style() -> None:
             line-height: 1.2;
         }}
         .status-badge.done {{
-            background: #EAF3DE;
+            background: {BG_CARD};
             color: #3B6D11;
+            border-color: #CBD5E1;
         }}
         .status-badge.active {{
-            background: #E6F1FB;
+            background: {BG_CARD};
             color: {COLOR_BLUE};
+            border-color: #BFDBFE;
         }}
         .status-badge.warn {{
-            background: {COLOR_ALERT_BG};
+            background: {BG_CARD};
             color: #993C1D;
             font-weight: 500;
+            border-color: {COLOR_ALERT_BD};
         }}
         .status-badge.waiting {{
-            background: #F1EFE8;
+            background: {BG_CARD};
             color: #5F5E5A;
+            border-color: {BORDER_DEFAULT};
         }}
         .status-badge.risk {{
-            background: {COLOR_ALERT_BG};
+            background: {BG_CARD};
             color: #993C1D;
+            border-color: {COLOR_ALERT_BD};
         }}
         .section-title {{
             color: {TEXT_PRIMARY};
@@ -10392,7 +10398,7 @@ def render_style() -> None:
             margin: 0 8px;
             padding: 12px;
             border-radius: 8px;
-            background: #F8FAFC;
+            background: {BG_CARD};
             color: #64748B;
             font-size: 12px;
             line-height: 1.45;
@@ -10507,10 +10513,10 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked),
         [data-testid="stSegmentedControl"] input:checked + div,
         [data-testid="stSegmentedControl"] input:checked ~ div {{
-            background: {COLOR_BLUE} !important;
-            border-color: {COLOR_BLUE} !important;
-            color: #FFFFFF !important;
-            border-bottom-color: {COLOR_BLUE} !important;
+            background: {BG_CARD} !important;
+            border-color: {COLOR_DANGER} !important;
+            color: {COLOR_DANGER} !important;
+            border-bottom-color: {COLOR_DANGER} !important;
             box-shadow: none !important;
         }}
         [data-testid="stSegmentedControl"] button[aria-pressed="true"] *,
@@ -10522,7 +10528,7 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked) *,
         [data-testid="stSegmentedControl"] input:checked + div *,
         [data-testid="stSegmentedControl"] input:checked ~ div * {{
-            color: #FFFFFF !important;
+            color: {COLOR_DANGER} !important;
         }}
         [data-testid="stSegmentedControl"] [data-baseweb="button-group"] button,
         [data-testid="stSegmentedControl"] [role="radio"],
@@ -10539,9 +10545,9 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label[data-baseweb="radio"]:has(input:checked),
         [data-testid="stSegmentedControl"] label[data-baseweb="radio"]:has(input:checked) > div,
         [data-testid="stSegmentedControl"] label:has(input:checked) > div {{
-            background: {COLOR_BLUE} !important;
-            border-color: {COLOR_BLUE} !important;
-            color: #FFFFFF !important;
+            background: {BG_CARD} !important;
+            border-color: {COLOR_DANGER} !important;
+            color: {COLOR_DANGER} !important;
         }}
         [data-testid="stSegmentedControl"] [data-baseweb="button-group"] button *,
         [data-testid="stSegmentedControl"] [role="radio"] *,
@@ -10555,7 +10561,7 @@ def render_style() -> None:
         [data-testid="stSegmentedControl"] label:has(input:checked) *,
         [data-testid="stSegmentedControl"] input:checked + div *,
         [data-testid="stSegmentedControl"] input:checked ~ div * {{
-            color: #FFFFFF !important;
+            color: {COLOR_DANGER} !important;
         }}
         [data-testid="stSegmentedControl"] [role="radio"][aria-checked="false"],
         [data-testid="stSegmentedControl"] [role="radio"]:not([aria-checked="true"]) {{
@@ -11212,13 +11218,14 @@ def render_style() -> None:
             border: 1px solid transparent;
         }}
         .response-badge {{
-            background: #EEF2F7;
+            background: {BG_CARD};
             color: #475569;
             min-width: 56px;
+            border-color: {BORDER_DEFAULT};
         }}
         .response-badge.partial,
         .request-scope-badge.mixed {{
-            background: #FFEDD5;
+            background: {BG_CARD};
             color: #9A3412;
             border-color: #FED7AA;
         }}
@@ -11226,18 +11233,18 @@ def render_style() -> None:
         .request-scope-badge.out,
         .status-badge.warn,
         .status-badge.risk {{
-            background: #FEE2E2;
+            background: {BG_CARD};
             color: {COLOR_DANGER};
             border-color: #FECACA;
         }}
         .request-scope-badge.in,
         .status-badge.done {{
-            background: #EEF2F7;
+            background: {BG_CARD};
             color: #475569;
             border-color: #CBD5E1;
         }}
         .status-badge.active {{
-            background: #DBEAFE;
+            background: {BG_CARD};
             color: {COLOR_BLUE};
             border-color: #BFDBFE;
         }}
