@@ -3630,20 +3630,36 @@ def filter_by_period_group(df: pd.DataFrame, period_group: str) -> pd.DataFrame:
     return work[work["period_group"] == period_group].copy()
 
 
-def family_card_html(row: pd.Series) -> str:
-    family = escape(str(row["본품분류"]))
+def family_progress_bar_html(value: float, tone: str) -> str:
+    width = max(0.0, min(100.0, float(value)))
+    return (
+        "<div class='family-progress-metric'>"
+        "<div class='family-progress-track'>"
+        f"<div class='family-progress-fill {escape(tone)}' style='width:{width:.1f}%'></div>"
+        "</div>"
+        f"<span>{float(value):.1f}%</span>"
+        "</div>"
+    )
+
+
+def family_progress_row_html(row: pd.Series, idx: int) -> str:
+    family = escape(clean_str(row["본품분류"]))
     request_pack = format_int(float(row["요청 PACK"]))
     production_progress = float(row["생산진도율"])
-    receipt_progress = float(row.get("용마입고율", row["포장진도율"]))
-    production_shortage = format_int(float(row["생산부족수량"]))
+    packing_progress = float(row.get("포장진도율", 0.0))
+    receipt_progress = float(row.get("용마입고율", packing_progress))
+    production_shortage_value = float(row["생산부족수량"])
+    production_shortage = format_int(production_shortage_value)
+    shortage_class = "danger" if production_shortage_value > 0 else "normal"
+    dot_class = f"dot-{idx % 8}"
     return (
-        "<div class='family-card'>"
-        f"<div class='family-head'><span>{family}</span><b>요청 {request_pack} PACK</b></div>"
-        f"{progress_cell_html(production_progress, '생산')}"
-        f"{progress_cell_html(receipt_progress, '입고')}"
-        "<div class='family-shortages'>"
-        f"<span>생산부족 PCS <b>{production_shortage}</b></span>"
-        "</div>"
+        "<div class='family-table-row'>"
+        f"<div class='family-name'><span class='family-dot {dot_class}'></span><b>{family}</b></div>"
+        f"<div class='family-num'>{request_pack}</div>"
+        f"<div>{family_progress_bar_html(production_progress, 'production')}</div>"
+        f"<div>{family_progress_bar_html(packing_progress, 'packing')}</div>"
+        f"<div>{family_progress_bar_html(receipt_progress, 'receipt')}</div>"
+        f"<div class='family-num shortage {shortage_class}'>{production_shortage}</div>"
         "</div>"
     )
 
@@ -3653,22 +3669,39 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
         st.warning("본품 분류별 진도현황을 표시할 데이터가 없습니다.")
         return
 
-    view = family_df.head(max_rows).copy()
+    view = family_df.copy()
     view["_section"] = view["본품분류"].map(family_card_section)
-    sections: list[str] = []
-    for section in FAMILY_CARD_SECTION_ORDER:
-        scoped = view[view["_section"] == section]
-        if scoped.empty:
-            continue
-        cards = "".join(family_card_html(row) for _, row in scoped.iterrows())
-        sections.append(
-            "<section class='family-section'>"
-            f"<div class='family-section-title'>{escape(section)}</div>"
-            f"<div class='family-grid'>{cards}</div>"
-            "</section>"
-        )
+    available_sections = [section for section in FAMILY_CARD_SECTION_ORDER if not view[view["_section"] == section].empty]
+    if not available_sections:
+        st.warning("본품 분류별 진도현황을 표시할 데이터가 없습니다.")
+        return
+    filter_key = "family_progress_section_filter"
+    if st.session_state.get(filter_key) not in available_sections:
+        st.session_state[filter_key] = available_sections[0]
+    selected_section = st.segmented_control(
+        "제품 분류 탭",
+        options=available_sections,
+        default=available_sections[0],
+        label_visibility="collapsed",
+        key=filter_key,
+    )
+    selected_section = str(selected_section or available_sections[0])
+    scoped = view[view["_section"] == selected_section].head(max_rows).copy()
+    rows = "".join(family_progress_row_html(row, idx) for idx, (_, row) in enumerate(scoped.iterrows()))
     st.markdown(
-        f"<div class='panel-box dashboard-card'>{''.join(sections)}</div>",
+        "<div class='panel-box dashboard-card family-progress-panel'>"
+        "<div class='family-table'>"
+        "<div class='family-table-row family-table-head'>"
+        "<div>제품 분류</div>"
+        "<div class='family-num'>요청 PACK</div>"
+        "<div>생산진도율</div>"
+        "<div>포장진도율</div>"
+        "<div>용마입고율</div>"
+        "<div class='family-num'>생산부족 PCS</div>"
+        "</div>"
+        f"{rows}"
+        "</div>"
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -10698,6 +10731,108 @@ def render_style() -> None:
         .dashboard-card {{
             min-height: 360px;
             margin-bottom: 0;
+        }}
+        .family-progress-panel {{
+            min-height: 340px;
+            padding: 16px 18px;
+        }}
+        .family-table {{
+            display: grid;
+            gap: 0;
+        }}
+        .family-table-row {{
+            display: grid;
+            grid-template-columns: minmax(118px, 1.25fr) minmax(74px, 0.78fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(86px, 0.82fr);
+            align-items: center;
+            gap: 14px;
+            min-height: 36px;
+            border-bottom: 1px solid {BORDER_LIGHT};
+        }}
+        .family-table-row:last-child {{
+            border-bottom: 0;
+        }}
+        .family-table-head {{
+            min-height: 30px;
+            color: #64748B;
+            font-size: 11px;
+            line-height: 1.2;
+            font-weight: 800;
+        }}
+        .family-name {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            color: {TEXT_PRIMARY};
+            font-size: 12px;
+            font-weight: 800;
+        }}
+        .family-name b {{
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }}
+        .family-dot {{
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            flex: 0 0 auto;
+            background: {COLOR_BLUE};
+        }}
+        .family-dot.dot-1 {{ background: {COLOR_DANGER}; }}
+        .family-dot.dot-2 {{ background: {COLOR_TEAL}; }}
+        .family-dot.dot-3 {{ background: #334155; }}
+        .family-dot.dot-4 {{ background: {COLOR_DANGER}; }}
+        .family-dot.dot-5 {{ background: {COLOR_ORANGE}; }}
+        .family-dot.dot-6 {{ background: #14B8A6; }}
+        .family-dot.dot-7 {{ background: {COLOR_AMBER}; }}
+        .family-num {{
+            color: {TEXT_PRIMARY};
+            font-size: 12px;
+            font-weight: 800;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }}
+        .family-num.shortage.normal {{
+            color: {TEXT_PRIMARY};
+        }}
+        .family-num.shortage.danger {{
+            color: {COLOR_DANGER};
+        }}
+        .family-progress-metric {{
+            display: grid;
+            grid-template-columns: minmax(52px, 1fr) 46px;
+            align-items: center;
+            gap: 9px;
+            min-width: 0;
+        }}
+        .family-progress-track {{
+            height: 4px;
+            border-radius: 999px;
+            background: #EEF2F7;
+            overflow: hidden;
+        }}
+        .family-progress-fill {{
+            height: 100%;
+            border-radius: 999px;
+        }}
+        .family-progress-fill.production {{
+            background: {COLOR_BLUE};
+        }}
+        .family-progress-fill.packing {{
+            background: {COLOR_ORANGE};
+        }}
+        .family-progress-fill.receipt {{
+            background: {COLOR_AMBER};
+        }}
+        .family-progress-metric span {{
+            color: {TEXT_SECONDARY};
+            font-size: 11px;
+            font-weight: 800;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
         }}
         .family-section {{
             gap: 12px;
