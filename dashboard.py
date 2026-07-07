@@ -3385,8 +3385,7 @@ def status_class(status: str) -> str:
 
 def progress_cell_html(progress: float, label: str = "", show_label: bool = True) -> str:
     width = max(0.0, min(100.0, float(progress)))
-    tone = progress_tone(float(progress))
-    semantic = ""
+    semantic = " packing"
     if label in {"생산"}:
         semantic = " production"
     elif label in {"포장"}:
@@ -3398,7 +3397,7 @@ def progress_cell_html(progress: float, label: str = "", show_label: bool = True
         "<div class='progress-cell'>"
         f"{prefix}"
         "<div class='progress-track'>"
-        f"<div class='progress-fill {tone}{semantic}' style='width:{width:.1f}%'></div>"
+        f"<div class='progress-fill{semantic}' style='width:{width:.1f}%'></div>"
         "</div>"
         f"<span class='progress-text'>{progress:.1f}%</span>"
         "</div>"
@@ -9499,9 +9498,9 @@ def render_style() -> None:
             background: {BG_CARD} !important;
         }}
         [data-testid="stDataFrame"] th {{
-            background: {BG_CARD} !important;
+            background: #FAFAFA !important;
             font-size: 11px !important;
-            font-weight: 500 !important;
+            font-weight: 600 !important;
             color: {TEXT_SECONDARY} !important;
             padding: 8px 12px !important;
             border-bottom: 1px solid {BORDER_DEFAULT} !important;
@@ -9521,12 +9520,16 @@ def render_style() -> None:
         [data-testid="stDataFrame"] [role="grid"],
         [data-testid="stDataFrame"] [role="rowgroup"],
         [data-testid="stDataFrame"] [role="row"],
-        [data-testid="stDataFrame"] [role="gridcell"],
-        [data-testid="stDataFrame"] [role="columnheader"] {{
+        [data-testid="stDataFrame"] [role="gridcell"] {{
             background: {BG_CARD} !important;
         }}
+        [data-testid="stDataFrame"] [role="columnheader"] {{
+            background: #FAFAFA !important;
+            font-weight: 600 !important;
+            border-color: {BORDER_DEFAULT} !important;
+        }}
         [data-testid="stDataFrame"] tr:hover td {{
-            background: #F9FAFB !important;
+            background: #F8FAFC !important;
         }}
         [data-testid="stDataFrame"] [role="row"] {{
             min-height: 48px !important;
@@ -9535,6 +9538,19 @@ def render_style() -> None:
         [data-testid="stDataFrame"] [role="gridcell"] {{
             min-height: 48px !important;
             align-items: center !important;
+            border-color: {BORDER_DEFAULT} !important;
+        }}
+        [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] {{
+            background: #F8FAFC !important;
+        }}
+        [data-testid="stDataFrame"] [role="progressbar"] {{
+            height: 4px !important;
+            border-radius: 999px !important;
+            background: {BORDER_DEFAULT} !important;
+            overflow: hidden !important;
+        }}
+        [data-testid="stDataFrame"] [role="progressbar"] > div {{
+            border-radius: 999px !important;
         }}
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input,
@@ -10043,24 +10059,25 @@ def render_style() -> None:
         .ops-table th {{
             position: sticky;
             top: 0;
-            background: {BG_PAGE};
+            background: #FAFAFA;
             color: {TEXT_SECONDARY};
             font-size: 11px;
-            font-weight: 500;
+            font-weight: 600;
             border-bottom: 1px solid {BORDER_DEFAULT};
             padding: 8px 12px;
             z-index: 1;
         }}
         .ops-table td {{
-            border-bottom: 0.5px solid {BORDER_LIGHT};
+            border-bottom: 1px solid {BORDER_DEFAULT};
             padding: 7px 12px;
             font-size: 12px;
             color: {TEXT_PRIMARY};
             vertical-align: middle;
             background: {BG_CARD};
+            height: 48px;
         }}
         .ops-table tbody tr:hover td {{
-            background: {BG_PAGE};
+            background: #F8FAFC;
         }}
         .ops-table td.left, .ops-table th.left {{
             text-align: left;
@@ -10070,8 +10087,8 @@ def render_style() -> None:
             font-variant-numeric: tabular-nums;
         }}
         .ops-table td.num.shortage {{
-            color: {COLOR_ORANGE};
-            font-weight: 500;
+            color: {COLOR_DANGER};
+            font-weight: 700;
         }}
         .ops-table td.num.muted {{
             color: {TEXT_SECONDARY};
@@ -10155,23 +10172,24 @@ def render_style() -> None:
         .progress-track {{
             flex: 1;
             min-width: 80px;
-            height: 5px;
-            border-radius: 3px;
-            background: {BG_SECTION};
+            height: 4px;
+            border-radius: 999px;
+            background: {BORDER_DEFAULT};
             overflow: hidden;
         }}
         .progress-fill {{
             height: 100%;
-            border-radius: 3px;
+            border-radius: 999px;
+            background: {COLOR_ORANGE};
         }}
         .progress-fill.done {{
-            background: {COLOR_TEAL};
+            background: {COLOR_ORANGE};
         }}
         .progress-fill.active {{
-            background: {COLOR_TEAL};
+            background: {COLOR_ORANGE};
         }}
         .progress-fill.warn {{
-            background: {COLOR_AMBER};
+            background: {COLOR_ORANGE};
         }}
         .progress-fill.risk {{
             background: {COLOR_ORANGE};
@@ -10179,11 +10197,14 @@ def render_style() -> None:
         .progress-fill.production {{
             background: {COLOR_BLUE};
         }}
+        .progress-fill.packing {{
+            background: {COLOR_ORANGE};
+        }}
         .progress-fill.receipt {{
-            background: {COLOR_TEAL};
+            background: {COLOR_AMBER};
         }}
         .progress-fill.risk.receipt {{
-            background: {TEXT_TERTIARY};
+            background: {COLOR_AMBER};
         }}
         .progress-text {{
             min-width: 52px;
@@ -10801,7 +10822,7 @@ def render_style() -> None:
         .kpi-progress-track {{
             height: 4px;
             border-radius: 999px;
-            background: #EEF2F7;
+            background: {BORDER_DEFAULT};
             overflow: hidden;
         }}
         .kpi-progress-fill {{
@@ -10842,7 +10863,7 @@ def render_style() -> None:
         }}
         .progress-fill.done,
         .progress-fill.active {{
-            background: {COLOR_TEAL};
+            background: {COLOR_ORANGE};
         }}
         .scope-kpi .kpi-progress-fill.production,
         .scope-kpi .kpi-progress-fill.packing,
@@ -11006,7 +11027,7 @@ def render_style() -> None:
         .family-progress-track {{
             height: 4px;
             border-radius: 999px;
-            background: #EEF2F7;
+            background: {BORDER_DEFAULT};
             overflow: hidden;
         }}
         .family-progress-fill {{
@@ -11075,10 +11096,10 @@ def render_style() -> None:
             position: sticky;
             top: 0;
             z-index: 2;
-            background: #F9FAFB;
+            background: #FAFAFA;
             color: {TEXT_SECONDARY};
             font-size: 12px;
-            font-weight: 700;
+            font-weight: 600;
             padding: 12px 14px;
             border-bottom: 1px solid {BORDER_DEFAULT};
         }}
@@ -11087,18 +11108,20 @@ def render_style() -> None:
             font-size: 13px;
             font-weight: 500;
             padding: 12px 14px;
-            border-bottom: 1px solid {BORDER_LIGHT};
+            border-bottom: 1px solid {BORDER_DEFAULT};
+            height: 48px;
         }}
         .ops-table tbody tr:hover td {{
-            background: #F9FAFB;
+            background: #F8FAFC;
         }}
         .progress-track {{
-            height: 6px;
+            height: 4px;
             border-radius: 999px;
-            background: #EEF2F7;
+            background: {BORDER_DEFAULT};
         }}
         .progress-fill {{
             border-radius: 999px;
+            background: {COLOR_ORANGE};
         }}
         .progress-text {{
             color: {TEXT_SECONDARY};
@@ -11151,14 +11174,14 @@ def render_style() -> None:
         .rank-bar {{
             height: 4px;
             border-radius: 999px;
-            background: #EEF2F7;
+            background: {BORDER_DEFAULT};
             overflow: hidden;
         }}
         .rank-bar i {{
             display: block;
             height: 100%;
             border-radius: 999px;
-            background: {COLOR_DANGER};
+            background: #64748B;
         }}
         .rank-value {{
             color: {COLOR_DANGER};
@@ -11506,7 +11529,13 @@ def pack_unit_column_config() -> dict[str, Any]:
         "요청수량": st.column_config.NumberColumn("요청수량", format=numeric_format),
         "포장수량": st.column_config.NumberColumn("포장수량", format=numeric_format),
         "부족수량": st.column_config.NumberColumn("부족수량", format=numeric_format),
-        "진도율": st.column_config.ProgressColumn("진도율", min_value=0, max_value=100, format="%.2f%%"),
+        "진도율": st.column_config.ProgressColumn(
+            "진도율",
+            min_value=0,
+            max_value=100,
+            format="%.2f%%",
+            color=COLOR_ORANGE,
+        ),
         "_sort": None,
     }
 
@@ -11621,8 +11650,20 @@ def drilldown_column_config() -> dict[str, Any]:
         "80P 필요팩": st.column_config.NumberColumn("80P 필요팩", format=numeric_format),
         "90P 필요팩": st.column_config.NumberColumn("90P 필요팩", format=numeric_format),
         "기타팩 필요팩": st.column_config.NumberColumn("기타팩 필요팩", format=numeric_format),
-        "진도율": st.column_config.ProgressColumn("진도율", min_value=0, max_value=100, format="%.1f%%"),
-        "전체진도율": st.column_config.ProgressColumn("전체진도율", min_value=0, max_value=100, format="%.1f%%"),
+        "진도율": st.column_config.ProgressColumn(
+            "진도율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_ORANGE,
+        ),
+        "전체진도율": st.column_config.ProgressColumn(
+            "전체진도율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_ORANGE,
+        ),
         "요청합계": st.column_config.NumberColumn("요청합계", format=numeric_format),
         "생산부족": st.column_config.NumberColumn("생산부족", format=numeric_format),
         "포장부족": st.column_config.NumberColumn("포장부족", format=numeric_format),
@@ -11645,11 +11686,29 @@ def drilldown_column_config() -> dict[str, Any]:
         "생산부족(PCS)": st.column_config.NumberColumn("생산부족(PCS)", format=numeric_format),
         "생산부족수량": st.column_config.NumberColumn("생산부족수량", format=numeric_format),
         "포장부족수량": st.column_config.NumberColumn("포장부족수량", format=numeric_format),
-        "생산진도율": st.column_config.ProgressColumn("생산진도율", min_value=0, max_value=100, format="%.1f%%"),
-        "용마입고율": st.column_config.ProgressColumn("용마입고율", min_value=0, max_value=100, format="%.1f%%"),
+        "생산진도율": st.column_config.ProgressColumn(
+            "생산진도율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_BLUE,
+        ),
+        "용마입고율": st.column_config.ProgressColumn(
+            "용마입고율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_AMBER,
+        ),
         "포장수량": st.column_config.NumberColumn("포장수량", format=numeric_format),
         "부족수량": st.column_config.NumberColumn("부족수량", format=numeric_format),
-        "포장진도율": st.column_config.ProgressColumn("포장진도율", min_value=0, max_value=100, format="%.1f%%"),
+        "포장진도율": st.column_config.ProgressColumn(
+            "포장진도율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_ORANGE,
+        ),
         "PACK 지시율": st.column_config.NumberColumn("PACK 지시율", format="%.1f%%"),
         "PCS 지시율": st.column_config.NumberColumn("PCS 지시율", format="%.1f%%"),
         "GAP": st.column_config.NumberColumn("GAP", format="%.1f"),
