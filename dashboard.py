@@ -225,7 +225,7 @@ REPORT_PANEL_LINE = "#DDE3EA"
 REPORT_HEADER = "#121A2A"
 REPORT_MUTED = "#6B7280"
 REPORT_FAINT = "#F1F4F8"
-REPORT_ROW_ALT = "#F8FAFC"
+REPORT_ROW_ALT = "#FFFFFF"
 REPORT_ACCENT = COLOR_ORANGE
 REPORT_NAVY = "#172033"
 REPORT_BLUE_SOFT = "#EAF2F9"
@@ -9498,7 +9498,7 @@ def render_style() -> None:
             background: {BG_CARD} !important;
         }}
         [data-testid="stDataFrame"] th {{
-            background: #FAFAFA !important;
+            background: #FFFFFF !important;
             font-size: 11px !important;
             font-weight: 600 !important;
             color: {TEXT_SECONDARY} !important;
@@ -9524,7 +9524,7 @@ def render_style() -> None:
             background: {BG_CARD} !important;
         }}
         [data-testid="stDataFrame"] [role="columnheader"] {{
-            background: #FAFAFA !important;
+            background: #FFFFFF !important;
             font-weight: 600 !important;
             border-color: {BORDER_DEFAULT} !important;
         }}
@@ -10059,7 +10059,7 @@ def render_style() -> None:
         .ops-table th {{
             position: sticky;
             top: 0;
-            background: #FAFAFA;
+            background: #FFFFFF;
             color: {TEXT_SECONDARY};
             font-size: 11px;
             font-weight: 600;
@@ -10637,7 +10637,7 @@ def render_style() -> None:
         [data-testid="stButton"] button:hover,
         [data-testid="stDownloadButton"] button:hover {{
             transform: translateY(-2px);
-            background: #F9FAFB !important;
+            background: #FFFFFF !important;
             border-color: #CBD5E1 !important;
             color: {TEXT_PRIMARY} !important;
         }}
@@ -11096,7 +11096,7 @@ def render_style() -> None:
             position: sticky;
             top: 0;
             z-index: 2;
-            background: #FAFAFA;
+            background: #FFFFFF;
             color: {TEXT_SECONDARY};
             font-size: 12px;
             font-weight: 600;
@@ -11312,15 +11312,19 @@ def render_style() -> None:
         /* Enterprise table reset: remove legacy tinted cell and empty-area backgrounds. */
         .table-wrap,
         .ops-table,
+        .ops-table thead,
         .ops-table tbody,
         .ops-table tr,
+        .ops-table th,
         .ops-table td,
         .ops-table tbody tr:nth-child(odd) td,
         .ops-table tbody tr:nth-child(even) td {{
             background: #FFFFFF !important;
+            background-color: #FFFFFF !important;
         }}
         .ops-table th {{
-            background: #FAFAFA !important;
+            background: #FFFFFF !important;
+            background-color: #FFFFFF !important;
             font-weight: 600 !important;
             border-bottom: 1px solid #E5E7EB !important;
         }}
@@ -11332,23 +11336,42 @@ def render_style() -> None:
             background: #F8FAFC !important;
         }}
         [data-testid="stDataFrame"],
+        [data-testid="stDataFrame"] > div,
+        [data-testid="stDataFrame"] div[data-testid],
         [data-testid="stDataFrame"] table,
         [data-testid="stDataFrame"] thead,
         [data-testid="stDataFrame"] tbody,
         [data-testid="stDataFrame"] tr,
+        [data-testid="stDataFrame"] th,
         [data-testid="stDataFrame"] td,
         [data-testid="stDataFrame"] canvas,
+        [data-testid="stDataFrame"] [class*="glide"],
+        [data-testid="stDataFrame"] [class*="Glide"],
+        [data-testid="stDataFrame"] [class*="data-grid"],
+        [data-testid="stDataFrame"] [class*="DataGrid"],
+        [data-testid="stDataFrame"] [class*="viewport"],
+        [data-testid="stDataFrame"] [class*="Viewport"],
+        [data-testid="stDataFrame"] [class*="scroll"],
+        [data-testid="stDataFrame"] [class*="Scroll"],
+        [data-testid="stDataFrame"] [class*="empty"],
+        [data-testid="stDataFrame"] [class*="Empty"],
+        [data-testid="stDataFrame"] [class*="blank"],
+        [data-testid="stDataFrame"] [class*="Blank"],
         [data-testid="stDataFrame"] [role="grid"],
         [data-testid="stDataFrame"] [role="rowgroup"],
         [data-testid="stDataFrame"] [role="row"],
+        [data-testid="stDataFrame"] [role="row"]:nth-child(odd) [role="gridcell"],
+        [data-testid="stDataFrame"] [role="row"]:nth-child(even) [role="gridcell"],
         [data-testid="stDataFrame"] [role="gridcell"],
         [data-testid="stDataFrame"] [data-testid="stElementToolbar"],
         [data-testid="stDataFrame"] [data-testid="stTable"] {{
             background: #FFFFFF !important;
+            background-color: #FFFFFF !important;
         }}
         [data-testid="stDataFrame"] th,
         [data-testid="stDataFrame"] [role="columnheader"] {{
-            background: #FAFAFA !important;
+            background: #FFFFFF !important;
+            background-color: #FFFFFF !important;
             font-weight: 600 !important;
             border-bottom: 1px solid #E5E7EB !important;
         }}
