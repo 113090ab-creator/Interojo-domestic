@@ -3389,6 +3389,12 @@ def calc_kpi(df: pd.DataFrame) -> dict[str, float]:
     progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     request_pcs = float(df["요청 PCS"].sum()) if "요청 PCS" in df.columns and not df.empty else 0.0
+    if "미입고 PCS" in df.columns and not df.empty:
+        shortage_pcs = float(pd.to_numeric(df["미입고 PCS"], errors="coerce").fillna(0.0).sum())
+    elif request_pack > 0 and request_pcs > 0:
+        shortage_pcs = max(0.0, request_pcs * shortage_pack / request_pack)
+    else:
+        shortage_pcs = 0.0
     production_shortage_qty = (
         float(df["생산부족수량"].sum()) if "생산부족수량" in df.columns and not df.empty else 0.0
     )
@@ -3403,6 +3409,7 @@ def calc_kpi(df: pd.DataFrame) -> dict[str, float]:
         "packing_pack": packing_pack,
         "yongma_in_pack": yongma_in_pack,
         "shortage_pack": shortage_pack,
+        "shortage_pcs": shortage_pcs,
         "production_shortage_pcs": production_shortage_qty,
         "progress_pct": min(100.0, max(0.0, progress)),
         "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
@@ -3493,6 +3500,7 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
             "packing_pack": 0.0,
             "yongma_in_pack": 0.0,
             "shortage_pack": 0.0,
+            "shortage_pcs": 0.0,
             "production_shortage_pcs": 0.0,
             "packable_pcs": 0.0,
             "progress_pct": 0.0,
@@ -3513,14 +3521,24 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
         .sum()
     )
     shortage_pack = max(0.0, request_pack - yongma_in_pack)
+    yongma_in_pcs = float(
+        pack_quantity_to_pcs(
+            work,
+            pd.to_numeric(
+                work.get("yongma_recognized_pack", work.get("yongma_in_pack", pd.Series(0.0, index=work.index))),
+                errors="coerce",
+            ).fillna(0.0),
+        ).sum()
+    )
     receipt_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
 
     work = add_allocated_production_basis(work)
     request_pcs = float(work["request_pcs"].sum())
-    shortage_pcs = float(work["_allocated_production_shortage_qty"].sum())
-    packable_pcs = max(0.0, request_pcs - shortage_pcs)
-    production_progress = ((request_pcs - shortage_pcs) / request_pcs * 100.0) if request_pcs > 0 else 0.0
+    receipt_shortage_pcs = max(0.0, request_pcs - yongma_in_pcs)
+    production_shortage_pcs = float(work["_allocated_production_shortage_qty"].sum())
+    packable_pcs = max(0.0, request_pcs - production_shortage_pcs)
+    production_progress = ((request_pcs - production_shortage_pcs) / request_pcs * 100.0) if request_pcs > 0 else 0.0
 
     return {
         "request_pack": request_pack,
@@ -3528,7 +3546,8 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
         "packing_pack": packing_pack,
         "yongma_in_pack": yongma_in_pack,
         "shortage_pack": shortage_pack,
-        "production_shortage_pcs": shortage_pcs,
+        "shortage_pcs": receipt_shortage_pcs,
+        "production_shortage_pcs": production_shortage_pcs,
         "packable_pcs": packable_pcs,
         "progress_pct": min(100.0, max(0.0, receipt_progress)),
         "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
@@ -4202,6 +4221,19 @@ def kpi_metric_item_html(label: str, value: str, tone: str = "normal") -> str:
     )
 
 
+def kpi_quantity_item_html(label: str, pcs_value: float, pack_value: float, tone: str = "normal") -> str:
+    return (
+        "<div class='kpi-metric quantity-metric'>"
+        f"<div class='metric-label'>{escape(label)}</div>"
+        f"<div class='metric-value quantity {escape(tone)}'>"
+        f"<span class='metric-number'>{escape(format_int(pcs_value))}</span>"
+        "<span class='metric-unit'>PCS</span>"
+        "</div>"
+        f"<div class='metric-subvalue'>({escape(format_int(pack_value))} PACK)</div>"
+        "</div>"
+    )
+
+
 def kpi_progress_line_html(label: str, value: float, tone: str) -> str:
     width = max(0.0, min(100.0, float(value)))
     return (
@@ -4225,22 +4257,38 @@ def render_kpi_panel(title: str, kpi: dict[str, float], unit_mode: str = UNIT_PA
 
     if unit_mode == UNIT_PCS:
         metrics = [
-            ("요청 PCS", format_int(kpi.get("request_pcs", 0.0)), "normal"),
+            ("요청수량", format_int(kpi.get("request_pcs", 0.0)), "normal"),
             ("생산부족 PCS", format_int(kpi.get("production_shortage_pcs", 0.0)), production_shortage_tone),
             ("생산진도율", f"{production_progress:.1f}%", "primary"),
             ("용마입고 PACK", format_int(kpi.get("yongma_in_pack", 0.0)), "normal"),
             ("용마입고율", f"{progress:.1f}%", "purple"),
         ]
+        metric_html = "".join(kpi_metric_item_html(label, value, tone) for label, value, tone in metrics)
     else:
-        metrics = [
-            ("요청 PACK", format_int(kpi["request_pack"]), "normal"),
-            ("생산진도율", f"{production_progress:.1f}%", "primary"),
-            ("포장진도율", f"{packing_progress:.1f}%", "warning"),
-            ("용마입고율", f"{progress:.1f}%", "purple"),
-            ("미입고 PACK", format_int(kpi["shortage_pack"]), shortage_tone),
-            ("생산부족 PCS", format_int(kpi.get("production_shortage_pcs", 0.0)), production_shortage_tone),
-        ]
-    metric_html = "".join(kpi_metric_item_html(label, value, tone) for label, value, tone in metrics)
+        metric_html = "".join(
+            [
+                kpi_quantity_item_html(
+                    "요청수량",
+                    float(kpi.get("request_pcs", 0.0)),
+                    float(kpi.get("request_pack", 0.0)),
+                    "normal",
+                ),
+                kpi_metric_item_html("생산진도율", f"{production_progress:.1f}%", "primary"),
+                kpi_metric_item_html("포장진도율", f"{packing_progress:.1f}%", "warning"),
+                kpi_metric_item_html("용마입고율", f"{progress:.1f}%", "purple"),
+                kpi_quantity_item_html(
+                    "미입고수량",
+                    float(kpi.get("shortage_pcs", 0.0)),
+                    float(kpi.get("shortage_pack", 0.0)),
+                    shortage_tone,
+                ),
+                kpi_metric_item_html(
+                    "생산부족 PCS",
+                    format_int(kpi.get("production_shortage_pcs", 0.0)),
+                    production_shortage_tone,
+                ),
+            ]
+        )
     panel_html = f"""
     <div class='kpi-panel scope-kpi {scope_class}'>
       <div class='kpi-panel-head'>
@@ -4338,8 +4386,10 @@ def render_status_board(
             sample_available_df,
         )
     request_pack = float(kpi.get("request_pack", 0.0))
+    request_pcs = float(kpi.get("request_pcs", 0.0))
     yongma_in_pack = float(kpi.get("yongma_in_pack", 0.0))
     missing_pack = float(kpi.get("packing_shortage_pack", 0.0))
+    missing_pcs = float(kpi.get("packing_shortage_pcs", kpi.get("receipt_shortage_pcs", 0.0)))
     production_shortage = float(kpi.get("production_shortage_pcs", 0.0))
     packing_progress = float(kpi.get("packing_progress_pct", 0.0))
     receipt_progress = float(kpi.get("receipt_progress_pct", 0.0))
@@ -4361,11 +4411,11 @@ def render_status_board(
 
     metric_html = "".join(
         [
-            kpi_metric_item_html("요청 PACK", format_int(request_pack), "normal"),
+            kpi_quantity_item_html("요청수량", request_pcs, request_pack, "normal"),
             kpi_metric_item_html("생산진도", f"{production_progress:.1f}%", "primary"),
             kpi_metric_item_html("포장진도", f"{packing_progress:.1f}%", "warning"),
             kpi_metric_item_html("용마입고율", f"{receipt_progress:.1f}%", "purple"),
-            kpi_metric_item_html("미입고 PACK", format_int(missing_pack), "danger" if missing_pack > 0 else "normal"),
+            kpi_quantity_item_html("미입고수량", missing_pcs, missing_pack, "danger" if missing_pack > 0 else "normal"),
         ]
     )
 
@@ -4778,6 +4828,7 @@ def calc_operation_kpis(
         else max(0.0, request_pack - packing_pack)
     )
     receipt_shortage_pack = float(progress_kpi.get("shortage_pack", max(0.0, request_pack - yongma_in_pack)))
+    receipt_shortage_pcs = float(progress_kpi.get("shortage_pcs", 0.0))
     receipt_wait_pack = code_receipt_wait_pack or (
         float(product_summary["입고대기수량"].sum())
         if "입고대기수량" in product_summary.columns and not product_summary.empty
@@ -4798,8 +4849,10 @@ def calc_operation_kpis(
         "packing_done_pack": packing_pack,
         "packing_todo_pack": packing_shortage_pack,
         "receipt_shortage_pack": receipt_shortage_pack,
+        "receipt_shortage_pcs": receipt_shortage_pcs,
         "receipt_wait_pack": receipt_wait_pack,
         "packing_shortage_pack": receipt_shortage_pack,
+        "packing_shortage_pcs": receipt_shortage_pcs,
         "production_shortage_pcs": production_shortage_pcs,
         "packable_pcs": packable_pcs,
         "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
@@ -11756,6 +11809,40 @@ def render_style() -> None:
         }}
         .overall-kpi-card .metric-value {{
             font-size: 26px;
+        }}
+        .metric-value.quantity {{
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            min-width: 0;
+            white-space: nowrap;
+        }}
+        .metric-value.quantity .metric-number {{
+            min-width: 0;
+        }}
+        .metric-value.quantity .metric-unit {{
+            color: inherit;
+            font-size: 0.68em;
+            font-weight: 700;
+            letter-spacing: 0;
+        }}
+        .metric-subvalue {{
+            color: {TEXT_TERTIARY};
+            font-size: 12px;
+            line-height: 1.25;
+            font-weight: 700;
+            margin-top: 6px;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }}
+        .overall-kpi-card .metric-value.quantity {{
+            font-size: clamp(18px, 1.3vw, 22px);
+        }}
+        .scope-kpi .metric-value.quantity {{
+            font-size: clamp(15px, 1vw, 18px);
+        }}
+        .scope-kpi .metric-subvalue {{
+            font-size: 11px;
         }}
         .kpi-progress-stack {{
             display: grid;

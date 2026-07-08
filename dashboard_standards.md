@@ -55,6 +55,7 @@
 - 색상은 `Primary #2563EB`, `Orange #F97316`, `Purple #7C3AED`, `Danger #DC2626`, `Text #111827`, `Sub Text #6B7280`, `Border #E5E7EB`, `Background #F8FAFC`, `Card #FFFFFF`를 기본으로 한다.
 - Green은 주요 진행률 색상으로 사용하지 않는다.
 - 전체 KPI만 Blue/Orange/Purple/Red로 강조하고, 본품 KPI와 샘플 KPI는 회색 톤을 기본으로 한다.
+- KPI 카드의 요청/미입고 수량은 `PCS`를 큰 주값으로 표시하고, `PACK`은 회색 보조값으로 괄호 표기한다. 문구는 `요청수량`, `미입고수량`으로 통일한다.
 - KPI 카드의 Progress Bar는 4px, radius 999px를 기본으로 유지한다.
 - 테이블은 배경색으로 행을 구분하지 않는다. Header/Cell/Empty 영역은 White, Border는 `#E5E7EB`, Hover는 `#F8FAFC`로 통일한다.
 - 테이블 Progress Bar는 생산 Blue, 포장 Orange, 용마입고 Purple을 사용하고, 생산부족은 Red Text만 사용한다.
