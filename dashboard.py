@@ -2048,6 +2048,14 @@ def find_progress_base_column_index(fields: pd.Series, field_label: str) -> int 
     return None
 
 
+def find_progress_due_column_index(groups: pd.Series, fields: pd.Series, group_label: str) -> int | None:
+    for field_label in ["납기일", "생산 계획일", "생산계획일", "계획일"]:
+        idx = find_progress_column_index(groups, fields, group_label, field_label)
+        if idx is not None:
+            return idx
+    return None
+
+
 def normalize_progress(path: Path | None, request_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     if path is None:
         return empty_progress_df(), {"total_rows": 0, "domestic_rows": 0, "code_rows": 0, "name_rows": 0}
@@ -2085,12 +2093,12 @@ def normalize_progress(path: Path | None, request_df: pd.DataFrame) -> tuple[pd.
 
     for step in PROCESS_STEPS:
         qty_idx = find_progress_column_index(groups, fields, str(step["header"]), "생산 수량")
-        due_idx = find_progress_column_index(groups, fields, str(step["header"]), "납기일")
+        due_idx = find_progress_due_column_index(groups, fields, str(step["header"]))
         out[step["qty_col"]] = to_number(data.iloc[:, qty_idx]) if qty_idx is not None else 0.0
         out[step["due_col"]] = pd.to_datetime(data.iloc[:, due_idx], errors="coerce") if due_idx is not None else pd.NaT
 
     total_qty_idx = find_progress_column_index(groups, fields, "총합계", "생산 수량")
-    total_due_idx = find_progress_column_index(groups, fields, "총합계", "납기일")
+    total_due_idx = find_progress_due_column_index(groups, fields, "총합계")
     out["total_prod_qty"] = to_number(data.iloc[:, total_qty_idx]) if total_qty_idx is not None else 0.0
     out["total_due_date"] = pd.to_datetime(data.iloc[:, total_due_idx], errors="coerce") if total_due_idx is not None else pd.NaT
 
@@ -2752,6 +2760,8 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
         "sales_code_key",
         "production_basis_qty",
         "production_due_date",
+        "production_plan_date",
+        "production_complete_expected_date",
         "production_match_source",
         "production_progress_key",
     ]
@@ -2848,6 +2858,11 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
                     "sales_code_key": clean_str(candidate_row.get("sales_code_key", "")),
                     "production_basis_qty": qty,
                     "production_due_date": progress_row.get("production_due_date", pd.NaT),
+                    "production_plan_date": progress_row.get("production_plan_date", pd.NaT),
+                    "production_complete_expected_date": progress_row.get(
+                        "production_complete_expected_date",
+                        pd.NaT,
+                    ),
                     "production_match_source": match_source,
                     "production_progress_key": source_progress_key,
                 }
@@ -2862,6 +2877,8 @@ def build_progress_by_sales_code(code_summary: pd.DataFrame, progress_work: pd.D
         .agg(
             production_basis_qty=("production_basis_qty", "sum"),
             production_due_date=("production_due_date", min_datetime),
+            production_plan_date=("production_plan_date", min_datetime),
+            production_complete_expected_date=("production_complete_expected_date", min_datetime),
             production_match_source=("production_match_source", join_unique),
             production_progress_key=("production_progress_key", join_unique),
         )
@@ -2876,6 +2893,8 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
                 "sales_code_key",
                 "production_basis_qty",
                 "production_due_date",
+                "production_plan_date",
+                "production_complete_expected_date",
                 "production_match_source",
                 "production_progress_key",
             ]
@@ -2886,11 +2905,17 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
         inspection_step = next(step for step in PROCESS_STEPS if step["id"] == "80")
         inspection_due = pd.to_datetime(progress_work.get(str(inspection_step["due_col"]), pd.NaT), errors="coerce")
         progress_work["production_due_date"] = due_source.fillna(inspection_due)
+        progress_work["production_plan_date"] = inspection_due
+        progress_work["production_complete_expected_date"] = inspection_due + pd.Timedelta(days=5)
         progress_by_sales_code = build_progress_by_sales_code(code_summary, progress_work)
 
     out = code_summary.merge(progress_by_sales_code, on="sales_code_key", how="left")
     out["production_basis_qty"] = out["production_basis_qty"].fillna(0.0)
     out["production_due_date"] = pd.to_datetime(out["production_due_date"], errors="coerce")
+    for date_col in ["production_plan_date", "production_complete_expected_date"]:
+        if date_col not in out.columns:
+            out[date_col] = pd.NaT
+        out[date_col] = pd.to_datetime(out[date_col], errors="coerce")
     request_pcs = pd.to_numeric(out.get("request_pcs", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
     if "production_match_source" not in out.columns:
         out["production_match_source"] = ""
@@ -7625,6 +7650,475 @@ def build_sales_code_group_main_view(
     return grouped[columns].copy()
 
 
+PRODUCT_COMPLETION_DATE_FILTERS = ["전체", "오늘", "이번주", "다음주", "사용자 지정 기간"]
+PRODUCT_COMPLETION_STATUS_FILTERS = ["전체", "생산중", "생산완료", "미계획"]
+PRODUCT_COMPLETION_STATUS_LABELS = {
+    "생산완료": "🟢 생산완료",
+    "생산중": "🟠 생산중",
+    "미계획": "🔴 미계획",
+}
+PRODUCT_COMPLETION_MAIN_COLUMNS = [
+    "판매코드",
+    "대표 제품명",
+    "POWER수",
+    "생산요청물량 (PCS)",
+    "용마입고수량 (PCS)",
+    "용마입고대기 (PCS)",
+    "포장부족수량 (PCS)",
+    "포장가능수량 (PCS)",
+    "생산부족수량 (PCS)",
+    "생산완료예상일",
+    "생산상태",
+]
+PRODUCT_COMPLETION_DETAIL_COLUMNS = [
+    "POWER",
+    "생산요청물량 (PCS)",
+    "용마입고수량 (PCS)",
+    "용마입고대기 (PCS)",
+    "포장부족수량 (PCS)",
+    "포장가능수량 (PCS)",
+    "생산부족수량 (PCS)",
+    "생산완료예상일",
+]
+
+
+def row_pcs_per_pack(work: pd.DataFrame) -> pd.Series:
+    pack_unit = pd.to_numeric(work.get("pack_unit", pd.Series(np.nan, index=work.index)), errors="coerce")
+    request_pack = pd.to_numeric(work.get("request_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    implied_unit = np.where(request_pack > 0, request_pcs / request_pack, np.nan)
+    unit = pack_unit.where(pack_unit > 0, implied_unit)
+    unit = pd.Series(unit, index=work.index).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    return unit.where(unit > 0, 1.0)
+
+
+def production_completion_status_key(plan_date: Any, production_shortage_pcs: Any) -> str:
+    plan = pd.to_datetime(plan_date, errors="coerce")
+    shortage = to_number_value(production_shortage_pcs)
+    if pd.isna(plan):
+        return "미계획"
+    if shortage <= 0:
+        return "생산완료"
+    return "생산중"
+
+
+def product_completion_display_date(value: Any) -> str:
+    text = format_date(value)
+    return text if text else "미계획"
+
+
+def product_completion_status_label(status_key: Any) -> str:
+    return PRODUCT_COMPLETION_STATUS_LABELS.get(clean_str(status_key), clean_str(status_key))
+
+
+@st.cache_data(show_spinner=False, max_entries=24)
+def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFrame:
+    columns = PRODUCT_COMPLETION_DETAIL_COLUMNS + [
+        "판매코드",
+        "대표 제품명",
+        "기간구분",
+        "제품분류",
+        "_sales_code_base",
+        "_section",
+        "_status_key",
+        "_expected_date_sort",
+        "power_value",
+    ]
+    if code_summary.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = add_allocated_production_basis(with_operational_columns(code_summary))
+    request_pack = pd.to_numeric(work.get("request_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    work = work[(request_pack > 0) | (request_pcs > 0)].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    pcs_per_pack = row_pcs_per_pack(work)
+    packing_pack = pd.to_numeric(
+        work.get("packing_recognized_pack", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    yongma_pack = pd.to_numeric(
+        work.get("yongma_recognized_pack", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    production_shortage = pd.to_numeric(
+        work.get("_allocated_production_shortage_qty", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    sample_available = pd.to_numeric(
+        work.get("_allocated_sample_available_pcs", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
+
+    work["_sales_code_base"] = work["sales_code"].map(sales_code_base)
+    work["_request_pcs"] = request_pcs
+    work["_yongma_in_pcs"] = (yongma_pack * pcs_per_pack).clip(lower=0.0)
+    work["_yongma_wait_pcs"] = ((packing_pack - yongma_pack).clip(lower=0.0) * pcs_per_pack).clip(lower=0.0)
+    work["_packing_pcs"] = (packing_pack * pcs_per_pack).clip(lower=0.0)
+    work["_packing_shortage_pcs"] = (request_pcs - work["_packing_pcs"]).clip(lower=0.0)
+    work["_packable_pcs"] = (request_pcs - production_shortage + sample_available).clip(lower=0.0)
+    work["_production_shortage_pcs"] = production_shortage.clip(lower=0.0)
+    work["_production_plan_date"] = pd.to_datetime(
+        work.get("production_plan_date", pd.Series(pd.NaT, index=work.index)),
+        errors="coerce",
+    )
+    work["_expected_date_sort"] = pd.to_datetime(
+        work.get("production_complete_expected_date", pd.Series(pd.NaT, index=work.index)),
+        errors="coerce",
+    )
+    missing_expected = work["_expected_date_sort"].isna() & work["_production_plan_date"].notna()
+    work.loc[missing_expected, "_expected_date_sort"] = (
+        work.loc[missing_expected, "_production_plan_date"] + pd.Timedelta(days=5)
+    )
+    work["_section"] = work["본품분류"].map(family_card_section)
+
+    grouped = (
+        work.groupby(["_sales_code_base", "POWER", "power_value"], dropna=False)
+        .agg(
+            product_name=("base_product_name", first_nonempty),
+            period_group=("period_group", first_nonempty),
+            product_group=("제품분류", first_nonempty),
+            section=("_section", first_nonempty),
+            request_pcs=("_request_pcs", "sum"),
+            yongma_in_pcs=("_yongma_in_pcs", "sum"),
+            yongma_wait_pcs=("_yongma_wait_pcs", "sum"),
+            packing_shortage_pcs=("_packing_shortage_pcs", "sum"),
+            packable_pcs=("_packable_pcs", "sum"),
+            production_shortage_pcs=("_production_shortage_pcs", "sum"),
+            production_plan_date=("_production_plan_date", min_datetime),
+            expected_date=("_expected_date_sort", min_datetime),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "_sales_code_base": "판매코드",
+                "product_name": "대표 제품명",
+                "period_group": "기간구분",
+                "product_group": "제품분류",
+                "section": "_section",
+                "request_pcs": "생산요청물량 (PCS)",
+                "yongma_in_pcs": "용마입고수량 (PCS)",
+                "yongma_wait_pcs": "용마입고대기 (PCS)",
+                "packing_shortage_pcs": "포장부족수량 (PCS)",
+                "packable_pcs": "포장가능수량 (PCS)",
+                "production_shortage_pcs": "생산부족수량 (PCS)",
+            }
+        )
+    )
+    for col in [
+        "생산요청물량 (PCS)",
+        "용마입고수량 (PCS)",
+        "용마입고대기 (PCS)",
+        "포장부족수량 (PCS)",
+        "포장가능수량 (PCS)",
+        "생산부족수량 (PCS)",
+    ]:
+        grouped[col] = pd.to_numeric(grouped[col], errors="coerce").fillna(0.0).round(0).astype("int64")
+    grouped["_status_key"] = grouped.apply(
+        lambda row: production_completion_status_key(row["production_plan_date"], row["생산부족수량 (PCS)"]),
+        axis=1,
+    )
+    grouped["생산상태"] = grouped["_status_key"].map(product_completion_status_label)
+    grouped["생산완료예상일"] = grouped["expected_date"].map(product_completion_display_date)
+    grouped["_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
+    grouped["_sales_code_base"] = grouped["판매코드"]
+    return grouped[columns + ["production_plan_date", "expected_date", "생산상태"]].sort_values(
+        ["_expected_date_sort", "생산부족수량 (PCS)", "판매코드", "power_value"],
+        ascending=[True, False, True, True],
+        na_position="last",
+        kind="stable",
+    )
+
+
+@st.cache_data(show_spinner=False, max_entries=24)
+def build_product_completion_main_view(power_view: pd.DataFrame) -> pd.DataFrame:
+    columns = PRODUCT_COMPLETION_MAIN_COLUMNS + [
+        "_sales_code_base",
+        "_section",
+        "_status_key",
+        "_expected_date_sort",
+    ]
+    if power_view.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = power_view.copy()
+    grouped = (
+        work.groupby("_sales_code_base", dropna=False)
+        .agg(
+            product_name=("대표 제품명", first_nonempty),
+            period_group=("기간구분", first_nonempty),
+            product_group=("제품분류", first_nonempty),
+            section=("_section", first_nonempty),
+            power_count=("POWER", "nunique"),
+            request_pcs=("생산요청물량 (PCS)", "sum"),
+            yongma_in_pcs=("용마입고수량 (PCS)", "sum"),
+            yongma_wait_pcs=("용마입고대기 (PCS)", "sum"),
+            packing_shortage_pcs=("포장부족수량 (PCS)", "sum"),
+            packable_pcs=("포장가능수량 (PCS)", "sum"),
+            production_shortage_pcs=("생산부족수량 (PCS)", "sum"),
+            production_plan_date=("production_plan_date", min_datetime),
+            expected_date=("_expected_date_sort", min_datetime),
+        )
+        .reset_index()
+        .rename(
+            columns={
+                "_sales_code_base": "판매코드",
+                "product_name": "대표 제품명",
+                "period_group": "기간구분",
+                "product_group": "제품분류",
+                "section": "_section",
+                "power_count": "POWER수",
+                "request_pcs": "생산요청물량 (PCS)",
+                "yongma_in_pcs": "용마입고수량 (PCS)",
+                "yongma_wait_pcs": "용마입고대기 (PCS)",
+                "packing_shortage_pcs": "포장부족수량 (PCS)",
+                "packable_pcs": "포장가능수량 (PCS)",
+                "production_shortage_pcs": "생산부족수량 (PCS)",
+            }
+        )
+    )
+    for col in [
+        "POWER수",
+        "생산요청물량 (PCS)",
+        "용마입고수량 (PCS)",
+        "용마입고대기 (PCS)",
+        "포장부족수량 (PCS)",
+        "포장가능수량 (PCS)",
+        "생산부족수량 (PCS)",
+    ]:
+        grouped[col] = pd.to_numeric(grouped[col], errors="coerce").fillna(0.0).round(0).astype("int64")
+    grouped["_status_key"] = grouped.apply(
+        lambda row: production_completion_status_key(row["production_plan_date"], row["생산부족수량 (PCS)"]),
+        axis=1,
+    )
+    grouped["생산상태"] = grouped["_status_key"].map(product_completion_status_label)
+    grouped["생산완료예상일"] = grouped["expected_date"].map(product_completion_display_date)
+    grouped["_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
+    grouped["_sales_code_base"] = grouped["판매코드"]
+    return grouped[columns].sort_values(
+        ["_expected_date_sort", "생산부족수량 (PCS)", "판매코드"],
+        ascending=[True, False, True],
+        na_position="last",
+        kind="stable",
+    )
+
+
+def product_completion_date_bounds(period_filter: str, custom_range: Any = None) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
+    if period_filter == "오늘":
+        return today, today
+    if period_filter == "이번주":
+        return today, today + pd.Timedelta(days=6 - today.weekday())
+    if period_filter == "다음주":
+        start = today + pd.Timedelta(days=7 - today.weekday())
+        return start, start + pd.Timedelta(days=6)
+    if period_filter == "사용자 지정 기간" and custom_range:
+        if isinstance(custom_range, (list, tuple)) and len(custom_range) >= 2:
+            start = pd.to_datetime(custom_range[0], errors="coerce")
+            end = pd.to_datetime(custom_range[1], errors="coerce")
+            if pd.notna(start) and pd.notna(end):
+                return min(start, end).normalize(), max(start, end).normalize()
+    return None
+
+
+def filter_product_completion_view(
+    view: pd.DataFrame,
+    period_filter: str,
+    product_section: str,
+    sales_query: str,
+    product_query: str,
+    status_filter: str,
+    custom_range: Any = None,
+) -> pd.DataFrame:
+    if view.empty:
+        return view.copy()
+    out = view.copy()
+    if product_section != "전체":
+        out = out[out["_section"] == product_section]
+    if sales_query.strip():
+        out = filter_dataframe_by_terms(out, sales_query, ["판매코드"])
+    if product_query.strip():
+        out = filter_dataframe_by_terms(out, product_query, ["대표 제품명"])
+    if status_filter != "전체":
+        out = out[out["_status_key"] == status_filter]
+    bounds = product_completion_date_bounds(period_filter, custom_range)
+    if bounds is not None:
+        start, end = bounds
+        expected = pd.to_datetime(out["_expected_date_sort"], errors="coerce")
+        out = out[expected.notna() & (expected >= start) & (expected <= end)]
+    return out.copy()
+
+
+def render_product_completion_detail_dialog(
+    selected_row: pd.Series,
+    detail_view: pd.DataFrame,
+    table_nonce_key: str,
+) -> None:
+    sales_code = clean_str(selected_row.get("_sales_code_base", selected_row.get("판매코드", "")))
+    product_name = clean_str(selected_row.get("대표 제품명", ""))
+    title = f"판매코드 {sales_code} POWER 상세 - {product_name}"
+
+    @st.dialog(title, width="large")
+    def _dialog() -> None:
+        st.caption(f"{sales_code}에 해당하는 POWER 기준 생산 완료 현황 | 표시 건수: {len(detail_view):,}")
+        if detail_view.empty:
+            st.warning("상세 데이터가 없습니다.")
+        else:
+            st.dataframe(
+                dataframe_for_streamlit(detail_view),
+                hide_index=True,
+                height=dataframe_auto_height(len(detail_view), 520),
+                width="stretch",
+                column_config=drilldown_column_config(),
+                column_order=visible_columns(detail_view, PRODUCT_COMPLETION_DETAIL_COLUMNS),
+            )
+        if st.button("닫기", key="close_product_completion_detail_dialog", width="stretch"):
+            st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
+            st.rerun()
+
+    _dialog()
+
+
+def render_product_completion_section(code_summary: pd.DataFrame) -> None:
+    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+    render_panel_title(
+        "제품별 생산 완료 현황",
+        "판매코드 기준 생산 진행 현황과 누수규격검사 계획일 기준 생산완료예상일을 확인합니다.",
+    )
+    power_view = build_product_completion_power_view(code_summary)
+    main_view = build_product_completion_main_view(power_view)
+    if main_view.empty:
+        st.info("표시할 제품별 생산 완료 현황 데이터가 없습니다.")
+        return
+
+    section_options = ["전체"] + [section for section in FAMILY_CARD_SECTION_ORDER if section in set(main_view["_section"].astype(str))]
+    linked_section = clean_str(st.session_state.get("family_progress_section_filter", "전체"))
+    if linked_section not in section_options:
+        linked_section = "전체"
+    if st.session_state.get("product_completion_section_filter") not in section_options:
+        st.session_state["product_completion_section_filter"] = linked_section
+
+    f1, f2, f3, f4, f5 = st.columns([1.15, 1.1, 1.25, 1.65, 1.1], gap="small")
+    with f1:
+        period_filter = st.selectbox(
+            "기간구분",
+            PRODUCT_COMPLETION_DATE_FILTERS,
+            index=0,
+            key="product_completion_due_filter",
+        )
+    with f2:
+        product_section = st.selectbox(
+            "제품분류",
+            section_options,
+            key="product_completion_section_filter",
+        )
+    with f3:
+        sales_query = st.text_input(
+            "판매코드 검색",
+            value="",
+            placeholder="예: S120",
+            key="product_completion_sales_query",
+        )
+    with f4:
+        product_query = st.text_input(
+            "제품명 검색",
+            value="",
+            placeholder="예: 소울브라운",
+            key="product_completion_product_query",
+        )
+    with f5:
+        status_filter = st.selectbox(
+            "생산상태",
+            PRODUCT_COMPLETION_STATUS_FILTERS,
+            index=0,
+            key="product_completion_status_filter",
+        )
+
+    custom_range = None
+    if period_filter == "사용자 지정 기간":
+        today = pd.Timestamp.now(tz="Asia/Seoul").date()
+        custom_range = st.date_input(
+            "사용자 지정 기간",
+            value=(today, today + pd.Timedelta(days=7).to_pytimedelta()),
+            key="product_completion_custom_date_range",
+        )
+
+    filtered = filter_product_completion_view(
+        main_view,
+        period_filter,
+        product_section,
+        sales_query,
+        product_query,
+        status_filter,
+        custom_range,
+    )
+
+    pager_cols = st.columns([1.0, 1.0, 4.0], gap="small", vertical_alignment="end")
+    with pager_cols[0]:
+        page_size = int(
+            st.selectbox(
+                "페이지당 행",
+                [10, 20, 50],
+                index=1,
+                key="product_completion_page_size",
+            )
+        )
+    total_pages = max(1, int(np.ceil(len(filtered) / page_size))) if page_size > 0 else 1
+    page_key = "product_completion_page"
+    signature = (
+        period_filter,
+        product_section,
+        sales_query,
+        product_query,
+        status_filter,
+        str(custom_range),
+        page_size,
+    )
+    if st.session_state.get("product_completion_filter_signature") != signature:
+        st.session_state["product_completion_filter_signature"] = signature
+        st.session_state[page_key] = 1
+    st.session_state[page_key] = min(max(int(st.session_state.get(page_key, 1)), 1), total_pages)
+    with pager_cols[1]:
+        page = int(
+            st.number_input(
+                "페이지",
+                min_value=1,
+                max_value=total_pages,
+                value=st.session_state[page_key],
+                step=1,
+                key=page_key,
+            )
+        )
+    start = (page - 1) * page_size
+    end = min(start + page_size, len(filtered))
+    with pager_cols[2]:
+        st.caption(f"표시 {start + 1 if len(filtered) else 0:,}-{end:,} / 전체 {len(filtered):,}건")
+
+    paged_view = filtered.iloc[start:end].copy()
+    table_nonce_key = "product_completion_table_nonce"
+    table_nonce = int(st.session_state.get(table_nonce_key, 0))
+    selected_row = render_selectable_table(
+        "판매코드 기준 메인 테이블",
+        "판매코드 기준 1행 집계 | 행을 선택하면 POWER 상세를 확인합니다.",
+        paged_view,
+        key=f"product_completion_table_{table_nonce}",
+        height=620,
+        column_order=PRODUCT_COMPLETION_MAIN_COLUMNS,
+    )
+    if selected_row is not None:
+        selected_sales_code = clean_str(selected_row.get("_sales_code_base", selected_row.get("판매코드", "")))
+        detail_scope = power_view[power_view["_sales_code_base"] == selected_sales_code].copy()
+        detail_scope = detail_scope.sort_values(
+            ["power_value", "_expected_date_sort", "생산부족수량 (PCS)"],
+            ascending=[True, True, False],
+            na_position="last",
+            kind="stable",
+        )
+        render_product_completion_detail_dialog(selected_row, detail_scope, table_nonce_key)
+
+
 def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20) -> pd.DataFrame:
     columns = [
         "우선등급",
@@ -12195,6 +12689,14 @@ def drilldown_column_config() -> dict[str, Any]:
         "판매코드수": st.column_config.NumberColumn("판매코드수", format=numeric_format),
         "판매코드 수": st.column_config.NumberColumn("판매코드 수", format=numeric_format),
         "POWER 수": st.column_config.NumberColumn("POWER 수", format=numeric_format),
+        "POWER수": st.column_config.NumberColumn("POWER수", format=numeric_format),
+        "생산요청물량 (PCS)": st.column_config.NumberColumn("생산요청물량 (PCS)", format=numeric_format),
+        "용마입고수량 (PCS)": st.column_config.NumberColumn("용마입고수량 (PCS)", format=numeric_format),
+        "용마입고대기 (PCS)": st.column_config.NumberColumn("용마입고대기 (PCS)", format=numeric_format),
+        "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족수량 (PCS)", format=numeric_format),
+        "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능수량 (PCS)", format=numeric_format),
+        "생산완료예상일": st.column_config.TextColumn("생산완료예상일"),
+        "생산상태": st.column_config.TextColumn("생산상태"),
         "요청 PACK": st.column_config.NumberColumn("요청 PACK", format=numeric_format),
         "포장 PACK": st.column_config.NumberColumn("포장 PACK", format=numeric_format),
         "부족 PACK": st.column_config.NumberColumn("부족 PACK", format=numeric_format),
@@ -12697,6 +13199,7 @@ def render_product_summary_tab(
         "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
     )
     render_family_progress_cards(family_view)
+    render_product_completion_section(code_summary)
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
