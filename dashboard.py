@@ -12082,6 +12082,99 @@ def render_style() -> None:
             padding: 20px;
             min-height: 92px;
         }}
+        .production-dialog-summary {{
+            border: 1px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            background: #FFFFFF;
+            padding: 18px;
+            margin: 2px 0 14px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+        }}
+        .production-dialog-head {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 6px;
+        }}
+        .production-dialog-code {{
+            color: {COLOR_BLUE};
+            font-size: 18px;
+            line-height: 1.2;
+            font-weight: 700;
+            letter-spacing: 0;
+        }}
+        .production-dialog-product {{
+            color: {TEXT_PRIMARY};
+            font-size: 14px;
+            line-height: 1.35;
+            font-weight: 700;
+            margin-top: 4px;
+        }}
+        .production-dialog-count {{
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 14px;
+        }}
+        .production-dialog-metrics {{
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            border-top: 1px solid {BORDER_LIGHT};
+        }}
+        .production-dialog-metric {{
+            padding: 14px 14px 4px;
+            border-right: 1px solid {BORDER_LIGHT};
+            min-width: 0;
+        }}
+        .production-dialog-metric:last-child {{
+            border-right: 0;
+        }}
+        .production-dialog-metric p {{
+            margin: 0 0 7px;
+            color: {TEXT_SECONDARY};
+            font-size: 12px;
+            line-height: 1.2;
+            font-weight: 700;
+        }}
+        .production-dialog-metric strong {{
+            display: block;
+            min-width: 0;
+            color: {TEXT_PRIMARY};
+            font-size: 16px;
+            line-height: 1.25;
+            font-weight: 700;
+            letter-spacing: 0;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
+        .production-dialog-metric strong.primary {{
+            color: {COLOR_BLUE};
+        }}
+        .production-dialog-metric strong.warning {{
+            color: {COLOR_ORANGE};
+        }}
+        .production-dialog-metric strong.danger {{
+            color: {COLOR_DANGER};
+        }}
+        .production-dialog-metric span {{
+            display: block;
+            margin-top: 5px;
+            color: {TEXT_TERTIARY};
+            font-size: 11px;
+            line-height: 1.2;
+            font-weight: 700;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }}
+        .production-dialog-section-title {{
+            color: {TEXT_PRIMARY};
+            font-size: 14px;
+            font-weight: 700;
+            margin: 6px 0 8px;
+        }}
         .panel-box {{
             padding: 18px 20px;
             margin-bottom: 24px;
@@ -13047,6 +13140,127 @@ def render_selectable_table(
     return get_selected_row(event, df)
 
 
+def production_dialog_status_info(selected_row: pd.Series) -> tuple[str, str]:
+    shortage = pd.to_numeric(
+        pd.Series([selected_row.get("생산부족수량(PCS)", selected_row.get("생산부족수량", 0.0))]),
+        errors="coerce",
+    ).fillna(0.0).iloc[0]
+    return ("생산완료", "done") if float(shortage) <= 0 else ("생산중", "warn")
+
+
+def production_dialog_metric_html(label: str, value: str, tone: str = "normal", note: str = "") -> str:
+    note_html = f"<span>{escape(note)}</span>" if note else ""
+    return (
+        "<div class='production-dialog-metric'>"
+        f"<p>{escape(label)}</p>"
+        f"<strong class='{escape(tone)}'>{escape(value)}</strong>"
+        f"{note_html}"
+        "</div>"
+    )
+
+
+def production_dialog_summary_html(selected_row: pd.Series, detail_count: int) -> str:
+    production_code = clean_str(selected_row.get("생산코드", ""))
+    product_name = clean_str(selected_row.get("대표 제품명", ""))
+    request_pcs = float(pd.to_numeric(pd.Series([selected_row.get("요청합계(PCS)", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    request_pack = float(pd.to_numeric(pd.Series([selected_row.get("요청합계(PACK)", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    production_shortage = float(
+        pd.to_numeric(
+            pd.Series([selected_row.get("생산부족수량(PCS)", selected_row.get("생산부족수량", 0.0))]),
+            errors="coerce",
+        ).fillna(0.0).iloc[0]
+    )
+    packing_shortage = float(pd.to_numeric(pd.Series([selected_row.get("포장부족(PACK)", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    production_progress = float(pd.to_numeric(pd.Series([selected_row.get("생산진도율", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    packing_progress = float(pd.to_numeric(pd.Series([selected_row.get("포장진도율", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    expected_date = clean_str(selected_row.get("생산완료예상일", "-")) or "-"
+    status_label, status_tone = production_dialog_status_info(selected_row)
+
+    metrics = "".join(
+        [
+            production_dialog_metric_html(
+                "생산요청",
+                f"{format_int(request_pcs)} PCS",
+                "normal",
+                f"{format_int(request_pack)} PACK",
+            ),
+            production_dialog_metric_html("생산부족", f"{format_int(production_shortage)} PCS", "danger" if production_shortage > 0 else "normal"),
+            production_dialog_metric_html("생산진도율", f"{production_progress:.1f}%", "primary"),
+            production_dialog_metric_html("포장진도율", f"{packing_progress:.1f}%", "warning"),
+            production_dialog_metric_html("포장부족", f"{format_int(packing_shortage)} PACK", "warning" if packing_shortage > 0 else "normal"),
+            production_dialog_metric_html("완료예정일", expected_date, "normal"),
+        ]
+    )
+    return (
+        "<div class='production-dialog-summary'>"
+        "<div class='production-dialog-head'>"
+        "<div>"
+        f"<div class='production-dialog-code'>{escape(production_code)}</div>"
+        f"<div class='production-dialog-product'>{escape(product_name)}</div>"
+        "</div>"
+        f"<span class='status-badge {status_tone}'>{escape(status_label)}</span>"
+        "</div>"
+        f"<div class='production-dialog-count'>POWER 상세 {detail_count:,}건</div>"
+        f"<div class='production-dialog-metrics'>{metrics}</div>"
+        "</div>"
+    )
+
+
+def build_production_pack_dialog_view(selected_row: pd.Series, pack_labels: list[str]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for label in pack_labels:
+        request_pack = float(pd.to_numeric(pd.Series([selected_row.get(label, 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+        rows.append(
+            {
+                "PACK": label,
+                "요청 PACK": request_pack,
+                "요청 PCS": request_pack * pack_unit_from_label(label),
+            }
+        )
+    out = pd.DataFrame(rows)
+    total_pack = float(out["요청 PACK"].sum()) if not out.empty else 0.0
+    total_pcs = float(out["요청 PCS"].sum()) if not out.empty else 0.0
+    out["구성비"] = np.where(total_pack > 0, out["요청 PACK"] / total_pack * 100.0, 0.0)
+    total_row = pd.DataFrame(
+        [
+            {
+                "PACK": "합계",
+                "요청 PACK": total_pack,
+                "요청 PCS": total_pcs,
+                "구성비": 100.0 if total_pack > 0 else 0.0,
+            }
+        ]
+    )
+    return pd.concat([out, total_row], ignore_index=True)
+
+
+def production_pack_dialog_column_config() -> dict[str, Any]:
+    column_config = drilldown_column_config()
+    column_config["요청 PCS"] = st.column_config.NumberColumn("요청 PCS", format="%,.0f")
+    column_config["구성비"] = st.column_config.NumberColumn("구성비", format="%.1f%%")
+    return column_config
+
+
+def build_production_power_dialog_view(detail_view: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "POWER",
+        "요청합계(PCS)",
+        "포장실적(PCS)",
+        "생산부족수량(PCS)",
+        "포장부족(PACK)",
+        "생산진도율",
+        "포장진도율",
+        "생산완료예상일",
+    ]
+    if detail_view.empty:
+        return pd.DataFrame(columns=columns)
+    out = detail_view.copy()
+    for col in columns:
+        if col not in out.columns:
+            out[col] = 0.0 if col not in {"POWER", "생산완료예상일"} else ""
+    return out[columns].copy()
+
+
 def render_production_power_detail_dialog(
     selected_row: pd.Series,
     detail_view: pd.DataFrame,
@@ -13064,20 +13278,31 @@ def render_production_power_detail_dialog(
             extra_cols=["_expected_date_sort", "포장부족수량", "생산부족수량"],
             extra_ascending=[True, False, False],
         )
-        st.caption(
-            f"{production_code}에 해당하는 POWER별 PACK 단위 수량, 부족수량, 진도율, 생산완료예상일 현황 | 표시 건수: {len(detail_display):,}"
-        )
+        st.markdown(production_dialog_summary_html(selected_row, len(detail_display)), unsafe_allow_html=True)
         if detail_display.empty:
             st.warning("상세 데이터가 없습니다.")
         else:
-            st.dataframe(
-                dataframe_for_streamlit(detail_display),
-                hide_index=True,
-                height=dataframe_auto_height(len(detail_display), 520),
-                width="stretch",
-                column_config=drilldown_column_config(),
-                column_order=production_power_detail_column_order(detail_display, pack_labels),
-            )
+            pack_view = build_production_pack_dialog_view(selected_row, pack_labels)
+            power_view = build_production_power_dialog_view(detail_display)
+            pack_col, power_col = st.columns([1.0, 2.2], gap="small")
+            with pack_col:
+                st.markdown("<div class='production-dialog-section-title'>PACK 구성 현황</div>", unsafe_allow_html=True)
+                st.dataframe(
+                    dataframe_for_streamlit(pack_view),
+                    hide_index=True,
+                    height=dataframe_auto_height(len(pack_view), 390, row_height=34),
+                    width="stretch",
+                    column_config=production_pack_dialog_column_config(),
+                )
+            with power_col:
+                st.markdown("<div class='production-dialog-section-title'>POWER별 상세 현황</div>", unsafe_allow_html=True)
+                st.dataframe(
+                    dataframe_for_streamlit(power_view),
+                    hide_index=True,
+                    height=dataframe_auto_height(len(power_view), 390, row_height=34),
+                    width="stretch",
+                    column_config=drilldown_column_config(),
+                )
         if st.button("닫기", key="close_production_power_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
             st.rerun()
