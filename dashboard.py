@@ -42,6 +42,7 @@ class SourceFiles:
     inventory_file: Path | None = None
     daily_inventory_file: Path | None = None
     product_master_file: Path | None = None
+    wip_file: Path | None = None
 
 
 STATUS_ORDER = ["미착수", "진행중", "완료"]
@@ -92,7 +93,8 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 36
+WIP_PROCESS_COLUMNS = ["검사접착", "누수규격검사"]
+DATA_CACHE_VERSION = 37
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -344,6 +346,17 @@ SAMPLE_AVAILABLE_COLS = {
     ],
 }
 SAMPLE_AVAILABLE_QTY_COLUMN_INDEX = 9  # J열
+
+WIP_COLS = {
+    "product_code": ["제품 코드", "제품코드", "생산코드", "생산 코드", "production_code", "product_code"],
+    "wip_qty": ["총 재공 수량", "총재공수량", "재공 수량", "재공수량", "수량", "wip_qty"],
+    "process_name": ["WH_NAME", "공정명", "공정", "창고명", "재공 위치", "warehouse"],
+}
+
+WIP_PROCESS_ALIASES = {
+    "검사접착": ["검사접착", "검사/접착", "검사 접착", "접착/멸균", "[55]접착/멸균"],
+    "누수규격검사": ["누수규격검사", "누수/규격검사", "누수 규격검사", "누수 규격 검사", "[80]누수/규격검사"],
+}
 
 INVENTORY_STOCK_THRESHOLD_DEFAULT = 100
 
@@ -865,6 +878,7 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
     inventory_file = pick_latest_by_name(files, ["용마WMS재고현황", "WMS재고현황", "WMS"])
     daily_inventory_file = pick_latest_by_name(files, DAILY_INVENTORY_FILE_KEYWORDS)
     product_master_file = pick_latest_by_name(files, ["판매코드-제품코드 매칭 마스터", "제품코드 매칭 마스터", "매칭 마스터"])
+    wip_file = pick_latest_by_name(files, ["ODV_WIP", "WIP", "재공"])
 
     if request_file is None or packing_file is None:
         for file in files:
@@ -902,6 +916,7 @@ def discover_source_files(base_dir: Path) -> SourceFiles:
         inventory_file=inventory_file,
         daily_inventory_file=daily_inventory_file,
         product_master_file=product_master_file,
+        wip_file=wip_file,
     )
 
 
@@ -1453,6 +1468,94 @@ def normalize_sample_available(path: Path) -> pd.DataFrame:
     except Exception:
         raw = pd.read_excel(path, sheet_name=sheet_name)
     return normalize_sample_available_frame(raw, f"{path.name}:{sheet_name}")
+
+
+def empty_wip_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "production_code_key",
+            "production_code_display",
+            "power_value",
+            "POWER",
+            *WIP_PROCESS_COLUMNS,
+        ]
+    )
+
+
+def canonical_wip_process(value: Any) -> str:
+    key = normalize_col(value)
+    if not key:
+        return ""
+    mapping = getattr(canonical_wip_process, "_mapping", None)
+    if mapping is None:
+        mapping = {
+            normalize_col(alias): canonical
+            for canonical, aliases in WIP_PROCESS_ALIASES.items()
+            for alias in aliases
+        }
+        setattr(canonical_wip_process, "_mapping", mapping)
+    return mapping.get(key, "")
+
+
+def normalize_wip(path: Path | None) -> pd.DataFrame:
+    if path is None:
+        return empty_wip_df()
+
+    try:
+        raw = read_excel_preferred_sheet(path, "Sheet1")
+        cols = resolve_columns(
+            raw,
+            WIP_COLS,
+            required_keys=["product_code", "wip_qty", "process_name"],
+            file_label=path.name,
+        )
+    except DashboardConfigError:
+        raise
+    except Exception:
+        return empty_wip_df()
+
+    work = pd.DataFrame(
+        {
+            "production_code_display": raw[cols["product_code"]].map(clean_str),
+            "production_code_key": raw[cols["product_code"]].map(normalize_match_key),
+            "wip_qty": to_number(raw[cols["wip_qty"]]),
+            "wip_process": raw[cols["process_name"]].map(canonical_wip_process),
+        }
+    )
+    work = work[
+        (work["production_code_key"].str.startswith("P"))
+        & (work["wip_process"] != "")
+        & (work["wip_qty"] > 0)
+    ].copy()
+    if work.empty:
+        return empty_wip_df()
+
+    work["power_value"] = work["production_code_display"].map(parse_power_from_sales_code)
+    work["POWER"] = work["power_value"].map(format_power)
+    grouped = (
+        work.groupby(
+            ["production_code_key", "production_code_display", "power_value", "POWER", "wip_process"],
+            dropna=False,
+        )["wip_qty"]
+        .sum()
+        .reset_index()
+    )
+    pivot = (
+        grouped.pivot_table(
+            index=["production_code_key", "production_code_display", "power_value", "POWER"],
+            columns="wip_process",
+            values="wip_qty",
+            aggfunc="sum",
+            fill_value=0.0,
+        )
+        .reset_index()
+        .rename_axis(None, axis=1)
+    )
+    for col in WIP_PROCESS_COLUMNS:
+        if col not in pivot.columns:
+            pivot[col] = 0.0
+        pivot[col] = pd.to_numeric(pivot[col], errors="coerce").fillna(0.0)
+    return pivot[["production_code_key", "production_code_display", "power_value", "POWER", *WIP_PROCESS_COLUMNS]].copy()
 
 
 def normalize_packing_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -5025,6 +5128,7 @@ def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str
         *pack_labels,
         "요청합계(PACK)",
         "포장부족(PACK)",
+        *WIP_PROCESS_COLUMNS,
         "생산부족수량(PCS)",
         "기준차이",
         "생산진도율",
@@ -7076,6 +7180,7 @@ def build_production_power_detail_view(
     rows: pd.DataFrame,
     pack_labels: list[str],
     production_prefix: str | None = None,
+    wip_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     visible_columns = [
         "생산코드 전체",
@@ -7099,6 +7204,7 @@ def build_production_power_detail_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                *WIP_PROCESS_COLUMNS,
                 "_production_code_prefix",
                 "_expected_date_sort",
                 "_power_sort",
@@ -7114,7 +7220,15 @@ def build_production_power_detail_view(
     if work.empty:
         return pd.DataFrame(
             columns=visible_columns
-            + ["요청합계(PCS)", "생산부족수량", "포장부족수량", "_production_code_prefix", "_expected_date_sort", "_power_sort"]
+            + [
+                "요청합계(PCS)",
+                "생산부족수량",
+                "포장부족수량",
+                *WIP_PROCESS_COLUMNS,
+                "_production_code_prefix",
+                "_expected_date_sort",
+                "_power_sort",
+            ]
         )
 
     group_cols = ["_production_code_prefix", "production_code_display", "POWER", "_power_sort"]
@@ -7185,6 +7299,24 @@ def build_production_power_detail_view(
     out["생산부족수량(PCS)"] = out["생산부족수량"]
     out["기준차이"] = np.where(pd.to_numeric(out["기준차이(PCS)"], errors="coerce").fillna(0.0) > 0, "기준차이", "")
     out["포장부족(PACK)"] = out["포장부족수량"]
+    out["_wip_production_code_key"] = out["생산코드 전체"].map(normalize_match_key)
+    if wip_df is not None and not wip_df.empty:
+        wip_grouped = (
+            wip_df.groupby("production_code_key", dropna=False)[WIP_PROCESS_COLUMNS]
+            .sum()
+            .reset_index()
+        )
+        out = out.merge(
+            wip_grouped,
+            left_on="_wip_production_code_key",
+            right_on="production_code_key",
+            how="left",
+        )
+        out = out.drop(columns=["production_code_key"], errors="ignore")
+    for col in WIP_PROCESS_COLUMNS:
+        if col not in out.columns:
+            out[col] = 0.0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
     out = sort_power_detail_default(
         out,
         extra_cols=["_expected_date_sort", "포장부족수량", "생산부족수량"],
@@ -7196,12 +7328,14 @@ def build_production_power_detail_view(
             + [
                 "요청합계(PCS)",
                 "포장실적(PCS)",
+                *WIP_PROCESS_COLUMNS,
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
                 "_production_code_prefix",
                 "_expected_date_sort",
                 "_power_sort",
+                "_wip_production_code_key",
             ]
         )
     )
@@ -8107,7 +8241,8 @@ def render_product_completion_main_table(
     key: str,
     height: int,
 ) -> pd.Series | None:
-    render_panel_title(title, sub)
+    if title or sub:
+        render_panel_title(title, sub)
     if df.empty:
         st.warning("조건에 맞는 데이터가 없습니다.")
         return None
@@ -8204,8 +8339,8 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
     table_nonce_key = "product_completion_table_nonce"
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_row = render_product_completion_main_table(
-        "판매코드 기준 메인 테이블",
-        "판매코드 기준 1행 집계 | 행을 선택하면 POWER 상세를 확인합니다.",
+        "",
+        "",
         filtered,
         key=f"product_completion_table_{table_nonce}",
         height=620,
@@ -12999,6 +13134,8 @@ def drilldown_column_config() -> dict[str, Any]:
         "포장부족(PACK)": st.column_config.NumberColumn("포장부족(PACK)", format=numeric_format),
         "포장부족(PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format),
         "포장부족(재고 PCS)": st.column_config.NumberColumn("포장부족(재고 PCS)", format=numeric_format),
+        "검사접착": st.column_config.NumberColumn("검사접착", format=numeric_format),
+        "누수규격검사": st.column_config.NumberColumn("누수규격검사", format=numeric_format),
         "5P 필요팩": st.column_config.NumberColumn("5P 필요팩", format=numeric_format),
         "10P 필요팩": st.column_config.NumberColumn("10P 필요팩", format=numeric_format),
         "30P 필요팩": st.column_config.NumberColumn("30P 필요팩", format=numeric_format),
@@ -13246,6 +13383,8 @@ def build_production_power_dialog_view(detail_view: pd.DataFrame) -> pd.DataFram
         "POWER",
         "요청합계(PCS)",
         "포장실적(PCS)",
+        "검사접착",
+        "누수규격검사",
         "생산부족수량(PCS)",
         "포장부족(PACK)",
         "생산진도율",
@@ -13684,7 +13823,11 @@ def render_product_summary_tab(
         render_category_request_summary_table(category_request_view)
 
 
-def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
+def render_production_code_tab(
+    code_summary: pd.DataFrame,
+    wip_df: pd.DataFrame | None = None,
+    selected_period: str = "전체",
+) -> None:
     render_panel_title(
         "생산코드 상세",
         "생산코드 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
@@ -13762,6 +13905,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
     production_detail_view = build_production_power_detail_view(
         production_source,
         pack_labels=pack_labels,
+        wip_df=wip_df,
     )
     render_production_power_kpis(production_view, unit_mode=production_unit_mode)
     production_main_export = production_view[
@@ -13800,6 +13944,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
         production_source,
         pack_labels=pack_labels,
         production_prefix=selected_production,
+        wip_df=wip_df,
     )
     render_production_power_detail_dialog(
         selected_production_row,
@@ -14226,20 +14371,23 @@ def load_dashboard_data(
     inventory_fingerprint: tuple[str, int, int] | None,
     daily_inventory_fingerprint: tuple[str, int, int] | None,
     product_master_fingerprint: tuple[str, int, int] | None,
+    wip_fingerprint: tuple[str, int, int] | None,
     cache_version: tuple[int, str, str] | int,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
     progress_file = Path(progress_fingerprint[0]) if progress_fingerprint is not None else None
     inventory_file = Path(inventory_fingerprint[0]) if inventory_fingerprint is not None else None
     daily_inventory_file = Path(daily_inventory_fingerprint[0]) if daily_inventory_fingerprint is not None else None
     product_master_file = Path(product_master_fingerprint[0]) if product_master_fingerprint is not None else None
+    wip_file = Path(wip_fingerprint[0]) if wip_fingerprint is not None else None
 
     product_master_df = normalize_product_code_master(product_master_file)
     request_df = normalize_request(request_file, product_master_file, product_master_df=product_master_df)
     instruction_df = normalize_instruction_request(request_file, product_master_file, product_master_df=product_master_df)
     progress_basis_df = instruction_df if not instruction_df.empty else request_df
     packing_df, yongma_df, sample_available_df = normalize_packing_workbook(packing_file)
+    wip_df = normalize_wip(wip_file)
     inventory_df = normalize_inventory(inventory_file)
     daily_inventory_df = normalize_daily_inventory_file(daily_inventory_file)
     daily_inventory_df = enrich_daily_inventory_from_wms(daily_inventory_df, inventory_df)
@@ -14257,7 +14405,7 @@ def load_dashboard_data(
     code_summary = attach_sample_available_to_code_summary(code_summary, sample_available_df)
     code_summary = with_operational_columns(code_summary)
     product_summary = attach_inventory_to_product_summary(product_summary, code_summary)
-    return product_summary, code_summary, packing_df, yongma_df, daily_inventory_df, sample_available_df, instruction_df, request_df
+    return product_summary, code_summary, packing_df, yongma_df, daily_inventory_df, sample_available_df, instruction_df, request_df, wip_df
 
 
 def get_sidebar_tab_from_query() -> str | None:
@@ -14353,13 +14501,24 @@ def main() -> None:
     base_dir = Path.cwd()
     try:
         files = discover_source_files(base_dir)
-        product_summary, code_summary, packing_df, yongma_df, daily_inventory_df, sample_available_df, instruction_df, request_df = load_dashboard_data(
+        (
+            product_summary,
+            code_summary,
+            packing_df,
+            yongma_df,
+            daily_inventory_df,
+            sample_available_df,
+            instruction_df,
+            request_df,
+            wip_df,
+        ) = load_dashboard_data(
             file_fingerprint(files.request_file),
             file_fingerprint(files.packing_file),
             file_fingerprint(files.progress_file),
             file_fingerprint(files.inventory_file),
             file_fingerprint(files.daily_inventory_file),
             file_fingerprint(files.product_master_file),
+            file_fingerprint(files.wip_file),
             dashboard_cache_fingerprint(),
         )
         lot_status_df = pd.DataFrame()
@@ -14387,7 +14546,7 @@ def main() -> None:
     elif active_tab == "일일 재고 대응":
         render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df, selected_period)
     elif active_tab == "생산코드 상세":
-        render_production_code_tab(code_summary, selected_period)
+        render_production_code_tab(code_summary, wip_df, selected_period)
     elif active_tab == "판매코드 상세":
         render_sales_code_tab(code_summary, selected_period)
 
