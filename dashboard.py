@@ -3695,6 +3695,9 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     )
+    request_pack = pd.to_numeric(grouped["요청 PACK"], errors="coerce").fillna(0.0)
+    request_pcs = pd.to_numeric(grouped["요청 PCS"], errors="coerce").fillna(0.0)
+    grouped = grouped[(request_pack > 0) | (request_pcs > 0)].copy()
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족수량"])
     grouped["용마입고율"] = np.where(
         grouped["요청 PACK"] > 0,
