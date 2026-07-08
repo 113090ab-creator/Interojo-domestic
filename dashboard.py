@@ -13285,6 +13285,9 @@ def drilldown_column_config() -> dict[str, Any]:
         "생산부족(PCS)": st.column_config.NumberColumn("생산부족(PCS)", format=numeric_format),
         "생산부족수량": st.column_config.NumberColumn("생산부족수량", format=numeric_format),
         "포장부족수량": st.column_config.NumberColumn("포장부족수량", format=numeric_format),
+        "요청 PCS": st.column_config.NumberColumn("요청 PCS", format=numeric_format),
+        "포장부족 PCS": st.column_config.NumberColumn("포장부족 PCS", format=numeric_format),
+        "포장가능재고 PCS": st.column_config.NumberColumn("포장가능재고 PCS", format=numeric_format),
         "생산진도율": st.column_config.ProgressColumn(
             "생산진도율",
             min_value=0,
@@ -13474,26 +13477,30 @@ def production_pack_dialog_column_config() -> dict[str, Any]:
 
 
 def build_production_power_dialog_view(detail_view: pd.DataFrame) -> pd.DataFrame:
-    columns = [
+    source_columns = [
         "POWER",
         "요청합계(PCS)",
-        "포장실적(PCS)",
+        "포장부족(PCS)",
         "포장가능재고(PCS)",
+        "생산부족수량(PCS)",
+        "생산진도율",
         "검사접착",
         "누수규격검사",
-        "생산부족수량(PCS)",
-        "포장부족(PCS)",
-        "생산진도율",
-        "포장진도율",
         "생산완료예상일",
     ]
+    display_columns = {
+        "요청합계(PCS)": "요청 PCS",
+        "포장부족(PCS)": "포장부족 PCS",
+        "포장가능재고(PCS)": "포장가능재고 PCS",
+        "생산부족수량(PCS)": "생산부족 PCS",
+    }
     if detail_view.empty:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=["POWER", *display_columns.values(), "생산진도율", "검사접착", "누수규격검사", "생산완료예상일"])
     out = detail_view.copy()
-    for col in columns:
+    for col in source_columns:
         if col not in out.columns:
             out[col] = 0.0 if col not in {"POWER", "생산완료예상일"} else ""
-    return out[columns].copy()
+    return out[source_columns].rename(columns=display_columns).copy()
 
 
 def render_production_power_detail_dialog(
