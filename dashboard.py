@@ -6960,6 +6960,117 @@ def render_production_code_main_table(
     return get_selected_row(event, df)
 
 
+SALES_PRIORITY_GROUPED_COLUMNS = [
+    ("우선정보", "우선등급", "우선등급"),
+    ("제품정보", "기간구분", "기간구분"),
+    ("제품정보", "판매코드", "판매코드"),
+    ("제품정보", "제품명", "제품명"),
+    ("제품정보", "POWER", "POWER"),
+    ("제품정보", "PACK", "PACK"),
+    ("요청·포장현황", "생산요청물량(PCS)", "생산요청물량(PCS)"),
+    ("요청·포장현황", "포장부족(PCS)", "포장부족(PCS)"),
+    ("완료정보", "생산완료예상일", "생산완료예상일"),
+]
+
+
+SALES_GROUP_MAIN_GROUPED_COLUMNS = [
+    ("우선정보", "우선등급", "우선등급"),
+    ("제품정보", "기간구분", "기간구분"),
+    ("제품정보", "판매코드", "판매코드"),
+    ("제품정보", "대표 제품명", "대표 제품명"),
+    ("제품정보", "POWER 수", "POWER 수"),
+    ("제품정보", "PACK", "PACK"),
+    ("요청·입고현황", "생산요청물량(PCS)", "생산요청물량(PCS)"),
+    ("요청·입고현황", "용마입고수량(PCS)", "용마입고수량(PCS)"),
+    ("요청·입고현황", "용마입고대기수량(PCS)", "용마입고대기수량(PCS)"),
+    ("포장·생산현황", "포장가능재고(PCS)", "포장가능재고(PCS)"),
+    ("포장·생산현황", "포장부족(PCS)", "포장부족(PCS)"),
+    ("포장·생산현황", "생산부족(PCS)", "생산부족(PCS)"),
+    ("포장·생산현황", "생산진도율", "생산진도율"),
+    ("포장·생산현황", "용마입고율", "용마입고율"),
+    ("완료정보", "생산완료예상일", "생산완료예상일"),
+    ("완료정보", "상태", "상태"),
+]
+
+
+SALES_DETAIL_GROUPED_COLUMNS = [
+    ("우선정보", "우선등급", "우선등급"),
+    ("제품정보", "기간구분", "기간구분"),
+    ("제품정보", "판매코드", "판매코드"),
+    ("제품정보", "생산코드", "생산코드"),
+    ("제품정보", "제품명", "제품명"),
+    ("제품정보", "POWER", "POWER"),
+    ("제품정보", "PACK", "PACK"),
+    ("요청·입고현황", "생산요청물량(PCS)", "생산요청물량(PCS)"),
+    ("요청·입고현황", "용마입고수량(PCS)", "용마입고수량(PCS)"),
+    ("요청·입고현황", "용마입고대기수량(PCS)", "용마입고대기수량(PCS)"),
+    ("포장·생산현황", "포장가능재고(PCS)", "포장가능재고(PCS)"),
+    ("포장·생산현황", "포장부족(PCS)", "포장부족(PCS)"),
+    ("포장·생산현황", "생산부족(PCS)", "생산부족(PCS)"),
+    ("포장·생산현황", "생산진도율", "생산진도율"),
+    ("완료정보", "생산완료예상일", "생산완료예상일"),
+    ("완료정보", "상태", "상태"),
+]
+
+
+def sales_grouped_display_dataframe(
+    df: pd.DataFrame,
+    grouped_columns: list[tuple[str, str, str]],
+) -> pd.DataFrame:
+    source = dataframe_for_streamlit(df)
+    number_columns = {
+        "POWER 수",
+        "생산요청물량(PCS)",
+        "용마입고수량(PCS)",
+        "용마입고대기수량(PCS)",
+        "포장가능재고(PCS)",
+        "포장부족(PCS)",
+        "생산부족(PCS)",
+    }
+    percent_columns = {"생산진도율", "용마입고율"}
+    out = pd.DataFrame(index=source.index)
+    output_columns: list[tuple[str, str]] = []
+    for group, label, column in grouped_columns:
+        if column not in source.columns:
+            continue
+        output_columns.append((group, label))
+        if column in number_columns:
+            values = pd.to_numeric(source[column], errors="coerce")
+            out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else format_int(float(value)))
+        elif column in percent_columns:
+            out[(group, label)] = pd.to_numeric(source[column], errors="coerce")
+        else:
+            out[(group, label)] = source[column].map(clean_str)
+    if not output_columns:
+        return pd.DataFrame(index=source.index)
+    out.columns = pd.MultiIndex.from_tuples(output_columns)
+    return out
+
+
+def render_sales_group_main_table(
+    title: str,
+    sub: str,
+    df: pd.DataFrame,
+    key: str,
+    height: int,
+) -> pd.Series | None:
+    render_panel_title(title, sub)
+    if df.empty:
+        st.warning("조건에 맞는 데이터가 없습니다.")
+        return None
+    display_df = sales_grouped_display_dataframe(df, SALES_GROUP_MAIN_GROUPED_COLUMNS)
+    event = st.dataframe(
+        grouped_header_display_styler(display_df),
+        hide_index=True,
+        height=dataframe_auto_height(len(display_df), height, row_height=48),
+        width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key=key,
+    )
+    return get_selected_row(event, df)
+
+
 def daily_inventory_search_variants(token: str) -> list[str]:
     normalized = clean_str(token).replace("−", "-").replace("–", "-").replace("—", "-")
     variants = [normalized]
@@ -8880,8 +8991,8 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         "제품명",
         "POWER",
         "PACK",
-        "생산요청물량(PACK)",
-        "포장부족(PACK)",
+        "생산요청물량(PCS)",
+        "포장부족(PCS)",
         "생산완료예상일",
     ]
     if sales_view.empty:
@@ -8895,7 +9006,7 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         return pd.DataFrame(columns=columns)
 
     out = out.sort_values(
-        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "포장부족", "생산부족"],
+        ["_priority_sort", "_request_due_date_sort", "재고부족(PACK)", "포장부족(PCS)", "생산부족(PCS)"],
         ascending=[True, True, False, False, False],
         na_position="last",
         kind="stable",
@@ -9003,17 +9114,17 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
     urgent_view = build_urgent_sales_packing_view(sales_view)
     render_panel_title(
         "긴급 포장 리스트",
-        "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 PACK 기준 요청·부족 수량만 표시합니다.",
+        "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 PCS 기준 요청·부족 수량만 표시합니다.",
     )
     if urgent_view.empty:
         st.info("현재 기준에 해당하는 긴급 포장 판매코드가 없습니다.")
     else:
+        display_df = sales_grouped_display_dataframe(urgent_view, SALES_PRIORITY_GROUPED_COLUMNS)
         st.dataframe(
-            urgent_view,
+            grouped_header_display_styler(display_df),
             hide_index=True,
             height=dataframe_auto_height(len(urgent_view), 260),
             width="stretch",
-            column_config=drilldown_column_config(),
         )
 
 
@@ -14045,13 +14156,15 @@ def render_sales_code_detail_dialog(
         if detail_display.empty:
             st.warning("상세 데이터가 없습니다.")
         else:
+            display_df = sales_grouped_display_dataframe(
+                detail_display.drop(columns=["power_value"], errors="ignore"),
+                SALES_DETAIL_GROUPED_COLUMNS,
+            )
             st.dataframe(
-                dataframe_for_streamlit(detail_display.drop(columns=["power_value"], errors="ignore")),
+                grouped_header_display_styler(display_df),
                 hide_index=True,
                 height=dataframe_auto_height(len(detail_display), 430),
                 width="stretch",
-                column_config=drilldown_column_config(),
-                column_order=sales_progress_column_order(detail_display, unit_mode),
             )
 
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
@@ -14478,30 +14591,21 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         "포장 현황",
         "출고/오더 관점에서 판매코드별 생산·포장 진도와 생산완료예상일 상태를 확인합니다.",
     )
+    sales_unit_mode = UNIT_PCS
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
 
-    fc1, fc2, _ = st.columns([1.55, 1.25, 3.2], gap="small")
+    fc1, _ = st.columns([1.25, 4.75], gap="small")
     with fc1:
-        sales_unit_mode = st.radio(
-            "조회 단위 선택",
-            UNIT_OPTIONS,
-            index=0,
-            horizontal=True,
-            key="sales_progress_unit_mode",
-        )
-        if sales_unit_mode == UNIT_PCS:
-            st.caption("포장가능재고·생산부족 기준 조회")
-        else:
-            st.caption("용마입고·포장부족 기준 조회")
-    with fc2:
         stock_threshold_pack = st.number_input(
-            "긴급 재고 기준(PACK)",
+            "긴급 재고 기준",
             min_value=0,
             value=INVENTORY_STOCK_THRESHOLD_DEFAULT,
             step=10,
             key="sales_inventory_stock_threshold_pack",
+            help="우선등급 판단에만 사용하는 기준입니다.",
         )
+        st.caption("표시 수량은 PCS 기준으로 통일합니다.")
 
     period_scoped_code_summary = filter_operational_code_summary(
         code_summary,
@@ -14553,9 +14657,9 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
             integrated_query,
             columns=sales_search_columns,
         )
-        if shortage_only and "포장부족(PACK)" in sales_main_view.columns:
+        if shortage_only and "포장부족(PCS)" in sales_main_view.columns:
             sales_main_view = sales_main_view[
-                pd.to_numeric(sales_main_view["포장부족(PACK)"], errors="coerce").fillna(0.0) > 0
+                pd.to_numeric(sales_main_view["포장부족(PCS)"], errors="coerce").fillna(0.0) > 0
             ].copy()
         visible_sales_codes = set(sales_main_view.get("_sales_code_base", sales_main_view.get("판매코드", pd.Series(dtype=str))).map(clean_str))
         if integrated_query.strip() or shortage_only:
@@ -14581,13 +14685,12 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
             )
         table_nonce_key = "sales_code_main_table_nonce"
         table_nonce = int(st.session_state.get(table_nonce_key, 0))
-        selected_sales_row = render_selectable_table(
+        selected_sales_row = render_sales_group_main_table(
             "판매코드",
             f"판매코드 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_export_view):,}",
             sales_main_view,
             key=f"sales_code_main_table_{table_nonce}",
             height=620,
-            column_order=sales_group_column_order(sales_main_view, sales_unit_mode),
         )
         if selected_sales_row is None:
             return
@@ -14602,7 +14705,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
             ).fillna(999999.0)
         detail_scope = sort_power_detail_default(
             detail_scope,
-            extra_cols=["_pack_sort", "_priority_sort", "_request_due_date_sort", "포장부족(PACK)"],
+            extra_cols=["_pack_sort", "_priority_sort", "_request_due_date_sort", "포장부족(PCS)"],
             extra_ascending=[True, True, True, False],
         ).drop(columns=["_pack_sort"], errors="ignore")
         inventory_source = filter_operational_code_summary(
