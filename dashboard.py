@@ -7713,7 +7713,7 @@ PRODUCT_COMPLETION_STATUS_LABELS = {
 }
 PRODUCT_COMPLETION_MAIN_COLUMNS = [
     "판매코드",
-    "대표 제품명",
+    "제품명",
     "POWER수",
     "생산요청물량 (PCS)",
     "용마입고수량 (PCS)",
@@ -7769,7 +7769,7 @@ def product_completion_status_label(status_key: Any) -> str:
 def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     columns = PRODUCT_COMPLETION_DETAIL_COLUMNS + [
         "판매코드",
-        "대표 제품명",
+        "제품명",
         "기간구분",
         "제품분류",
         "_sales_code_base",
@@ -7854,7 +7854,7 @@ def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFr
     grouped = (
         work.groupby(["_sales_code_base", "POWER", "power_value"], dropna=False)
         .agg(
-            product_name=("base_product_name", first_nonempty),
+            product_name=("product_name", first_nonempty),
             period_group=("period_group", first_nonempty),
             product_group=("제품분류", first_nonempty),
             section=("_section", first_nonempty),
@@ -7871,7 +7871,7 @@ def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFr
         .rename(
             columns={
                 "_sales_code_base": "판매코드",
-                "product_name": "대표 제품명",
+                "product_name": "제품명",
                 "period_group": "기간구분",
                 "product_group": "제품분류",
                 "section": "_section",
@@ -7925,7 +7925,7 @@ def build_product_completion_main_view(power_view: pd.DataFrame) -> pd.DataFrame
     grouped = (
         work.groupby("_sales_code_base", dropna=False)
         .agg(
-            product_name=("대표 제품명", first_nonempty),
+            product_name=("제품명", first_nonempty),
             period_group=("기간구분", first_nonempty),
             product_group=("제품분류", first_nonempty),
             section=("_section", first_nonempty),
@@ -7943,7 +7943,7 @@ def build_product_completion_main_view(power_view: pd.DataFrame) -> pd.DataFrame
         .rename(
             columns={
                 "_sales_code_base": "판매코드",
-                "product_name": "대표 제품명",
+                "product_name": "제품명",
                 "period_group": "기간구분",
                 "product_group": "제품분류",
                 "section": "_section",
@@ -7999,7 +7999,7 @@ def filter_product_completion_view(
     if sales_query.strip():
         out = filter_dataframe_by_terms(out, sales_query, ["판매코드"])
     if product_query.strip():
-        out = filter_dataframe_by_terms(out, product_query, ["대표 제품명"])
+        out = filter_dataframe_by_terms(out, product_query, ["제품명"])
     return out.copy()
 
 
@@ -8009,7 +8009,7 @@ def render_product_completion_detail_dialog(
     table_nonce_key: str,
 ) -> None:
     sales_code = clean_str(selected_row.get("_sales_code_base", selected_row.get("판매코드", "")))
-    product_name = clean_str(selected_row.get("대표 제품명", ""))
+    product_name = clean_str(selected_row.get("제품명", selected_row.get("대표 제품명", "")))
     title = f"판매코드 {sales_code} POWER 상세 - {product_name}"
 
     @st.dialog(title, width="large")
