@@ -7826,6 +7826,29 @@ def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFr
     work.loc[missing_expected, "_expected_date_sort"] = (
         work.loc[missing_expected, "_production_plan_date"] + pd.Timedelta(days=5)
     )
+    production_code_source = work.get("production_code", pd.Series("", index=work.index))
+    p_code_source = work.get("p_code", pd.Series("", index=work.index))
+    work["_base_p_code"] = [
+        first_nonempty(
+            [
+                extract_base_p_code_key(production_code),
+                extract_base_p_code_key(p_code),
+            ]
+        )
+        for production_code, p_code in zip(production_code_source, p_code_source)
+    ]
+    has_base_p_code = work["_base_p_code"].map(clean_str) != ""
+    if has_base_p_code.any():
+        latest_plan_by_p = work.loc[has_base_p_code].groupby("_base_p_code")["_production_plan_date"].transform("max")
+        latest_expected_by_p = work.loc[has_base_p_code].groupby("_base_p_code")["_expected_date_sort"].transform("max")
+        work.loc[has_base_p_code, "_production_plan_date"] = latest_plan_by_p.where(
+            latest_plan_by_p.notna(),
+            work.loc[has_base_p_code, "_production_plan_date"],
+        )
+        work.loc[has_base_p_code, "_expected_date_sort"] = latest_expected_by_p.where(
+            latest_expected_by_p.notna(),
+            work.loc[has_base_p_code, "_expected_date_sort"],
+        )
     work["_section"] = work["본품분류"].map(family_card_section)
 
     grouped = (
