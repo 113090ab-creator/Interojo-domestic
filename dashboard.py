@@ -10822,7 +10822,7 @@ def render_style() -> None:
             --text-tertiary: {TEXT_TERTIARY};
             --border-default: {BORDER_DEFAULT};
             --border-light: {BORDER_LIGHT};
-            --kpi-card-height: 320px;
+            --kpi-card-height: 350px;
         }}
         .block-container {{
             padding: 24px 32px 32px !important;
@@ -12193,7 +12193,7 @@ def render_style() -> None:
             box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
         }}
         .overall-kpi-card {{
-            padding: 20px 24px;
+            padding: 24px 26px;
             height: var(--kpi-card-height);
             min-height: var(--kpi-card-height);
             max-height: var(--kpi-card-height);
@@ -12424,7 +12424,7 @@ def render_style() -> None:
             font-variant-numeric: tabular-nums;
         }}
         .scope-kpi {{
-            padding: 16px 20px;
+            padding: 20px 22px;
             margin-bottom: 0;
             height: var(--kpi-card-height);
             min-height: var(--kpi-card-height);
@@ -12435,7 +12435,7 @@ def render_style() -> None:
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }}
         .scope-kpi .kpi-metric {{
-            padding: 6px 14px;
+            padding: 8px 14px;
         }}
         .scope-kpi .metric-label {{
             margin-bottom: 5px;
@@ -12444,8 +12444,8 @@ def render_style() -> None:
             font-size: 20px;
         }}
         .scope-kpi .kpi-progress-stack {{
-            gap: 6px;
-            margin-top: 10px;
+            gap: 8px;
+            margin-top: 16px;
         }}
         .scope-kpi .kpi-progress-row {{
             grid-template-columns: 44px minmax(80px, 1fr) 44px;
