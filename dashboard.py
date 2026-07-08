@@ -49,12 +49,12 @@ STATUS_ORDER = ["미착수", "진행중", "완료"]
 UNIT_PACK = "PACK 기준"
 UNIT_PCS = "PCS 기준"
 UNIT_OPTIONS = [UNIT_PACK, UNIT_PCS]
-DASHBOARD_TABS = ["제품 진도 현황", "일일 재고 대응", "생산코드 상세", "판매코드 상세"]
+DASHBOARD_TABS = ["생산 포장 종합 현황", "일일 재고 대응 현황", "포장 현황", "생산 현황"]
 SIDEBAR_NAV_ITEMS = [
-    ("제품 진도 현황", "product_progress"),
-    ("일일 재고 대응", "daily_inventory"),
-    ("생산코드 상세", "production_code"),
-    ("판매코드 상세", "sales_code"),
+    ("생산 포장 종합 현황", "product_progress"),
+    ("일일 재고 대응 현황", "daily_inventory"),
+    ("포장 현황", "sales_code"),
+    ("생산 현황", "production_code"),
 ]
 SIDEBAR_NAV_KEY_TO_TAB = {key: tab for tab, key in SIDEBAR_NAV_ITEMS}
 DAILY_INVENTORY_FILE_STANDARD = "클라렌사업본부 재고현황_YYMMDD.xlsx"
@@ -13732,7 +13732,7 @@ def render_daily_inventory_tab(
     selected_period: str = "전체",
 ) -> None:
     render_panel_title(
-        "일일 재고 대응",
+        "일일 재고 대응 현황",
         "매일 공유되는 재고현황표 기준으로 요청물량 외 긴급 품목과 재고부족을 확인합니다.",
     )
     if daily_inventory_df.empty:
@@ -13835,7 +13835,7 @@ def render_daily_inventory_tab(
     table_nonce_key = "daily_inventory_main_table_nonce"
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_daily_row = render_selectable_table(
-        "일일 재고 대응 테이블",
+        "일일 재고 대응 현황 테이블",
         f"판매코드 기준 집계 | 표시 건수: {len(main_view):,} | 상세 건수: {len(view):,}",
         main_view,
         key=f"daily_inventory_table_{table_nonce}",
@@ -14027,7 +14027,7 @@ def render_production_code_tab(
     selected_period: str = "전체",
 ) -> None:
     render_panel_title(
-        "생산코드 상세",
+        "생산 현황",
         "생산코드 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
     )
     production_unit_mode = UNIT_PCS
@@ -14154,7 +14154,7 @@ def render_production_code_tab(
 
 def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
-        "판매코드 상세",
+        "포장 현황",
         "출고/오더 관점에서 판매코드별 생산·포장 진도와 생산완료예상일 상태를 확인합니다.",
     )
     pack_options = available_pack_options(code_summary)
@@ -14617,6 +14617,18 @@ def get_sidebar_tab_from_query() -> str | None:
     return SIDEBAR_NAV_KEY_TO_TAB.get(key)
 
 
+def normalize_dashboard_tab(tab: Any) -> str:
+    legacy_map = {
+        "제품 진도 현황": "생산 포장 종합 현황",
+        "일일 재고 대응": "일일 재고 대응 현황",
+        "판매코드 상세": "포장 현황",
+        "포장코드 상세": "포장 현황",
+        "생산코드 상세": "생산 현황",
+    }
+    normalized = legacy_map.get(clean_str(tab), clean_str(tab))
+    return normalized if normalized in DASHBOARD_TABS else DASHBOARD_TABS[0]
+
+
 def sidebar_nav_item_html(tab: str, nav_key: str, active_tab: str) -> str:
     active_class = " active" if tab == active_tab else ""
     return (
@@ -14643,8 +14655,7 @@ def render_dashboard_nav() -> str:
         selected = get_sidebar_tab_from_query() or str(
             st.session_state.get("dashboard_active_tab_sidebar", DASHBOARD_TABS[0])
         )
-        if selected not in DASHBOARD_TABS:
-            selected = DASHBOARD_TABS[0]
+        selected = normalize_dashboard_tab(selected)
         st.session_state["dashboard_active_tab_sidebar"] = selected
         nav_html = "".join(
             sidebar_nav_item_html(tab, nav_key, selected)
@@ -14656,12 +14667,12 @@ def render_dashboard_nav() -> str:
 
 def render_period_group_filter(active_tab: str) -> str:
     filter_key_by_tab = {
-        "제품 진도 현황": "product_summary",
-        "일일 재고 대응": "daily_inventory",
-        "생산코드 상세": "production_code",
-        "판매코드 상세": "sales_code",
+        "생산 포장 종합 현황": "product_summary",
+        "일일 재고 대응 현황": "daily_inventory",
+        "생산 현황": "production_code",
+        "포장 현황": "sales_code",
     }
-    if active_tab == "제품 진도 현황":
+    if active_tab == "생산 포장 종합 현황":
         key = f"{filter_key_by_tab[active_tab]}_period_group_filter"
         selected = st.session_state.get(key, "전체")
         return str(selected if selected in PERIOD_GROUP_ORDER else "전체")
@@ -14731,7 +14742,7 @@ def main() -> None:
 
     selected_period = render_period_group_filter(active_tab)
 
-    if active_tab == "제품 진도 현황":
+    if active_tab == "생산 포장 종합 현황":
         render_product_summary_tab(
             product_summary,
             code_summary,
@@ -14741,12 +14752,12 @@ def main() -> None:
             sample_available_df,
             selected_period,
         )
-    elif active_tab == "일일 재고 대응":
+    elif active_tab == "일일 재고 대응 현황":
         render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df, selected_period)
-    elif active_tab == "생산코드 상세":
-        render_production_code_tab(code_summary, wip_df, selected_period)
-    elif active_tab == "판매코드 상세":
+    elif active_tab == "포장 현황":
         render_sales_code_tab(code_summary, selected_period)
+    elif active_tab == "생산 현황":
+        render_production_code_tab(code_summary, wip_df, selected_period)
 
 
 if __name__ == "__main__":
