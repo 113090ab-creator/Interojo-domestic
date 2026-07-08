@@ -7987,8 +7987,7 @@ def build_product_completion_main_view(power_view: pd.DataFrame) -> pd.DataFrame
 def filter_product_completion_view(
     view: pd.DataFrame,
     period_filter: str,
-    sales_query: str,
-    product_query: str,
+    unified_query: str,
 ) -> pd.DataFrame:
     if view.empty:
         return view.copy()
@@ -7996,10 +7995,9 @@ def filter_product_completion_view(
     if period_filter != "전체":
         section_filter = "1DAY" if period_filter == "1-DAY" else period_filter
         out = out[out["_section"].astype(str) == section_filter]
-    if sales_query.strip():
-        out = filter_dataframe_by_terms(out, sales_query, ["판매코드"])
-    if product_query.strip():
-        out = filter_dataframe_by_terms(out, product_query, ["제품명"])
+    if unified_query.strip():
+        search_columns = list(out.columns[:2])
+        out = filter_dataframe_by_terms(out, unified_query, search_columns)
     return out.copy()
 
 
@@ -8048,34 +8046,27 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
     if st.session_state.get("product_completion_period_group_filter") not in PERIOD_GROUP_ORDER:
         st.session_state["product_completion_period_group_filter"] = "전체"
 
-    f1, f2, f3 = st.columns([1.0, 1.35, 1.9], gap="small")
+    f1, f2 = st.columns([1.2, 3.2], gap="small")
     with f1:
-        period_filter = st.selectbox(
+        period_filter = st.segmented_control(
             "기간구분",
-            PERIOD_GROUP_ORDER,
-            index=0,
+            options=PERIOD_GROUP_ORDER,
+            default=st.session_state.get("product_completion_period_group_filter", "전체"),
             key="product_completion_period_group_filter",
         )
+    period_filter = str(period_filter or "전체")
     with f2:
-        sales_query = st.text_input(
-            "판매코드 검색",
+        unified_query = st.text_input(
+            "통합검색",
             value="",
-            placeholder="예: S120",
-            key="product_completion_sales_query",
-        )
-    with f3:
-        product_query = st.text_input(
-            "제품명 검색",
-            value="",
-            placeholder="예: 소울브라운",
-            key="product_completion_product_query",
+            placeholder="예: S120, 소울브라운",
+            key="product_completion_unified_query",
         )
 
     filtered = filter_product_completion_view(
         main_view,
         period_filter,
-        sales_query,
-        product_query,
+        unified_query,
     )
 
     table_nonce_key = "product_completion_table_nonce"
