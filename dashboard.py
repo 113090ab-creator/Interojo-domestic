@@ -7183,11 +7183,13 @@ def build_production_power_main_view(
         dict.fromkeys(
             visible_columns
             + [
+                "요청합계(PACK)",
                 "요청합계(PCS)",
                 "포장실적(PCS)",
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장부족(PACK)",
                 "포장부족(PCS)",
                 "포장가능재고(PCS)",
                 "병목 상태",
@@ -7363,12 +7365,14 @@ def build_production_power_detail_view(
         dict.fromkeys(
             visible_columns
             + [
+                "요청합계(PACK)",
                 "요청합계(PCS)",
                 "포장실적(PCS)",
                 *WIP_PROCESS_COLUMNS,
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장부족(PACK)",
                 "포장부족(PCS)",
                 "포장가능재고(PCS)",
                 "_production_code_prefix",
@@ -7398,10 +7402,10 @@ def calc_production_power_kpis(view: pd.DataFrame) -> dict[str, float]:
             "production_bottleneck_count": 0.0,
             "packing_bottleneck_count": 0.0,
         }
-    request_pack = float(view["요청합계(PACK)"].sum())
-    request_pcs = float(view["요청합계(PCS)"].sum())
-    production_shortage_pcs = float(view["생산부족수량"].sum())
-    packing_shortage_pack = float(view["포장부족수량"].sum())
+    request_pack = float(pd.to_numeric(view.get("요청합계(PACK)", pd.Series(0.0, index=view.index)), errors="coerce").fillna(0.0).sum())
+    request_pcs = float(pd.to_numeric(view.get("요청합계(PCS)", pd.Series(0.0, index=view.index)), errors="coerce").fillna(0.0).sum())
+    production_shortage_pcs = float(pd.to_numeric(view.get("생산부족수량", pd.Series(0.0, index=view.index)), errors="coerce").fillna(0.0).sum())
+    packing_shortage_pack = float(pd.to_numeric(view.get("포장부족수량", pd.Series(0.0, index=view.index)), errors="coerce").fillna(0.0).sum())
     packing_shortage_pcs = float(pd.to_numeric(view.get("포장부족(PCS)", pd.Series(0.0, index=view.index)), errors="coerce").fillna(0.0).sum())
     production_progress = (
         (request_pcs - production_shortage_pcs) / request_pcs * 100.0
