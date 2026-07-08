@@ -5107,8 +5107,8 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
         "생산코드",
         "기간구분",
         "대표 제품명",
-        "요청합계(PACK)",
-        "포장부족(PACK)",
+        "요청합계(PCS)",
+        "포장부족(PCS)",
         "포장가능재고(PCS)",
         "생산부족수량(PCS)",
         "기준차이",
@@ -5126,8 +5126,8 @@ def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str
         "대표 제품명",
         "POWER",
         *pack_labels,
-        "요청합계(PACK)",
-        "포장부족(PACK)",
+        "요청합계(PCS)",
+        "포장부족(PCS)",
         "포장가능재고(PCS)",
         *WIP_PROCESS_COLUMNS,
         "생산부족수량(PCS)",
@@ -7061,8 +7061,8 @@ def build_production_power_main_view(
         "기간구분",
         "대표 제품명",
         *pack_labels,
-        "요청합계(PACK)",
-        "포장부족(PACK)",
+        "요청합계(PCS)",
+        "포장부족(PCS)",
         "포장가능재고(PCS)",
         "생산부족수량(PCS)",
         "기준차이",
@@ -7078,6 +7078,7 @@ def build_production_power_main_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장부족(PCS)",
                 "포장가능재고(PCS)",
                 "병목 상태",
                 "_production_code_prefix",
@@ -7136,6 +7137,7 @@ def build_production_power_main_view(
         0.0,
     )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
+    grouped["포장부족(PCS)"] = (grouped["request_pcs"] - grouped["packing_pcs"]).clip(lower=0.0).round(0)
     grouped["포장가능재고(PCS)"] = (
         grouped["request_pcs"] - grouped["production_shortage_pcs"] + grouped["sample_available_pcs"]
     ).clip(lower=0.0).round(0)
@@ -7169,7 +7171,7 @@ def build_production_power_main_view(
     out["포장부족(PACK)"] = out["포장부족수량"]
     out["_production_code_prefix"] = out["생산코드"]
     if shortage_only:
-        out = out[(out["생산부족수량"] > 0) | (out["포장부족수량"] > 0)].copy()
+        out = out[(out["생산부족수량"] > 0) | (out["포장부족(PCS)"] > 0)].copy()
 
     out = out.sort_values(
         ["_expected_date_sort", "포장부족수량", "생산부족수량"],
@@ -7186,6 +7188,7 @@ def build_production_power_main_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장부족(PCS)",
                 "포장가능재고(PCS)",
                 "병목 상태",
                 "_production_code_prefix",
@@ -7211,8 +7214,8 @@ def build_production_power_detail_view(
         "대표 제품명",
         "POWER",
         *pack_labels,
-        "요청합계(PACK)",
-        "포장부족(PACK)",
+        "요청합계(PCS)",
+        "포장부족(PCS)",
         "포장가능재고(PCS)",
         "생산부족수량(PCS)",
         "기준차이",
@@ -7228,6 +7231,7 @@ def build_production_power_detail_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장부족(PCS)",
                 "포장가능재고(PCS)",
                 *WIP_PROCESS_COLUMNS,
                 "_production_code_prefix",
@@ -7250,6 +7254,7 @@ def build_production_power_detail_view(
                 "요청합계(PCS)",
                 "생산부족수량",
                 "포장부족수량",
+                "포장부족(PCS)",
                 "포장가능재고(PCS)",
                 *WIP_PROCESS_COLUMNS,
                 "_production_code_prefix",
@@ -7303,6 +7308,7 @@ def build_production_power_detail_view(
         0.0,
     )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
+    grouped["포장부족(PCS)"] = (grouped["request_pcs"] - grouped["packing_pcs"]).clip(lower=0.0).round(0)
     grouped["포장가능재고(PCS)"] = (
         grouped["request_pcs"] - grouped["production_shortage_pcs"] + grouped["sample_available_pcs"]
     ).clip(lower=0.0).round(0)
@@ -7363,6 +7369,7 @@ def build_production_power_detail_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장부족(PCS)",
                 "포장가능재고(PCS)",
                 "_production_code_prefix",
                 "_expected_date_sort",
@@ -7385,6 +7392,7 @@ def calc_production_power_kpis(view: pd.DataFrame) -> dict[str, float]:
             "request_pcs": 0.0,
             "production_shortage_pcs": 0.0,
             "packing_shortage_pack": 0.0,
+            "packing_shortage_pcs": 0.0,
             "production_progress_pct": 0.0,
             "packing_progress_pct": 0.0,
             "production_bottleneck_count": 0.0,
@@ -7394,6 +7402,7 @@ def calc_production_power_kpis(view: pd.DataFrame) -> dict[str, float]:
     request_pcs = float(view["요청합계(PCS)"].sum())
     production_shortage_pcs = float(view["생산부족수량"].sum())
     packing_shortage_pack = float(view["포장부족수량"].sum())
+    packing_shortage_pcs = float(pd.to_numeric(view.get("포장부족(PCS)", pd.Series(0.0, index=view.index)), errors="coerce").fillna(0.0).sum())
     production_progress = (
         (request_pcs - production_shortage_pcs) / request_pcs * 100.0
         if request_pcs > 0
@@ -7407,6 +7416,7 @@ def calc_production_power_kpis(view: pd.DataFrame) -> dict[str, float]:
         "request_pcs": request_pcs,
         "production_shortage_pcs": production_shortage_pcs,
         "packing_shortage_pack": packing_shortage_pack,
+        "packing_shortage_pcs": packing_shortage_pcs,
         "production_progress_pct": min(100.0, max(0.0, production_progress)),
         "packing_progress_pct": min(100.0, max(0.0, packing_progress)),
         "production_bottleneck_count": float(view["병목 상태"].astype(str).str.contains("생산 병목", na=False).sum()),
@@ -7420,9 +7430,8 @@ def render_production_power_kpis(view: pd.DataFrame, unit_mode: str = UNIT_PACK)
         items = [
             ("생산코드 수", f"{int(kpi['production_code_count']):,}", "normal"),
             ("총 요청 PCS", format_int(kpi["request_pcs"]), "normal"),
+            ("총 포장부족(PCS)", format_int(kpi["packing_shortage_pcs"]), "warn"),
             ("총 생산부족수량(PCS)", format_int(kpi["production_shortage_pcs"]), "risk"),
-            ("생산진도율", f"{kpi['production_progress_pct']:.1f}%", "normal"),
-            ("포장진도율", f"{kpi['packing_progress_pct']:.1f}%", "normal"),
         ]
     else:
         items = [
@@ -13339,7 +13348,7 @@ def production_dialog_summary_html(selected_row: pd.Series, detail_count: int) -
             errors="coerce",
         ).fillna(0.0).iloc[0]
     )
-    packing_shortage = float(pd.to_numeric(pd.Series([selected_row.get("포장부족(PACK)", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    packing_shortage = float(pd.to_numeric(pd.Series([selected_row.get("포장부족(PCS)", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
     production_progress = float(pd.to_numeric(pd.Series([selected_row.get("생산진도율", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
     packing_progress = float(pd.to_numeric(pd.Series([selected_row.get("포장진도율", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
     expected_date = clean_str(selected_row.get("생산완료예상일", "-")) or "-"
@@ -13356,7 +13365,7 @@ def production_dialog_summary_html(selected_row: pd.Series, detail_count: int) -
             production_dialog_metric_html("생산부족", f"{format_int(production_shortage)} PCS", "danger" if production_shortage > 0 else "normal"),
             production_dialog_metric_html("생산진도율", f"{production_progress:.1f}%", "primary"),
             production_dialog_metric_html("포장진도율", f"{packing_progress:.1f}%", "warning"),
-            production_dialog_metric_html("포장부족", f"{format_int(packing_shortage)} PACK", "warning" if packing_shortage > 0 else "normal"),
+            production_dialog_metric_html("포장부족", f"{format_int(packing_shortage)} PCS", "warning" if packing_shortage > 0 else "normal"),
             production_dialog_metric_html("완료예정일", expected_date, "normal"),
         ]
     )
@@ -13416,7 +13425,7 @@ def build_production_power_dialog_view(detail_view: pd.DataFrame) -> pd.DataFram
         "검사접착",
         "누수규격검사",
         "생산부족수량(PCS)",
-        "포장부족(PACK)",
+        "포장부족(PCS)",
         "생산진도율",
         "포장진도율",
         "생산완료예상일",
@@ -13862,7 +13871,7 @@ def render_production_code_tab(
         "생산코드 상세",
         "생산코드 기준으로 제품군 위험도를 확인하고, 선택 시 POWER별 상세를 팝업으로 확인합니다.",
     )
-    production_unit_mode = UNIT_PACK
+    production_unit_mode = UNIT_PCS
     pack_options = available_pack_options(code_summary)
     pack_labels = PRODUCTION_CODE_PACK_LABELS
     power_options = available_production_power_options(code_summary)
