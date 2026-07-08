@@ -5107,9 +5107,9 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
         "생산코드",
         "기간구분",
         "대표 제품명",
-        *pack_labels,
         "요청합계(PACK)",
         "포장부족(PACK)",
+        "포장가능재고(PCS)",
         "생산부족수량(PCS)",
         "기준차이",
         "생산진도율",
@@ -5128,6 +5128,7 @@ def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str
         *pack_labels,
         "요청합계(PACK)",
         "포장부족(PACK)",
+        "포장가능재고(PCS)",
         *WIP_PROCESS_COLUMNS,
         "생산부족수량(PCS)",
         "기준차이",
@@ -6950,6 +6951,20 @@ def prepare_production_power_rows(code_summary: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
+def attach_deduped_sample_available_pcs(rows: pd.DataFrame) -> pd.DataFrame:
+    work = rows.copy()
+    sample_available = pd.to_numeric(
+        work.get("sample_available_pcs", pd.Series(0.0, index=work.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    production_key = work.get("production_code_key", pd.Series("", index=work.index)).map(clean_str)
+    display_key = work.get("production_code_display", pd.Series("", index=work.index)).map(normalize_match_key)
+    sample_key = production_key.where(production_key != "", display_key)
+    duplicated_sample = (sample_key.map(clean_str) != "") & sample_key.duplicated(keep="first")
+    work["_dedup_sample_available_pcs"] = sample_available.where(~duplicated_sample, 0.0)
+    return work
+
+
 def refresh_scope_production_shortage(rows: pd.DataFrame) -> pd.DataFrame:
     work = add_allocated_production_basis(rows)
     work["_production_shortage_pcs"] = pd.to_numeric(
@@ -7048,6 +7063,7 @@ def build_production_power_main_view(
         *pack_labels,
         "요청합계(PACK)",
         "포장부족(PACK)",
+        "포장가능재고(PCS)",
         "생산부족수량(PCS)",
         "기준차이",
         "생산진도율",
@@ -7062,6 +7078,7 @@ def build_production_power_main_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장가능재고(PCS)",
                 "병목 상태",
                 "_production_code_prefix",
                 "_expected_date_sort",
@@ -7071,6 +7088,7 @@ def build_production_power_main_view(
     work = rows.copy()
     if "_packing_recognized_pcs" not in work.columns:
         work["_packing_recognized_pcs"] = recognized_packing_pcs(work)
+    work = attach_deduped_sample_available_pcs(work)
     work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
     group_cols = ["_production_code_prefix"]
     base = (
@@ -7086,6 +7104,7 @@ def build_production_power_main_view(
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             basis_difference_pcs=("_basis_difference_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
+            sample_available_pcs=("_dedup_sample_available_pcs", "sum"),
             expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
@@ -7117,6 +7136,9 @@ def build_production_power_main_view(
         0.0,
     )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
+    grouped["포장가능재고(PCS)"] = (
+        grouped["request_pcs"] - grouped["production_shortage_pcs"] + grouped["sample_available_pcs"]
+    ).clip(lower=0.0).round(0)
     grouped["병목 상태"] = [
         bottleneck_status(prod, pack)
         for prod, pack in zip(grouped["생산진도율"], grouped["포장진도율"])
@@ -7164,6 +7186,7 @@ def build_production_power_main_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장가능재고(PCS)",
                 "병목 상태",
                 "_production_code_prefix",
                 "_expected_date_sort",
@@ -7190,6 +7213,7 @@ def build_production_power_detail_view(
         *pack_labels,
         "요청합계(PACK)",
         "포장부족(PACK)",
+        "포장가능재고(PCS)",
         "생산부족수량(PCS)",
         "기준차이",
         "생산진도율",
@@ -7204,6 +7228,7 @@ def build_production_power_detail_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장가능재고(PCS)",
                 *WIP_PROCESS_COLUMNS,
                 "_production_code_prefix",
                 "_expected_date_sort",
@@ -7214,6 +7239,7 @@ def build_production_power_detail_view(
     work = rows.copy()
     if "_packing_recognized_pcs" not in work.columns:
         work["_packing_recognized_pcs"] = recognized_packing_pcs(work)
+    work = attach_deduped_sample_available_pcs(work)
     work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
     if production_prefix is not None:
         work = work[work["_production_code_prefix"] == production_prefix].copy()
@@ -7224,6 +7250,7 @@ def build_production_power_detail_view(
                 "요청합계(PCS)",
                 "생산부족수량",
                 "포장부족수량",
+                "포장가능재고(PCS)",
                 *WIP_PROCESS_COLUMNS,
                 "_production_code_prefix",
                 "_expected_date_sort",
@@ -7245,6 +7272,7 @@ def build_production_power_detail_view(
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             basis_difference_pcs=("_basis_difference_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
+            sample_available_pcs=("_dedup_sample_available_pcs", "sum"),
             expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
@@ -7275,6 +7303,9 @@ def build_production_power_detail_view(
         0.0,
     )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
+    grouped["포장가능재고(PCS)"] = (
+        grouped["request_pcs"] - grouped["production_shortage_pcs"] + grouped["sample_available_pcs"]
+    ).clip(lower=0.0).round(0)
     grouped["상태"] = [
         status_from_progress(packing, progress)
         for packing, progress in zip(grouped["packing_pack"], grouped["포장진도율"])
@@ -7332,6 +7363,7 @@ def build_production_power_detail_view(
                 "생산부족수량",
                 "기준차이(PCS)",
                 "포장부족수량",
+                "포장가능재고(PCS)",
                 "_production_code_prefix",
                 "_expected_date_sort",
                 "_power_sort",
@@ -13380,6 +13412,7 @@ def build_production_power_dialog_view(detail_view: pd.DataFrame) -> pd.DataFram
         "POWER",
         "요청합계(PCS)",
         "포장실적(PCS)",
+        "포장가능재고(PCS)",
         "검사접착",
         "누수규격검사",
         "생산부족수량(PCS)",
