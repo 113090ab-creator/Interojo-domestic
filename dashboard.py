@@ -273,7 +273,19 @@ REQUEST_COLS = {
     ],
     "request_pcs": ["수량(PCS)", "수량 (PCS)", "요청 PCS", "요청수량(PCS)", "요청물량 PCS"],
     "units_per_pack": ["입수(낱개)", "입수", "팩당수량", "pack_size"],
-    "due_date": ["납기일자", "납기 일자", "납기일", "due_date"],
+    "due_date": [
+        "계획일자",
+        "계획 일자",
+        "계획일",
+        "생산계획일자",
+        "생산 계획일자",
+        "생산계획일",
+        "생산 계획일",
+        "납기일자",
+        "납기 일자",
+        "납기일",
+        "due_date",
+    ],
     "product_name_code": ["제품명코드", "제품명 코드", "제품규격", "품목코드"],
     "production_code": ["생산코드", "생산 코드", "제품코드", "제품 코드", "production_code"],
     "p_code": ["P코드(생산)", "P 코드(생산)", "P코드", "P 코드", "P code"],
@@ -2049,7 +2061,7 @@ def find_progress_base_column_index(fields: pd.Series, field_label: str) -> int 
 
 
 def find_progress_due_column_index(groups: pd.Series, fields: pd.Series, group_label: str) -> int | None:
-    for field_label in ["납기일", "생산 계획일", "생산계획일", "계획일"]:
+    for field_label in ["생산 계획일", "생산계획일", "계획일", "생산 계획일자", "생산계획일자", "계획일자", "납기일"]:
         idx = find_progress_column_index(groups, fields, group_label, field_label)
         if idx is not None:
             return idx
@@ -2189,15 +2201,6 @@ def filter_progress_for_production_month(
     if progress_df.empty:
         return progress_df.copy()
 
-    total_due_source = (
-        progress_df["total_due_date"]
-        if "total_due_date" in progress_df.columns
-        else pd.Series(pd.NaT, index=progress_df.index)
-    )
-    total_due = pd.to_datetime(
-        total_due_source,
-        errors="coerce",
-    )
     inspection_step = next(step for step in PROCESS_STEPS if step["id"] == "80")
     inspection_due_col = str(inspection_step["due_col"])
     inspection_due_source = (
@@ -2209,7 +2212,7 @@ def filter_progress_for_production_month(
         inspection_due_source,
         errors="coerce",
     )
-    production_due = total_due.fillna(inspection_due)
+    production_due = inspection_due + pd.Timedelta(days=5)
     target_period = pd.Period(target_month, freq="M")
     return progress_df.loc[production_due.dt.to_period("M") == target_period].copy()
 
@@ -2901,12 +2904,11 @@ def attach_progress_to_code_summary(code_summary: pd.DataFrame, progress_df: pd.
         )
     else:
         progress_work = progress_df.copy()
-        due_source = pd.to_datetime(progress_work.get("total_due_date", pd.NaT), errors="coerce")
         inspection_step = next(step for step in PROCESS_STEPS if step["id"] == "80")
         inspection_due = pd.to_datetime(progress_work.get(str(inspection_step["due_col"]), pd.NaT), errors="coerce")
-        progress_work["production_due_date"] = due_source.fillna(inspection_due)
         progress_work["production_plan_date"] = inspection_due
         progress_work["production_complete_expected_date"] = inspection_due + pd.Timedelta(days=5)
+        progress_work["production_due_date"] = progress_work["production_complete_expected_date"]
         progress_by_sales_code = build_progress_by_sales_code(code_summary, progress_work)
 
     out = code_summary.merge(progress_by_sales_code, on="sales_code_key", how="left")
