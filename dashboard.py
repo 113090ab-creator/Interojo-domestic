@@ -307,6 +307,11 @@ PRODUCT_CODE_MASTER_COLS = {
     "r_code": ["사출코드", "R코드", "R코드(사출)", "R 코드"],
 }
 
+PRODUCT_NAME_CATALOG_COLS = {
+    "product_code": ["제품명코드", "제품명 코드", "제품코드", "품목코드"],
+    "product_name": ["제품명", "제품 명", "품명", "product_name"],
+}
+
 PACKING_COLS = {
     "sales_code": ["판매코드", "판매 코드", "품목코드", "sales_code"],
     "product_name": ["판매명", "생산명", "제품명", "제품 명", "품명", "product_name"],
@@ -983,6 +988,46 @@ def read_resolved_excel_sheet(
     return xl.parse(sheet_name=sheet_name, usecols=usecols)
 
 
+def normalize_product_name_catalog(path: Path | None) -> dict[str, str]:
+    if path is None:
+        return {}
+    try:
+        xl = pd.ExcelFile(path)
+    except Exception:
+        return {}
+
+    sheet_candidates = list(dict.fromkeys(["Sheet2", *xl.sheet_names]))
+    for sheet_name in sheet_candidates:
+        if sheet_name not in xl.sheet_names:
+            continue
+        try:
+            raw = xl.parse(sheet_name=sheet_name)
+            cols = resolve_columns(
+                raw,
+                PRODUCT_NAME_CATALOG_COLS,
+                required_keys=["product_code", "product_name"],
+                file_label=f"{path.name}:{sheet_name}",
+            )
+        except Exception:
+            continue
+
+        catalog = pd.DataFrame(
+            {
+                "product_code_key": raw[cols["product_code"]].map(normalize_match_key),
+                "standard_product_name": raw[cols["product_name"]].map(clean_str),
+            }
+        )
+        catalog = catalog[
+            (catalog["product_code_key"] != "")
+            & (catalog["standard_product_name"] != "")
+        ].copy()
+        if not catalog.empty:
+            return catalog.drop_duplicates("product_code_key", keep="first").set_index("product_code_key")[
+                "standard_product_name"
+            ].to_dict()
+    return {}
+
+
 def normalize_product_code_master(path: Path | None) -> pd.DataFrame:
     columns = [
         "sales_code_key",
@@ -991,6 +1036,8 @@ def normalize_product_code_master(path: Path | None) -> pd.DataFrame:
         "master_production_code",
         "master_q_code",
         "master_r_code",
+        "master_sales_product_name",
+        "master_production_product_name",
     ]
     if path is None:
         return pd.DataFrame(columns=columns)
@@ -1006,18 +1053,38 @@ def normalize_product_code_master(path: Path | None) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame(columns=columns)
 
+    product_name_catalog = normalize_product_name_catalog(path)
+    sales_base_col = find_column(raw, ["제품규격", "판매코드", "품목코드"])
+    sales_code = raw[cols["sales_code"]].map(clean_str)
+    sales_base_code = (
+        raw[sales_base_col].map(clean_str)
+        if sales_base_col is not None
+        else sales_code.map(extract_sales_prefix)
+    )
+    sales_base_code = sales_base_code.where(sales_base_code.map(clean_str) != "", sales_code.map(extract_sales_prefix))
+    fallback_product_name = raw[cols["product_name"]].map(clean_str) if "product_name" in cols else pd.Series("", index=raw.index)
+    sales_product_name = sales_base_code.map(normalize_match_key).map(product_name_catalog).fillna("").map(clean_str)
+    sales_product_name = sales_product_name.where(sales_product_name != "", fallback_product_name)
+
+    p_code = raw[cols["p_code"]].map(clean_str)
+    production_code = raw[cols["production_code"]].map(clean_str) if "production_code" in cols else pd.Series("", index=raw.index)
+    production_prefix = production_code.map(production_code_prefix)
+    p_prefix = p_code.map(production_code_prefix)
+    production_product_name = production_prefix.map(product_name_catalog).fillna("").map(clean_str)
+    p_product_name = p_prefix.map(product_name_catalog).fillna("").map(clean_str)
+    production_product_name = production_product_name.where(production_product_name != "", p_product_name)
+    production_product_name = production_product_name.where(production_product_name != "", sales_product_name)
+
     out = pd.DataFrame(
         {
-            "sales_code_key": raw[cols["sales_code"]].map(normalize_match_key),
-            "master_product_name": raw[cols["product_name"]].map(clean_str)
-            if "product_name" in cols
-            else "",
-            "master_p_code": raw[cols["p_code"]].map(clean_str),
-            "master_production_code": raw[cols["production_code"]].map(clean_str)
-            if "production_code" in cols
-            else "",
+            "sales_code_key": sales_code.map(normalize_match_key),
+            "master_product_name": sales_product_name,
+            "master_p_code": p_code,
+            "master_production_code": production_code,
             "master_q_code": raw[cols["q_code"]].map(clean_str) if "q_code" in cols else "",
             "master_r_code": raw[cols["r_code"]].map(clean_str) if "r_code" in cols else "",
+            "master_sales_product_name": sales_product_name,
+            "master_production_product_name": production_product_name,
         }
     )
     out = out[(out["sales_code_key"] != "") & (out["master_p_code"].map(clean_str) != "")].copy()
@@ -1067,6 +1134,18 @@ def enrich_request_from_product_master(request_df: pd.DataFrame, product_master_
     if "master_product_name" in out.columns:
         master_product = out["master_product_name"].map(clean_str)
         out["product_name"] = out["master_product_name"].where(master_product != "", out["product_name"])
+    sales_standard = (
+        out["master_sales_product_name"].map(clean_str)
+        if "master_sales_product_name" in out.columns
+        else pd.Series("", index=out.index)
+    )
+    production_standard = (
+        out["master_production_product_name"].map(clean_str)
+        if "master_production_product_name" in out.columns
+        else pd.Series("", index=out.index)
+    )
+    out["standard_sales_product_name"] = sales_standard.where(sales_standard != "", out["product_name"])
+    out["standard_production_product_name"] = production_standard.where(production_standard != "", out["product_name"])
     return out.drop(
         columns=[
             "_sales_code_key_for_master",
@@ -1076,6 +1155,8 @@ def enrich_request_from_product_master(request_df: pd.DataFrame, product_master_
             "master_production_code",
             "master_q_code",
             "master_r_code",
+            "master_sales_product_name",
+            "master_production_product_name",
         ],
         errors="ignore",
     )
@@ -2447,6 +2528,8 @@ def build_summaries(
         "pack_unit",
         "pack_unit_label",
         "base_product_name",
+        "standard_sales_product_name",
+        "standard_production_product_name",
         "customer_name",
         "category_summary",
         "factory_group",
@@ -2470,6 +2553,8 @@ def build_summaries(
                 request_work[col] = "(미기재)"
             elif col == "base_product_name":
                 request_work[col] = request_work["product_name"].map(strip_pack_unit_suffix)
+            elif col in {"standard_sales_product_name", "standard_production_product_name"}:
+                request_work[col] = request_work["product_name"]
             elif col == "customer_name":
                 request_work[col] = "(미기재)"
             elif col == "category_summary":
@@ -2517,6 +2602,8 @@ def build_summaries(
         "pack_unit",
         "pack_unit_label",
         "base_product_name",
+        "standard_sales_product_name",
+        "standard_production_product_name",
         "customer_name",
         "category_summary",
         "factory_group",
@@ -2648,6 +2735,8 @@ def build_summaries(
                     "pack_unit": pack_unit,
                     "pack_unit_label": format_pack_unit_label(pack_unit, product_name),
                     "base_product_name": strip_pack_unit_suffix(product_name),
+                    "standard_sales_product_name": product_name,
+                    "standard_production_product_name": product_name,
                     "customer_name": "(포장실적)",
                     "category_summary": category_summary,
                     "factory_group": factory_group,
@@ -7059,7 +7148,15 @@ def production_prefix_product_name_lookup(rows: pd.DataFrame) -> dict[str, str]:
         work["_production_code_prefix"] = work.get("production_code_display", pd.Series("", index=work.index)).map(
             production_code_prefix
         )
-    if "base_product_name" in work.columns:
+    if "standard_production_product_name" in work.columns:
+        standard_names = work["standard_production_product_name"].map(clean_str)
+        fallback_names = (
+            work["base_product_name"].map(clean_str)
+            if "base_product_name" in work.columns
+            else work.get("product_name", pd.Series("", index=work.index)).map(strip_pack_unit_suffix).map(clean_str)
+        )
+        name_source = standard_names.where(standard_names != "", fallback_names)
+    elif "base_product_name" in work.columns:
         name_source = work["base_product_name"]
     else:
         name_source = work.get("product_name", pd.Series("", index=work.index)).map(strip_pack_unit_suffix)
