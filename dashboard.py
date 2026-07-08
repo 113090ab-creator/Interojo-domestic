@@ -7842,7 +7842,7 @@ def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFr
             packable_pcs=("_packable_pcs", "sum"),
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             production_plan_date=("_production_plan_date", min_datetime),
-            expected_date=("_expected_date_sort", min_datetime),
+            expected_date=("_expected_date_sort", max_datetime),
         )
         .reset_index()
         .rename(
@@ -7913,7 +7913,7 @@ def build_product_completion_main_view(power_view: pd.DataFrame) -> pd.DataFrame
             packable_pcs=("포장가능수량 (PCS)", "sum"),
             production_shortage_pcs=("생산부족수량 (PCS)", "sum"),
             production_plan_date=("production_plan_date", min_datetime),
-            expected_date=("_expected_date_sort", min_datetime),
+            expected_date=("_expected_date_sort", max_datetime),
         )
         .reset_index()
         .rename(
