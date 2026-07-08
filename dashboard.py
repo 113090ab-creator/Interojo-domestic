@@ -8381,27 +8381,6 @@ def filter_product_completion_view(
     return out.copy()
 
 
-def product_completion_column_config() -> dict[str, Any]:
-    numeric_format = "%,.0f"
-    column_config = drilldown_column_config()
-    column_config.update(
-        {
-            "판매코드": st.column_config.TextColumn("판매코드", width=82),
-            "제품명": st.column_config.TextColumn("제품명", width=270),
-            "POWER수": st.column_config.NumberColumn("POWER", format=numeric_format, width=74),
-            "생산요청물량 (PCS)": st.column_config.NumberColumn("요청수량", format=numeric_format, width=118),
-            "용마입고수량 (PCS)": st.column_config.NumberColumn("용마입고수량", format=numeric_format, width=122),
-            "용마입고대기 (PCS)": st.column_config.NumberColumn("용마입고대기수량", format=numeric_format, width=134),
-            "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족수량", format=numeric_format, width=122),
-            "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능수량", format=numeric_format, width=122),
-            "생산부족수량 (PCS)": st.column_config.NumberColumn("생산부족수량", format=numeric_format, width=122),
-            "생산완료예상일": st.column_config.TextColumn("생산완료예상일", width=126),
-            "생산상태": st.column_config.TextColumn("상태", width=92),
-        }
-    )
-    return column_config
-
-
 def product_completion_summary_html(view: pd.DataFrame) -> str:
     status = view.get("_status_key", pd.Series(dtype="object")).map(clean_str)
     total = len(view)
@@ -8427,6 +8406,47 @@ def product_completion_summary_html(view: pd.DataFrame) -> str:
     return f"<div class='completion-summary-card'>{cards}</div>"
 
 
+PRODUCT_COMPLETION_GROUPED_COLUMNS = [
+    ("제품정보", "판매코드", "판매코드"),
+    ("제품정보", "제품명", "제품명"),
+    ("제품정보", "POWER", "POWER수"),
+    ("입고현황", "요청수량", "생산요청물량 (PCS)"),
+    ("입고현황", "용마입고수량", "용마입고수량 (PCS)"),
+    ("입고현황", "용마입고대기수량", "용마입고대기 (PCS)"),
+    ("부족현황", "포장부족수량", "포장부족수량 (PCS)"),
+    ("부족현황", "포장가능수량", "포장가능수량 (PCS)"),
+    ("부족현황", "생산부족수량", "생산부족수량 (PCS)"),
+    ("완료정보", "생산완료예상일", "생산완료예상일"),
+    ("완료정보", "상태", "생산상태"),
+]
+
+
+def product_completion_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    source = dataframe_for_streamlit(df)
+    number_columns = {
+        "POWER수",
+        "생산요청물량 (PCS)",
+        "용마입고수량 (PCS)",
+        "용마입고대기 (PCS)",
+        "포장부족수량 (PCS)",
+        "포장가능수량 (PCS)",
+        "생산부족수량 (PCS)",
+    }
+    out = pd.DataFrame(index=source.index)
+    grouped_columns: list[tuple[str, str]] = []
+    for group, label, column in PRODUCT_COMPLETION_GROUPED_COLUMNS:
+        if column not in source.columns:
+            continue
+        grouped_columns.append((group, label))
+        if column in number_columns:
+            values = pd.to_numeric(source[column], errors="coerce")
+            out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else format_int(float(value)))
+        else:
+            out[(group, label)] = source[column].map(clean_str)
+    out.columns = pd.MultiIndex.from_tuples(grouped_columns)
+    return out
+
+
 def render_product_completion_main_table(
     title: str,
     sub: str,
@@ -8441,14 +8461,12 @@ def render_product_completion_main_table(
         return None
 
     st.markdown(product_completion_summary_html(df), unsafe_allow_html=True)
-    display_df = dataframe_for_streamlit(df)
+    display_df = product_completion_display_dataframe(df)
     event = st.dataframe(
         display_df,
         hide_index=True,
         height=dataframe_auto_height(len(display_df), height, row_height=48),
         width="stretch",
-        column_config=product_completion_column_config(),
-        column_order=visible_columns(display_df, PRODUCT_COMPLETION_MAIN_COLUMNS),
         on_select="rerun",
         selection_mode="single-row",
         key=key,
