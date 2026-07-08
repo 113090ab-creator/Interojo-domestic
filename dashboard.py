@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from html import escape
 from io import BytesIO
 from pathlib import Path
@@ -91,7 +92,7 @@ DAILY_ITEM_STANDARD = {
     "S162": {"factory_group": "C관", "product_name": "Iris BlueMoon_40팩"},
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
-DATA_CACHE_VERSION = 35
+DATA_CACHE_VERSION = 36
 REQUEST_DUE_MONTH = "2026-07"
 REQUEST_DUE_MONTH_LABEL = "2026년 7월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -13222,13 +13223,13 @@ def file_fingerprint(path: Path | None) -> tuple[str, int, int] | None:
     return (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
 
 
-def dashboard_cache_fingerprint() -> tuple[int, str, int, int]:
+def dashboard_cache_fingerprint() -> tuple[int, str, str]:
     try:
         path = Path(__file__).resolve()
-        stat = path.stat()
-        return (DATA_CACHE_VERSION, str(path), int(stat.st_mtime_ns), int(stat.st_size))
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return (DATA_CACHE_VERSION, str(path), digest)
     except Exception:
-        return (DATA_CACHE_VERSION, "dashboard.py", 0, 0)
+        return (DATA_CACHE_VERSION, "dashboard.py", "")
 
 
 @st.cache_data(show_spinner="데이터 파일을 읽는 중입니다. 잠시만 기다려 주세요.", max_entries=8)
@@ -13239,7 +13240,7 @@ def load_dashboard_data(
     inventory_fingerprint: tuple[str, int, int] | None,
     daily_inventory_fingerprint: tuple[str, int, int] | None,
     product_master_fingerprint: tuple[str, int, int] | None,
-    cache_version: tuple[int, str, int, int] | int,
+    cache_version: tuple[int, str, str] | int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     request_file = Path(request_fingerprint[0])
     packing_file = Path(packing_fingerprint[0])
