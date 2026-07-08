@@ -8110,7 +8110,7 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
         custom_range,
     )
 
-    pager_cols = st.columns([1.0, 1.0, 4.0], gap="small", vertical_alignment="end")
+    pager_cols = st.columns([1.0, 1.0, 4.0], gap="small", vertical_alignment="bottom")
     with pager_cols[0]:
         page_size = int(
             st.selectbox(
