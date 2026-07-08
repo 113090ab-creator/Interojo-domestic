@@ -6961,7 +6961,6 @@ def render_production_code_main_table(
 
 
 SALES_PRIORITY_GROUPED_COLUMNS = [
-    ("우선정보", "우선등급", "우선등급"),
     ("제품정보", "기간구분", "기간구분"),
     ("제품정보", "판매코드", "판매코드"),
     ("제품정보", "제품명", "제품명"),
@@ -6974,7 +6973,6 @@ SALES_PRIORITY_GROUPED_COLUMNS = [
 
 
 SALES_GROUP_MAIN_GROUPED_COLUMNS = [
-    ("우선정보", "우선등급", "우선등급"),
     ("제품정보", "기간구분", "기간구분"),
     ("제품정보", "판매코드", "판매코드"),
     ("제품정보", "대표 제품명", "대표 제품명"),
@@ -6994,7 +6992,6 @@ SALES_GROUP_MAIN_GROUPED_COLUMNS = [
 
 
 SALES_DETAIL_GROUPED_COLUMNS = [
-    ("우선정보", "우선등급", "우선등급"),
     ("제품정보", "기간구분", "기간구분"),
     ("제품정보", "판매코드", "판매코드"),
     ("제품정보", "생산코드", "생산코드"),
