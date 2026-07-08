@@ -8389,13 +8389,13 @@ def product_completion_column_config() -> dict[str, Any]:
             "판매코드": st.column_config.TextColumn("판매코드", width=82),
             "제품명": st.column_config.TextColumn("제품명", width=270),
             "POWER수": st.column_config.NumberColumn("POWER", format=numeric_format, width=74),
-            "생산요청물량 (PCS)": st.column_config.NumberColumn("요청PCS", format=numeric_format, width=118),
-            "용마입고수량 (PCS)": st.column_config.NumberColumn("입고PCS", format=numeric_format, width=116),
-            "용마입고대기 (PCS)": st.column_config.NumberColumn("대기PCS", format=numeric_format, width=116),
-            "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족", format=numeric_format, width=116),
-            "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능", format=numeric_format, width=116),
-            "생산부족수량 (PCS)": st.column_config.NumberColumn("생산부족", format=numeric_format, width=116),
-            "생산완료예상일": st.column_config.TextColumn("예상일", width=92),
+            "생산요청물량 (PCS)": st.column_config.NumberColumn("요청수량", format=numeric_format, width=118),
+            "용마입고수량 (PCS)": st.column_config.NumberColumn("용마입고수량", format=numeric_format, width=122),
+            "용마입고대기 (PCS)": st.column_config.NumberColumn("용마입고대기수량", format=numeric_format, width=134),
+            "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족수량", format=numeric_format, width=122),
+            "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능수량", format=numeric_format, width=122),
+            "생산부족수량 (PCS)": st.column_config.NumberColumn("생산부족수량", format=numeric_format, width=122),
+            "생산완료예상일": st.column_config.TextColumn("생산완료예상일", width=126),
             "생산상태": st.column_config.TextColumn("상태", width=92),
         }
     )
@@ -8494,7 +8494,7 @@ def render_product_completion_detail_dialog(
 def render_product_completion_section(code_summary: pd.DataFrame) -> None:
     st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
     render_panel_title(
-        "제품별 생산 완료 현황",
+        "제품별 현황 (단위 : PCS)",
         "판매코드 기준 생산 진행 현황과 누수규격검사 계획일 기준 생산완료예상일을 확인합니다.",
     )
     power_view = build_product_completion_power_view(code_summary)
@@ -12963,6 +12963,15 @@ def render_style() -> None:
             color: #374151 !important;
             border-bottom: 1px solid #E5E7EB !important;
             justify-content: center !important;
+            text-align: center !important;
+        }}
+        [data-testid="stDataFrame"] th *,
+        [data-testid="stDataFrame"] [role="columnheader"] *,
+        [data-testid="stDataFrame"] [role="columnheader"] > div {{
+            justify-content: center !important;
+            text-align: center !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
         }}
         [data-testid="stDataFrame"] td,
         [data-testid="stDataFrame"] [role="gridcell"] {{
