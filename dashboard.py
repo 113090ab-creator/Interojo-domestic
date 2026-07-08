@@ -7705,7 +7705,6 @@ def build_sales_code_group_main_view(
     return grouped[columns].copy()
 
 
-PRODUCT_COMPLETION_DATE_FILTERS = ["전체", "오늘", "이번주", "다음주", "사용자 지정 기간"]
 PRODUCT_COMPLETION_STATUS_FILTERS = ["전체", "생산중", "생산완료", "미계획"]
 PRODUCT_COMPLETION_STATUS_LABELS = {
     "생산완료": "🟢 생산완료",
@@ -7750,10 +7749,10 @@ def row_pcs_per_pack(work: pd.DataFrame) -> pd.Series:
 def production_completion_status_key(plan_date: Any, production_shortage_pcs: Any) -> str:
     plan = pd.to_datetime(plan_date, errors="coerce")
     shortage = to_number_value(production_shortage_pcs)
-    if pd.isna(plan):
-        return "미계획"
     if shortage <= 0:
         return "생산완료"
+    if pd.isna(plan):
+        return "미계획"
     return "생산중"
 
 
@@ -7960,49 +7959,22 @@ def build_product_completion_main_view(power_view: pd.DataFrame) -> pd.DataFrame
     )
 
 
-def product_completion_date_bounds(period_filter: str, custom_range: Any = None) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-    today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
-    if period_filter == "오늘":
-        return today, today
-    if period_filter == "이번주":
-        return today, today + pd.Timedelta(days=6 - today.weekday())
-    if period_filter == "다음주":
-        start = today + pd.Timedelta(days=7 - today.weekday())
-        return start, start + pd.Timedelta(days=6)
-    if period_filter == "사용자 지정 기간" and custom_range:
-        if isinstance(custom_range, (list, tuple)) and len(custom_range) >= 2:
-            start = pd.to_datetime(custom_range[0], errors="coerce")
-            end = pd.to_datetime(custom_range[1], errors="coerce")
-            if pd.notna(start) and pd.notna(end):
-                return min(start, end).normalize(), max(start, end).normalize()
-    return None
-
-
 def filter_product_completion_view(
     view: pd.DataFrame,
     period_filter: str,
-    product_section: str,
     sales_query: str,
     product_query: str,
-    status_filter: str,
-    custom_range: Any = None,
 ) -> pd.DataFrame:
     if view.empty:
         return view.copy()
     out = view.copy()
-    if product_section != "전체":
-        out = out[out["_section"] == product_section]
+    if period_filter != "전체":
+        section_filter = "1DAY" if period_filter == "1-DAY" else period_filter
+        out = out[out["_section"].astype(str) == section_filter]
     if sales_query.strip():
         out = filter_dataframe_by_terms(out, sales_query, ["판매코드"])
     if product_query.strip():
         out = filter_dataframe_by_terms(out, product_query, ["대표 제품명"])
-    if status_filter != "전체":
-        out = out[out["_status_key"] == status_filter]
-    bounds = product_completion_date_bounds(period_filter, custom_range)
-    if bounds is not None:
-        start, end = bounds
-        expected = pd.to_datetime(out["_expected_date_sort"], errors="coerce")
-        out = out[expected.notna() & (expected >= start) & (expected <= end)]
     return out.copy()
 
 
@@ -8048,116 +8020,45 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
         st.info("표시할 제품별 생산 완료 현황 데이터가 없습니다.")
         return
 
-    section_options = ["전체"] + [section for section in FAMILY_CARD_SECTION_ORDER if section in set(main_view["_section"].astype(str))]
-    linked_section = clean_str(st.session_state.get("family_progress_section_filter", "전체"))
-    if linked_section not in section_options:
-        linked_section = "전체"
-    if st.session_state.get("product_completion_section_filter") not in section_options:
-        st.session_state["product_completion_section_filter"] = linked_section
+    if st.session_state.get("product_completion_period_group_filter") not in PERIOD_GROUP_ORDER:
+        st.session_state["product_completion_period_group_filter"] = "전체"
 
-    f1, f2, f3, f4, f5 = st.columns([1.15, 1.1, 1.25, 1.65, 1.1], gap="small")
+    f1, f2, f3 = st.columns([1.0, 1.35, 1.9], gap="small")
     with f1:
         period_filter = st.selectbox(
             "기간구분",
-            PRODUCT_COMPLETION_DATE_FILTERS,
+            PERIOD_GROUP_ORDER,
             index=0,
-            key="product_completion_due_filter",
+            key="product_completion_period_group_filter",
         )
     with f2:
-        product_section = st.selectbox(
-            "제품분류",
-            section_options,
-            key="product_completion_section_filter",
-        )
-    with f3:
         sales_query = st.text_input(
             "판매코드 검색",
             value="",
             placeholder="예: S120",
             key="product_completion_sales_query",
         )
-    with f4:
+    with f3:
         product_query = st.text_input(
             "제품명 검색",
             value="",
             placeholder="예: 소울브라운",
             key="product_completion_product_query",
         )
-    with f5:
-        status_filter = st.selectbox(
-            "생산상태",
-            PRODUCT_COMPLETION_STATUS_FILTERS,
-            index=0,
-            key="product_completion_status_filter",
-        )
-
-    custom_range = None
-    if period_filter == "사용자 지정 기간":
-        today = pd.Timestamp.now(tz="Asia/Seoul").date()
-        custom_range = st.date_input(
-            "사용자 지정 기간",
-            value=(today, today + pd.Timedelta(days=7).to_pytimedelta()),
-            key="product_completion_custom_date_range",
-        )
 
     filtered = filter_product_completion_view(
         main_view,
         period_filter,
-        product_section,
         sales_query,
         product_query,
-        status_filter,
-        custom_range,
     )
 
-    pager_cols = st.columns([1.0, 1.0, 4.0], gap="small", vertical_alignment="bottom")
-    with pager_cols[0]:
-        page_size = int(
-            st.selectbox(
-                "페이지당 행",
-                [10, 20, 50],
-                index=1,
-                key="product_completion_page_size",
-            )
-        )
-    total_pages = max(1, int(np.ceil(len(filtered) / page_size))) if page_size > 0 else 1
-    page_key = "product_completion_page"
-    signature = (
-        period_filter,
-        product_section,
-        sales_query,
-        product_query,
-        status_filter,
-        str(custom_range),
-        page_size,
-    )
-    if st.session_state.get("product_completion_filter_signature") != signature:
-        st.session_state["product_completion_filter_signature"] = signature
-        st.session_state[page_key] = 1
-    st.session_state[page_key] = min(max(int(st.session_state.get(page_key, 1)), 1), total_pages)
-    with pager_cols[1]:
-        page = int(
-            st.number_input(
-                "페이지",
-                min_value=1,
-                max_value=total_pages,
-                value=st.session_state[page_key],
-                step=1,
-                key=page_key,
-            )
-        )
-    start = (page - 1) * page_size
-    end = min(start + page_size, len(filtered))
-    with pager_cols[2]:
-        st.caption(f"표시 {start + 1 if len(filtered) else 0:,}-{end:,} / 전체 {len(filtered):,}건")
-
-    paged_view = filtered.iloc[start:end].copy()
     table_nonce_key = "product_completion_table_nonce"
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_row = render_selectable_table(
         "판매코드 기준 메인 테이블",
         "판매코드 기준 1행 집계 | 행을 선택하면 POWER 상세를 확인합니다.",
-        paged_view,
+        filtered,
         key=f"product_completion_table_{table_nonce}",
         height=620,
         column_order=PRODUCT_COMPLETION_MAIN_COLUMNS,
