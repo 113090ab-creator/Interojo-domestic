@@ -3899,6 +3899,7 @@ def family_progress_bar_html(value: float, tone: str) -> str:
 
 def family_progress_row_html(row: pd.Series, idx: int) -> str:
     family = escape(clean_str(row["본품분류"]))
+    request_pcs = format_int(float(row.get("요청 PCS", 0.0)))
     request_pack = format_int(float(row["요청 PACK"]))
     production_progress = float(row["생산진도율"])
     packing_progress = float(row.get("포장진도율", 0.0))
@@ -3910,7 +3911,10 @@ def family_progress_row_html(row: pd.Series, idx: int) -> str:
     return (
         "<div class='family-table-row'>"
         f"<div class='family-name'><span class='family-dot {dot_class}'></span><b>{family}</b></div>"
-        f"<div class='family-num'>{request_pack}</div>"
+        "<div class='family-request'>"
+        f"<strong>{request_pcs}</strong>"
+        f"<span>({request_pack} PACK)</span>"
+        "</div>"
         f"<div>{family_progress_bar_html(production_progress, 'production')}</div>"
         f"<div>{family_progress_bar_html(packing_progress, 'packing')}</div>"
         f"<div>{family_progress_bar_html(receipt_progress, 'receipt')}</div>"
@@ -3948,7 +3952,7 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
         "<div class='family-table'>"
         "<div class='family-table-row family-table-head'>"
         "<div>제품 분류</div>"
-        "<div class='family-num'>요청 PACK</div>"
+        "<div class='family-request-head'>요청 PCS</div>"
         "<div>생산진도율</div>"
         "<div>포장진도율</div>"
         "<div>용마입고율</div>"
@@ -12106,7 +12110,7 @@ def render_style() -> None:
         }}
         .family-table-row {{
             display: grid;
-            grid-template-columns: minmax(118px, 1.25fr) minmax(74px, 0.78fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(86px, 0.82fr);
+            grid-template-columns: minmax(118px, 1.16fr) minmax(126px, 0.94fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(112px, 1fr) minmax(86px, 0.82fr);
             align-items: center;
             gap: 14px;
             height: 56px;
@@ -12162,6 +12166,36 @@ def render_style() -> None:
             font-weight: 700;
             text-align: right;
             font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }}
+        .family-request {{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 3px;
+            min-width: 0;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }}
+        .family-request strong {{
+            color: {TEXT_PRIMARY};
+            font-size: 14px;
+            line-height: 1.05;
+            font-weight: 700;
+            white-space: nowrap;
+        }}
+        .family-request span {{
+            color: {TEXT_MUTED};
+            font-size: 11px;
+            line-height: 1.05;
+            font-weight: 600;
+            white-space: nowrap;
+        }}
+        .family-request-head {{
+            color: #64748B;
+            font-size: 13px;
+            font-weight: 700;
+            text-align: right;
             white-space: nowrap;
         }}
         .family-num.shortage.normal {{
@@ -13413,7 +13447,7 @@ def render_product_summary_tab(
     st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
     render_panel_title(
         "제품 분류별 진도 현황",
-        "제품군별 생산지시 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
+        "제품군별 생산지시 PCS와 PACK, 생산진도율, 용마입고율, 생산부족 PCS를 비교합니다.",
     )
     render_family_progress_cards(family_view)
     render_product_completion_section(code_summary)
