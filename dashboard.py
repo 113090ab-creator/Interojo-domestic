@@ -12710,6 +12710,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "용마입고대기 (PCS)": st.column_config.NumberColumn("용마입고대기 (PCS)", format=numeric_format),
         "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족수량 (PCS)", format=numeric_format),
         "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능수량 (PCS)", format=numeric_format),
+        "생산부족수량 (PCS)": st.column_config.NumberColumn("생산부족수량 (PCS)", format=numeric_format),
         "생산완료예상일": st.column_config.TextColumn("생산완료예상일"),
         "생산상태": st.column_config.TextColumn("생산상태"),
         "요청 PACK": st.column_config.NumberColumn("요청 PACK", format=numeric_format),
