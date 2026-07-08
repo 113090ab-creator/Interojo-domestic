@@ -8086,7 +8086,7 @@ def build_sales_code_group_main_view(
     return grouped[columns].copy()
 
 
-PRODUCT_COMPLETION_STATUS_FILTERS = ["전체", "생산중", "생산완료", "미계획"]
+PRODUCT_COMPLETION_STATUS_FILTERS = ["전체", "생산중", "생산완료"]
 PRODUCT_COMPLETION_STATUS_LABELS = {
     "생산완료": "🟢 생산완료",
     "생산중": "🟠 생산중",
@@ -8376,7 +8376,7 @@ def filter_product_completion_view(
         section_filter = "1DAY" if period_filter == "1-DAY" else period_filter
         out = out[out["_section"].astype(str) == section_filter]
     if unified_query.strip():
-        search_columns = list(out.columns[:2])
+        search_columns = visible_columns(out, PRODUCT_COMPLETION_MAIN_COLUMNS)
         out = filter_dataframe_by_terms(out, unified_query, search_columns)
     return out.copy()
 
@@ -8407,7 +8407,6 @@ def product_completion_summary_html(view: pd.DataFrame) -> str:
     total = len(view)
     done = int((status == "생산완료").sum())
     active = int((status == "생산중").sum())
-    unplanned = int((status == "미계획").sum())
     shortage_total = pd.to_numeric(
         view.get("생산부족수량 (PCS)", pd.Series(dtype="float64")),
         errors="coerce",
@@ -8416,7 +8415,6 @@ def product_completion_summary_html(view: pd.DataFrame) -> str:
         ("총 판매코드", format_int(total), "neutral"),
         ("생산완료", format_int(done), "done"),
         ("생산중", format_int(active), "active"),
-        ("미계획", format_int(unplanned), "risk"),
         ("생산부족 PCS", format_int(float(shortage_total)), "risk" if shortage_total > 0 else "neutral"),
     ]
     cards = "".join(
@@ -10881,7 +10879,7 @@ def render_style() -> None:
         }}
         .completion-summary-card {{
             display: grid;
-            grid-template-columns: repeat(5, minmax(120px, 1fr));
+            grid-template-columns: repeat(4, minmax(120px, 1fr));
             gap: 0;
             margin: 12px 0 14px;
             border: 1px solid {BORDER_DEFAULT};
