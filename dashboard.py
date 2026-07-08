@@ -6751,8 +6751,7 @@ def daily_inventory_grouped_display_dataframe(
             values = pd.to_numeric(source[column], errors="coerce")
             out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else format_int(float(value)))
         elif column in percent_columns:
-            values = pd.to_numeric(source[column], errors="coerce")
-            out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else f"{float(value):.1f}%")
+            out[(group, label)] = pd.to_numeric(source[column], errors="coerce")
         else:
             out[(group, label)] = source[column].map(clean_str)
     if not output_columns:
@@ -6761,8 +6760,37 @@ def daily_inventory_grouped_display_dataframe(
     return out
 
 
+def grouped_progress_percent(value: Any) -> str:
+    try:
+        if pd.isna(value):
+            return ""
+        return f"{float(value):.1f}%"
+    except (TypeError, ValueError):
+        return clean_str(value)
+
+
+def grouped_progress_bar_style(value: Any) -> str:
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        pct = 0.0
+    if pd.isna(pct):
+        pct = 0.0
+    pct = max(0.0, min(100.0, pct))
+    return (
+        f"background: linear-gradient(90deg, {COLOR_BLUE} 0%, {COLOR_BLUE} {pct:.1f}%, "
+        f"#E5E7EB {pct:.1f}%, #E5E7EB 100%);"
+        "background-size: 72% 4px;"
+        "background-repeat: no-repeat;"
+        "background-position: 8px center;"
+        "text-align: right;"
+        "font-weight: 500;"
+        "color: #111827;"
+    )
+
+
 def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
-    return display_df.style.set_table_styles(
+    styler = display_df.style.set_table_styles(
         [
             {
                 "selector": "th",
@@ -6788,6 +6816,22 @@ def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
             },
         ]
     )
+    progress_columns = [
+        column
+        for column in display_df.columns
+        if isinstance(column, tuple) and len(column) >= 2 and column[-1] == "생산진도율"
+    ]
+    if not progress_columns:
+        return styler
+
+    styler = styler.format({column: grouped_progress_percent for column in progress_columns})
+    for column in progress_columns:
+        subset = pd.IndexSlice[:, [column]]
+        if hasattr(styler, "map"):
+            styler = styler.map(grouped_progress_bar_style, subset=subset)
+        else:
+            styler = styler.applymap(grouped_progress_bar_style, subset=subset)
+    return styler
 
 
 def daily_inventory_main_display_styler(df: pd.DataFrame) -> Any:
