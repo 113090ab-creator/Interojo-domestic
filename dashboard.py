@@ -6769,7 +6769,7 @@ def grouped_progress_percent(value: Any) -> str:
         return clean_str(value)
 
 
-def grouped_progress_bar_style(value: Any) -> str:
+def grouped_progress_bar_style(value: Any, color: str = COLOR_BLUE) -> str:
     try:
         pct = float(value)
     except (TypeError, ValueError):
@@ -6778,7 +6778,7 @@ def grouped_progress_bar_style(value: Any) -> str:
         pct = 0.0
     pct = max(0.0, min(100.0, pct))
     return (
-        f"background: linear-gradient(90deg, {COLOR_BLUE} 0%, {COLOR_BLUE} {pct:.1f}%, "
+        f"background: linear-gradient(90deg, {color} 0%, {color} {pct:.1f}%, "
         f"#E5E7EB {pct:.1f}%, #E5E7EB 100%);"
         "background-size: 72% 4px;"
         "background-repeat: no-repeat;"
@@ -6819,18 +6819,19 @@ def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
     progress_columns = [
         column
         for column in display_df.columns
-        if isinstance(column, tuple) and len(column) >= 2 and column[-1] == "생산진도율"
+        if isinstance(column, tuple) and len(column) >= 2 and column[-1] in {"생산진도율", "포장진도율", "용마입고율"}
     ]
     if not progress_columns:
         return styler
 
     styler = styler.format({column: grouped_progress_percent for column in progress_columns})
     for column in progress_columns:
+        color = COLOR_ORANGE if column[-1] == "포장진도율" else COLOR_AMBER if column[-1] == "용마입고율" else COLOR_BLUE
         subset = pd.IndexSlice[:, [column]]
         if hasattr(styler, "map"):
-            styler = styler.map(grouped_progress_bar_style, subset=subset)
+            styler = styler.map(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
         else:
-            styler = styler.applymap(grouped_progress_bar_style, subset=subset)
+            styler = styler.applymap(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
     return styler
 
 
@@ -6858,6 +6859,95 @@ def render_daily_inventory_main_table(
         st.warning("조건에 맞는 데이터가 없습니다.")
         return None
     display_df = daily_inventory_grouped_display_dataframe(df, DAILY_INVENTORY_MAIN_GROUPED_COLUMNS)
+    event = st.dataframe(
+        grouped_header_display_styler(display_df),
+        hide_index=True,
+        height=dataframe_auto_height(len(display_df), height, row_height=48),
+        width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key=key,
+    )
+    return get_selected_row(event, df)
+
+
+PRODUCTION_CODE_MAIN_GROUPED_COLUMNS = [
+    ("제품정보", "기간구분", "기간구분"),
+    ("제품정보", "생산코드", "생산코드"),
+    ("제품정보", "대표 제품명", "대표 제품명"),
+    ("요청·포장현황", "요청합계(PCS)", "요청합계(PCS)"),
+    ("요청·포장현황", "포장부족(PCS)", "포장부족(PCS)"),
+    ("요청·포장현황", "포장가능재고 PCS", "포장가능재고(PCS)"),
+    ("생산현황", "생산부족수량(PCS)", "생산부족수량(PCS)"),
+    ("생산현황", "기준차이", "기준차이"),
+    ("생산현황", "생산진도율", "생산진도율"),
+    ("생산현황", "포장진도율", "포장진도율"),
+    ("완료정보", "생산완료예상일", "생산완료예상일"),
+]
+
+
+PRODUCTION_POWER_DETAIL_GROUPED_COLUMNS = [
+    ("제품정보", "POWER", "POWER"),
+    ("요청·포장현황", "요청 PCS", "요청 PCS"),
+    ("요청·포장현황", "포장부족 PCS", "포장부족 PCS"),
+    ("요청·포장현황", "포장가능재고 PCS", "포장가능재고 PCS"),
+    ("공정현황", "검사접착", "검사접착"),
+    ("공정현황", "누수규격검사", "누수규격검사"),
+    ("생산현황", "생산부족 PCS", "생산부족 PCS"),
+    ("생산현황", "생산진도율", "생산진도율"),
+    ("완료정보", "생산완료예상일", "생산완료예상일"),
+]
+
+
+def production_grouped_display_dataframe(
+    df: pd.DataFrame,
+    grouped_columns: list[tuple[str, str, str]],
+) -> pd.DataFrame:
+    source = dataframe_for_streamlit(df)
+    number_columns = {
+        "요청합계(PCS)",
+        "포장부족(PCS)",
+        "포장가능재고(PCS)",
+        "생산부족수량(PCS)",
+        "요청 PCS",
+        "포장부족 PCS",
+        "포장가능재고 PCS",
+        "생산부족 PCS",
+        "검사접착",
+        "누수규격검사",
+    }
+    percent_columns = {"생산진도율", "포장진도율"}
+    out = pd.DataFrame(index=source.index)
+    output_columns: list[tuple[str, str]] = []
+    for group, label, column in grouped_columns:
+        if column not in source.columns:
+            continue
+        output_columns.append((group, label))
+        if column in number_columns:
+            values = pd.to_numeric(source[column], errors="coerce")
+            out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else format_int(float(value)))
+        elif column in percent_columns:
+            out[(group, label)] = pd.to_numeric(source[column], errors="coerce")
+        else:
+            out[(group, label)] = source[column].map(clean_str)
+    if not output_columns:
+        return pd.DataFrame(index=source.index)
+    out.columns = pd.MultiIndex.from_tuples(output_columns)
+    return out
+
+
+def render_production_code_main_table(
+    title: str,
+    sub: str,
+    df: pd.DataFrame,
+    key: str,
+    height: int,
+) -> pd.Series | None:
+    render_panel_title(title, sub)
+    if df.empty:
+        st.warning("조건에 맞는 데이터가 없습니다.")
+        return None
+    display_df = production_grouped_display_dataframe(df, PRODUCTION_CODE_MAIN_GROUPED_COLUMNS)
     event = st.dataframe(
         grouped_header_display_styler(display_df),
         hide_index=True,
@@ -13887,12 +13977,15 @@ def render_production_power_detail_dialog(
                 )
             with power_col:
                 st.markdown("<div class='production-dialog-section-title'>POWER별 상세 현황</div>", unsafe_allow_html=True)
+                power_display = production_grouped_display_dataframe(
+                    power_view,
+                    PRODUCTION_POWER_DETAIL_GROUPED_COLUMNS,
+                )
                 st.dataframe(
-                    dataframe_for_streamlit(power_view),
+                    grouped_header_display_styler(power_display),
                     hide_index=True,
                     height=dataframe_auto_height(len(power_view), 390, row_height=34),
                     width="stretch",
-                    column_config=drilldown_column_config(),
                 )
         if st.button("닫기", key="close_production_power_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
@@ -14271,9 +14364,8 @@ def render_production_code_tab(
     pack_options = available_pack_options(code_summary)
     pack_labels = PRODUCTION_CODE_PACK_LABELS
     power_options = available_production_power_options(code_summary)
-    group_options = available_product_group_options(code_summary)
 
-    pc1, pc2, pc3, pc4, pc5 = st.columns([3.7, 1.55, 1.1, 1.1, 0.95], gap="small")
+    pc1, pc2, pc3, pc4 = st.columns([4.2, 1.2, 1.2, 1.0], gap="small")
     with pc1:
         integrated_query = st.text_input(
             "통합검색",
@@ -14282,27 +14374,20 @@ def render_production_code_tab(
             key="tab_production_integrated_query",
         )
     with pc2:
-        selected_group = st.selectbox(
-            "분류 선택",
-            options=group_options,
-            index=0,
-            key="tab_production_group",
-        )
-    with pc3:
         selected_pack = st.selectbox(
             "PACK 선택",
             options=pack_options,
             index=0,
             key="tab_production_pack",
         )
-    with pc4:
+    with pc3:
         selected_power = st.selectbox(
             "POWER 선택",
             options=power_options,
             index=0,
             key="tab_production_power",
         )
-    with pc5:
+    with pc4:
         shortage_only = st.checkbox("부족품만 보기", value=False, key="tab_production_shortage_only")
 
     production_source = filter_production_power_rows(
@@ -14312,7 +14397,7 @@ def render_production_code_tab(
         power_label=selected_power,
         pack_label=selected_pack,
         sample_scope="전체",
-        product_group=selected_group,
+        product_group="전체",
         factory_group="전체",
         period_group=selected_period,
     )
@@ -14363,13 +14448,12 @@ def render_production_code_tab(
 
     table_nonce_key = "production_code_main_table_nonce"
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
-    selected_production_row = render_selectable_table(
+    selected_production_row = render_production_code_main_table(
         "생산코드 메인 테이블",
         f"생산코드 기준 집계 | 생산완료예상일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
         production_view,
         key=f"production_code_main_table_{table_nonce}",
         height=620,
-        column_order=production_progress_column_order(production_view, pack_labels, production_unit_mode),
     )
     if selected_production_row is None:
         return
