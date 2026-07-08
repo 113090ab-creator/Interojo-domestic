@@ -13357,14 +13357,12 @@ def build_production_pack_dialog_view(selected_row: pd.Series, pack_labels: list
     out = pd.DataFrame(rows)
     total_pack = float(out["요청 PACK"].sum()) if not out.empty else 0.0
     total_pcs = float(out["요청 PCS"].sum()) if not out.empty else 0.0
-    out["구성비"] = np.where(total_pack > 0, out["요청 PACK"] / total_pack * 100.0, 0.0)
     total_row = pd.DataFrame(
         [
             {
                 "PACK": "합계",
                 "요청 PACK": total_pack,
                 "요청 PCS": total_pcs,
-                "구성비": 100.0 if total_pack > 0 else 0.0,
             }
         ]
     )
@@ -13374,7 +13372,6 @@ def build_production_pack_dialog_view(selected_row: pd.Series, pack_labels: list
 def production_pack_dialog_column_config() -> dict[str, Any]:
     column_config = drilldown_column_config()
     column_config["요청 PCS"] = st.column_config.NumberColumn("요청 PCS", format="%,.0f")
-    column_config["구성비"] = st.column_config.NumberColumn("구성비", format="%.1f%%")
     return column_config
 
 
