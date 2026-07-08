@@ -22,7 +22,7 @@ import streamlit as st
 
 
 st.set_page_config(
-    page_title="국내 생산·포장 현황",
+    page_title="국내 출고 제품 생산·포장 현황",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -14003,12 +14003,12 @@ def render_product_summary_tab(
         response_view=daily_response_view,
     )
 
-    kpi_head_period_col, kpi_head_spacer_col, kpi_head_action_col = st.columns(
-        [1.35, 1.1, 2.15],
-        gap="small",
+    kpi_head_cols = st.columns(
+        [5.5, 2.25, 2.25],
+        gap="large",
         vertical_alignment="center",
     )
-    with kpi_head_period_col:
+    with kpi_head_cols[0]:
         st.segmented_control(
             "기간구분",
             options=PERIOD_GROUP_ORDER,
@@ -14016,48 +14016,44 @@ def render_product_summary_tab(
             label_visibility="visible",
             key="product_summary_period_group_filter",
         )
-    with kpi_head_spacer_col:
-        st.empty()
-    with kpi_head_action_col:
-        action_cols = st.columns([1, 1], gap="small")
-        with action_cols[0]:
-            render_lazy_binary_download(
-                "PPT 다운로드",
-                "PPT 보고서 준비",
-                f"국내_제품_포장현황_운영보고서_{pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y%m%d_%H%M')}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                build_bytes=lambda: build_ppt_report(
-                    product_view=product_summary,
-                    code_summary=code_summary,
-                    product_names=product_summary["제품명"],
-                    scope_label="전체",
-                    daily_inventory_df=daily_inventory_df,
-                    sample_available_df=sample_available_df,
-                ),
-                signature=(
-                    dataframe_light_signature(product_summary),
-                    dataframe_light_signature(code_summary),
-                    dataframe_light_signature(daily_inventory_df) if daily_inventory_df is not None else ("none",),
-                    dataframe_light_signature(sample_available_df) if sample_available_df is not None else ("none",),
-                ),
-                key="download_ppt_report",
-                width="stretch",
-            )
-        with action_cols[1]:
-            render_excel_download(
-                "엑셀 다운로드",
-                "제품_진도_현황",
-                {
-                    "제품 요약": product_summary,
-                    "신규분류요약별 요청지시율": category_request_view,
-                    "미입고 TOP10": top_shortage_view,
-                    "본품 분류별 진도": family_view,
-                    "생산완료 후 미입고 TOP10": gap_top_view,
-                    "요청 긴급 요약": urgent_summary_view,
-                    "요청 긴급 상세": exception_detail,
-                },
-                key="download_product_progress_excel",
-            )
+    with kpi_head_cols[1]:
+        render_lazy_binary_download(
+            "PPT 다운로드",
+            "PPT 보고서 준비",
+            f"국내_제품_포장현황_운영보고서_{pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y%m%d_%H%M')}.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            build_bytes=lambda: build_ppt_report(
+                product_view=product_summary,
+                code_summary=code_summary,
+                product_names=product_summary["제품명"],
+                scope_label="전체",
+                daily_inventory_df=daily_inventory_df,
+                sample_available_df=sample_available_df,
+            ),
+            signature=(
+                dataframe_light_signature(product_summary),
+                dataframe_light_signature(code_summary),
+                dataframe_light_signature(daily_inventory_df) if daily_inventory_df is not None else ("none",),
+                dataframe_light_signature(sample_available_df) if sample_available_df is not None else ("none",),
+            ),
+            key="download_ppt_report",
+            width="stretch",
+        )
+    with kpi_head_cols[2]:
+        render_excel_download(
+            "엑셀 다운로드",
+            "제품_진도_현황",
+            {
+                "제품 요약": product_summary,
+                "신규분류요약별 요청지시율": category_request_view,
+                "미입고 TOP10": top_shortage_view,
+                "본품 분류별 진도": family_view,
+                "생산완료 후 미입고 TOP10": gap_top_view,
+                "요청 긴급 요약": urgent_summary_view,
+                "요청 긴급 상세": exception_detail,
+            },
+            key="download_product_progress_excel",
+        )
     scope_kpis = {
         name: kpi
         for name, kpi in build_scope_kpis(add_allocated_production_basis(code_summary))
@@ -14766,7 +14762,7 @@ def main() -> None:
     with header_left:
         st.markdown(
             "<div class='app-header'>"
-            "<div class='app-title'>국내 생산·포장 현황</div>"
+            "<div class='app-title'>국내 출고 제품 생산·포장 현황</div>"
             f"<div class='app-basis'>기준일 {today_label} · 생산지시 기준 {REQUEST_DUE_MONTH_LABEL} 생산완료예상일 · "
             f"용마입고 기준 {PACKING_RECEIPT_BASE_DATE_LABEL}부터 · 지시수준 3Q전체물량 대비 생산지시물량</div>"
             "</div>",
