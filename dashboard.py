@@ -99,7 +99,7 @@ PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
 PRODUCTION_PROGRESS_DUE_MONTH_LABEL = REQUEST_DUE_MONTH_LABEL
 PACKING_RECEIPT_BASE_DATE_LABEL = "2026년 6월 24일"
 DATA_BASIS_NOTE = (
-    f"진도 기준: 생산지시물량 {REQUEST_DUE_MONTH_LABEL} 납기 / "
+    f"진도 기준: 생산지시물량 {REQUEST_DUE_MONTH_LABEL} 생산완료예상일 / "
     f"포장실적·용마입고량 기준: {PACKING_RECEIPT_BASE_DATE_LABEL}부터 / "
     "요청 대비 지시 수준은 3Q전체물량과 생산지시물량 비교"
 )
@@ -3031,6 +3031,58 @@ def format_power(value: Any) -> str:
     return f"-{abs(float(num)):05.2f}"
 
 
+def sort_power_detail_default(
+    df: pd.DataFrame,
+    extra_cols: list[str] | None = None,
+    extra_ascending: list[bool] | None = None,
+) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    out = df.copy()
+    temp_cols = [
+        "_power_default_missing",
+        "_power_default_abs",
+        "_power_default_value",
+        "_power_default_label",
+    ]
+    if "POWER" in out.columns:
+        power_label = out["POWER"].map(clean_str)
+    elif "power_value" in out.columns:
+        power_label = out["power_value"].map(format_power)
+    elif "_power_sort" in out.columns:
+        power_label = out["_power_sort"].map(format_power)
+    else:
+        return out
+
+    power_number = pd.to_numeric(
+        power_label.astype(str).str.replace("-00.00", "0", regex=False),
+        errors="coerce",
+    )
+    out["_power_default_missing"] = power_number.isna().astype(int)
+    out["_power_default_abs"] = power_number.abs().fillna(999999.0)
+    out["_power_default_value"] = power_number.fillna(999999.0)
+    out["_power_default_label"] = power_label
+
+    sort_cols = temp_cols.copy()
+    ascending = [True, True, True, True]
+    for idx, col in enumerate(extra_cols or []):
+        if col in out.columns and col not in sort_cols:
+            sort_cols.append(col)
+            if extra_ascending and idx < len(extra_ascending):
+                ascending.append(extra_ascending[idx])
+            else:
+                ascending.append(True)
+
+    out = out.sort_values(
+        sort_cols,
+        ascending=ascending,
+        na_position="last",
+        kind="stable",
+    )
+    return out.drop(columns=temp_cols, errors="ignore")
+
+
 def classify_product_group(product_name: str) -> str:
     text = clean_str(product_name)
     upper = text.upper()
@@ -4955,7 +5007,7 @@ def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], u
         "기준차이",
         "생산진도율",
         "포장진도율",
-        "최소 납기일",
+        "생산완료예상일",
     ]
     return visible_columns(df, columns)
 
@@ -4973,7 +5025,7 @@ def production_power_detail_column_order(df: pd.DataFrame, pack_labels: list[str
         "기준차이",
         "생산진도율",
         "포장진도율",
-        "최소 납기일",
+        "생산완료예상일",
     ]
     return visible_columns(df, columns)
 
@@ -4995,7 +5047,7 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "포장부족(PCS)",
             "생산부족(PCS)",
             "생산진도율",
-            "납기",
+            "생산완료예상일",
             "상태",
         ]
     else:
@@ -5012,7 +5064,7 @@ def sales_progress_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "용마입고대기수량(PACK)",
             "포장부족(PACK)",
             "용마입고율",
-            "납기",
+            "생산완료예상일",
             "상태",
         ]
     return visible_columns(df, columns)
@@ -5034,7 +5086,7 @@ def sales_group_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "포장부족(PCS)",
             "생산부족(PCS)",
             "생산진도율",
-            "납기",
+            "생산완료예상일",
             "상태",
         ]
     else:
@@ -5050,7 +5102,7 @@ def sales_group_column_order(df: pd.DataFrame, unit_mode: str) -> list[str]:
             "용마입고대기수량(PACK)",
             "포장부족(PACK)",
             "용마입고율",
-            "납기",
+            "생산완료예상일",
             "상태",
         ]
     return visible_columns(df, columns)
@@ -5284,7 +5336,6 @@ def build_product_pack_power_quick_view(
         "생산부족 PCS",
         "용마입고율",
         "생산진도율",
-        "최소 납기",
         "생산완료예상일",
     ]
     if code_summary.empty:
@@ -5320,8 +5371,7 @@ def build_product_pack_power_quick_view(
             yongma_in_pack=("yongma_recognized_pack", "sum"),
             request_pcs=("request_pcs", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
-            request_due_date=("request_due_date", min_datetime),
-            production_due_date=("production_due_date", min_datetime),
+            production_due_date=("production_due_date", max_datetime),
         )
         .reset_index()
         .rename(
@@ -5348,7 +5398,6 @@ def build_product_pack_power_quick_view(
     grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
     grouped["생산부족 PCS"] = pd.to_numeric(grouped["생산부족 PCS"], errors="coerce").fillna(0.0).round(0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족 PCS"])
-    grouped["최소 납기"] = grouped["request_due_date"].map(display_date_or_dash)
     grouped["생산완료예상일"] = grouped["production_due_date"].map(display_date_or_dash)
     grouped["_pack_sort"] = grouped["PACK"].map(pack_sort_key)
     return grouped.sort_values(
@@ -5459,7 +5508,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         "포장가능재고(PCS)",
         "샘플신청가능수량",
         "생산진도율",
-        "최소 납기",
+        "생산완료예상일",
         "요청제품명",
         "판매코드 수",
     ]
@@ -5486,7 +5535,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             request_pcs=("request_pcs", "sum"),
             production_shortage_pcs=("_allocated_production_shortage_qty", "sum"),
             sample_available_pcs=("_allocated_sample_available_pcs", "sum"),
-            request_due_date=("request_due_date", min_datetime),
+            production_due_date=("production_due_date", max_datetime),
             product_name=("product_name", first_nonempty),
             sales_code_count=("sales_code", "nunique"),
         )
@@ -5514,7 +5563,7 @@ def build_daily_request_match_view(code_summary: pd.DataFrame) -> pd.DataFrame:
         grouped["요청 PCS"] - grouped["생산부족 PCS"] + grouped["샘플신청가능수량"]
     ).clip(lower=0.0)
     grouped["생산진도율"] = calc_production_progress_pct(grouped["요청 PCS"], grouped["생산부족 PCS"])
-    grouped["최소 납기"] = grouped["request_due_date"].map(display_date_or_dash)
+    grouped["생산완료예상일"] = grouped["production_due_date"].map(display_date_or_dash)
     return grouped[columns].copy()
 
 
@@ -6090,7 +6139,7 @@ def build_daily_inventory_response_view(
         "포장부족(재고 PCS)",
         "포장가능재고(PCS)",
         "생산진도율",
-        "최소 납기",
+        "생산완료예상일",
         "요청제품명",
         "판매코드 수",
         "대상품목",
@@ -6130,7 +6179,7 @@ def build_daily_inventory_response_view(
     out["제품명"] = out["요청제품명"].where(out["요청제품명"].map(clean_str) != "", out["마스터제품명"])
     out["제품명"] = out["제품명"].where(out["제품명"].map(clean_str) != "", out["재고표 제품명"])
     out = add_period_group_columns(out)
-    for col in ["최소 납기", "요청제품명", "대상품목", "마스터제품명", "마스터공장구분", "재고표 제품명", "품목코드", "CP"]:
+    for col in ["생산완료예상일", "요청제품명", "대상품목", "마스터제품명", "마스터공장구분", "재고표 제품명", "품목코드", "CP"]:
         if col in out.columns:
             out[col] = out[col].fillna("")
     if "공장구분" not in out.columns:
@@ -6321,16 +6370,16 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
         "포장가능재고(PCS)",
         "생산부족 PCS",
         "생산진도율",
-        "최소 납기",
+        "생산완료예상일",
     ]
     if response_view.empty:
-        return pd.DataFrame(columns=visible_columns + ["_daily_item_code_base", "_daily_min_due_date_sort"])
+        return pd.DataFrame(columns=visible_columns + ["_daily_item_code_base", "_daily_expected_date_sort"])
 
     work = response_view.copy()
     work["_daily_item_code_base"] = work["품목코드"].map(daily_item_code_base)
     work = work[work["_daily_item_code_base"] != ""].copy()
     if work.empty:
-        return pd.DataFrame(columns=visible_columns + ["_daily_item_code_base", "_daily_min_due_date_sort"])
+        return pd.DataFrame(columns=visible_columns + ["_daily_item_code_base", "_daily_expected_date_sort"])
 
     numeric_cols = [
         "재고수량",
@@ -6348,7 +6397,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
         if col not in work.columns:
             work[col] = 0.0
         work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
-    work["_min_due_date_sort"] = pd.to_datetime(work.get("최소 납기", pd.NaT), errors="coerce")
+    work["_expected_date_sort"] = pd.to_datetime(work.get("생산완료예상일", pd.NaT), errors="coerce")
 
     grouped = (
         work.groupby("_daily_item_code_base", dropna=False)
@@ -6366,15 +6415,15 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
             packable_stock_pcs=("포장가능재고(PCS)", "sum"),
             production_shortage_pcs=("생산부족 PCS", "sum"),
             request_pcs=("요청 PCS", "sum"),
-            min_due_date=("_min_due_date_sort", min_datetime),
+            expected_date=("_expected_date_sort", max_datetime),
         )
         .reset_index()
     )
     grouped["생산진도율"] = calc_production_progress_pct(grouped["request_pcs"], grouped["production_shortage_pcs"])
     grouped["_daily_status_sort"] = grouped["status"].map(daily_inventory_status_rank)
     grouped["_daily_negative_sort"] = (grouped["stock_qty"] < 0).astype(int)
-    grouped["_daily_min_due_date_sort"] = pd.to_datetime(grouped["min_due_date"], errors="coerce")
-    grouped["최소 납기"] = grouped["min_due_date"].map(display_date_or_dash)
+    grouped["_daily_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
+    grouped["생산완료예상일"] = grouped["expected_date"].map(display_date_or_dash)
 
     out = grouped.rename(
         columns={
@@ -6401,7 +6450,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
             "_daily_negative_sort",
             "재고부족수량",
             "용마입고대기 PACK",
-            "_daily_min_due_date_sort",
+            "_daily_expected_date_sort",
             "품목코드",
         ],
         ascending=[True, False, False, False, True, True],
@@ -6414,7 +6463,7 @@ def build_daily_inventory_main_view(response_view: pd.DataFrame) -> pd.DataFrame
             "_daily_item_code_base",
             "_daily_status_sort",
             "_daily_negative_sort",
-            "_daily_min_due_date_sort",
+            "_daily_expected_date_sort",
         ]
     ].copy()
 
@@ -6436,7 +6485,7 @@ def daily_inventory_detail_column_order(df: pd.DataFrame) -> list[str]:
         "포장가능재고(PCS)",
         "생산부족 PCS",
         "생산진도율",
-        "최소 납기",
+        "생산완료예상일",
     ]
     return visible_columns(df, columns)
 
@@ -6508,7 +6557,7 @@ def daily_inventory_query_mask(view: pd.DataFrame, query: str) -> pd.Series:
 
 def build_sales_pack_detail_view(code_summary: pd.DataFrame) -> pd.DataFrame:
     if code_summary.empty:
-        return pd.DataFrame(columns=["판매코드", "PACK", "요청", "용마입고", "미입고", "납기"])
+        return pd.DataFrame(columns=["판매코드", "PACK", "요청", "용마입고", "미입고", "생산완료예상일"])
     work = with_operational_columns(code_summary)
     out = (
         work.groupby(["sales_code", "_pack_label"], dropna=False)
@@ -6516,16 +6565,16 @@ def build_sales_pack_detail_view(code_summary: pd.DataFrame) -> pd.DataFrame:
             request_pack=("request_pack", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
             yongma_in_pack=("yongma_recognized_pack", "sum"),
-            request_due_date=("request_due_date", min_datetime),
+            expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
         .rename(columns={"sales_code": "판매코드", "_pack_label": "PACK", "request_pack": "요청", "yongma_in_pack": "용마입고"})
     )
     out["미입고"] = (out["요청"] - out["용마입고"]).clip(lower=0.0)
-    out["납기"] = out["request_due_date"].map(display_date_or_dash)
+    out["생산완료예상일"] = out["expected_date"].map(display_date_or_dash)
     out["_pack_sort"] = out["PACK"].map(pack_sort_key)
     return out.sort_values(["미입고", "_pack_sort", "요청"], ascending=[False, True, False], kind="stable")[
-        ["판매코드", "PACK", "요청", "용마입고", "미입고", "납기"]
+        ["판매코드", "PACK", "요청", "용마입고", "미입고", "생산완료예상일"]
     ]
 
 
@@ -6895,7 +6944,7 @@ def build_production_power_main_view(
         "기준차이",
         "생산진도율",
         "포장진도율",
-        "최소 납기일",
+        "생산완료예상일",
     ]
     if rows.empty:
         return pd.DataFrame(
@@ -6907,7 +6956,7 @@ def build_production_power_main_view(
                 "포장부족수량",
                 "병목 상태",
                 "_production_code_prefix",
-                "_min_due_date_sort",
+                "_expected_date_sort",
             ]
         )
 
@@ -6929,7 +6978,7 @@ def build_production_power_main_view(
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             basis_difference_pcs=("_basis_difference_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
-            min_due_date=("request_due_date", min_datetime),
+            expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
     )
@@ -6968,8 +7017,8 @@ def build_production_power_main_view(
         status_from_progress(packing, progress)
         for packing, progress in zip(grouped["packing_pack"], grouped["포장진도율"])
     ]
-    grouped["_min_due_date_sort"] = pd.to_datetime(grouped["min_due_date"], errors="coerce")
-    grouped["최소 납기일"] = grouped["min_due_date"].map(display_date_or_dash)
+    grouped["_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
+    grouped["생산완료예상일"] = grouped["expected_date"].map(display_date_or_dash)
 
     out = grouped.rename(
         columns={
@@ -6993,7 +7042,7 @@ def build_production_power_main_view(
         out = out[(out["생산부족수량"] > 0) | (out["포장부족수량"] > 0)].copy()
 
     out = out.sort_values(
-        ["_min_due_date_sort", "포장부족수량", "생산부족수량"],
+        ["_expected_date_sort", "포장부족수량", "생산부족수량"],
         ascending=[True, False, False],
         na_position="last",
         kind="stable",
@@ -7009,7 +7058,7 @@ def build_production_power_main_view(
                 "포장부족수량",
                 "병목 상태",
                 "_production_code_prefix",
-                "_min_due_date_sort",
+                "_expected_date_sort",
             ]
         )
     )
@@ -7036,7 +7085,7 @@ def build_production_power_detail_view(
         "기준차이",
         "생산진도율",
         "포장진도율",
-        "최소 납기일",
+        "생산완료예상일",
     ]
     if rows.empty:
         return pd.DataFrame(
@@ -7047,7 +7096,7 @@ def build_production_power_detail_view(
                 "기준차이(PCS)",
                 "포장부족수량",
                 "_production_code_prefix",
-                "_min_due_date_sort",
+                "_expected_date_sort",
                 "_power_sort",
             ]
         )
@@ -7061,7 +7110,7 @@ def build_production_power_detail_view(
     if work.empty:
         return pd.DataFrame(
             columns=visible_columns
-            + ["요청합계(PCS)", "생산부족수량", "포장부족수량", "_production_code_prefix", "_min_due_date_sort", "_power_sort"]
+            + ["요청합계(PCS)", "생산부족수량", "포장부족수량", "_production_code_prefix", "_expected_date_sort", "_power_sort"]
         )
 
     group_cols = ["_production_code_prefix", "production_code_display", "POWER", "_power_sort"]
@@ -7078,7 +7127,7 @@ def build_production_power_detail_view(
             production_shortage_pcs=("_production_shortage_pcs", "sum"),
             basis_difference_pcs=("_basis_difference_pcs", "sum"),
             packing_shortage_pack=("_packing_shortage_pack", "sum"),
-            min_due_date=("request_due_date", min_datetime),
+            expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
     )
@@ -7112,8 +7161,8 @@ def build_production_power_detail_view(
         status_from_progress(packing, progress)
         for packing, progress in zip(grouped["packing_pack"], grouped["포장진도율"])
     ]
-    grouped["_min_due_date_sort"] = pd.to_datetime(grouped["min_due_date"], errors="coerce")
-    grouped["최소 납기일"] = grouped["min_due_date"].map(display_date_or_dash)
+    grouped["_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
+    grouped["생산완료예상일"] = grouped["expected_date"].map(display_date_or_dash)
 
     out = grouped.rename(
         columns={
@@ -7132,11 +7181,10 @@ def build_production_power_detail_view(
     out["생산부족수량(PCS)"] = out["생산부족수량"]
     out["기준차이"] = np.where(pd.to_numeric(out["기준차이(PCS)"], errors="coerce").fillna(0.0) > 0, "기준차이", "")
     out["포장부족(PACK)"] = out["포장부족수량"]
-    out = out.sort_values(
-        ["_min_due_date_sort", "포장부족수량", "생산부족수량"],
-        ascending=[True, False, False],
-        na_position="last",
-        kind="stable",
+    out = sort_power_detail_default(
+        out,
+        extra_cols=["_expected_date_sort", "포장부족수량", "생산부족수량"],
+        extra_ascending=[True, False, False],
     )
     return_columns = list(
         dict.fromkeys(
@@ -7148,7 +7196,7 @@ def build_production_power_detail_view(
                 "기준차이(PCS)",
                 "포장부족수량",
                 "_production_code_prefix",
-                "_min_due_date_sort",
+                "_expected_date_sort",
                 "_power_sort",
             ]
         )
@@ -7268,7 +7316,7 @@ def render_pack_composition_chart(selected_row: pd.Series, pack_labels: list[str
 def render_production_progress_panel(selected_row: pd.Series) -> None:
     production_progress = float(selected_row.get("생산진도율", 0.0))
     packing_progress = float(selected_row.get("포장진도율", 0.0))
-    due_label = due_d_day_label(selected_row.get("_min_due_date_sort", pd.NaT))
+    due_label = due_d_day_label(selected_row.get("_expected_date_sort", pd.NaT))
     panel = (
         "<div class='progress-summary-panel'>"
         "<div>"
@@ -7277,7 +7325,7 @@ def render_production_progress_panel(selected_row: pd.Series) -> None:
         f"{progress_cell_html(packing_progress, '포장')}"
         "</div>"
         "<div class='dday-box'>"
-        "<div class='metric-label'>납기 D-Day</div>"
+        "<div class='metric-label'>생산완료예상 D-Day</div>"
         f"<div class='dday-value'>{escape(due_label)}</div>"
         "</div>"
         "</div>"
@@ -7299,7 +7347,7 @@ def build_production_sales_detail_view(rows: pd.DataFrame, production_code: str,
         "생산부족수량(PCS)",
         "생산진도율",
         "포장진도율",
-        "납기일자",
+        "생산완료예상일",
     ]
     if scope.empty:
         return pd.DataFrame(columns=columns + ["_pack_sort"])
@@ -7311,7 +7359,7 @@ def build_production_sales_detail_view(rows: pd.DataFrame, production_code: str,
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
             production_shortage_pcs=("production_shortage_qty", "sum"),
-            request_due_date=("request_due_date", min_datetime),
+            expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
         .rename(
@@ -7335,9 +7383,9 @@ def build_production_sales_detail_view(rows: pd.DataFrame, production_code: str,
         0.0,
     )
     grouped["포장진도율"] = np.clip(grouped["포장진도율"], 0.0, 100.0)
-    grouped["납기일자"] = grouped["request_due_date"].map(display_date_or_dash)
+    grouped["생산완료예상일"] = grouped["expected_date"].map(display_date_or_dash)
     grouped = grouped.sort_values(
-        ["_pack_sort", "request_due_date", "포장부족PACK", "필요팩"],
+        ["_pack_sort", "expected_date", "포장부족PACK", "필요팩"],
         ascending=[True, True, False, False],
         na_position="last",
         kind="stable",
@@ -7352,7 +7400,7 @@ def production_scope_from_row(code_summary: pd.DataFrame, production_code: str) 
 
 def sales_status_label(row: pd.Series) -> str:
     shortage = float(row.get("포장부족", 0.0))
-    due = pd.to_datetime(row.get("request_due_date", pd.NaT), errors="coerce")
+    due = pd.to_datetime(row.get("production_due_date", row.get("request_due_date", pd.NaT)), errors="coerce")
     today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
     if shortage <= 0:
         return "완료"
@@ -7406,7 +7454,7 @@ def build_sales_order_main_view(
                 "포장부족(PCS)",
                 "생산진도율",
                 "용마입고율",
-                "납기",
+                "생산완료예상일",
                 "상태",
             ]
         )
@@ -7450,7 +7498,7 @@ def build_sales_order_main_view(
             available_stock_pack=("available_stock_pack", sum_numeric_or_nan),
             production_shortage=("production_shortage_qty", "sum"),
             sample_available_pcs=("_allocated_sample_available_pcs", "sum"),
-            request_due_date=("request_due_date", min_datetime),
+            production_due_date=("production_due_date", max_datetime),
         )
         .reset_index()
         .rename(
@@ -7489,13 +7537,13 @@ def build_sales_order_main_view(
         0.0,
     )
     grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
-    grouped["납기"] = grouped["request_due_date"].map(display_date_or_dash)
+    grouped["생산완료예상일"] = grouped["production_due_date"].map(display_date_or_dash)
     grouped["상태"] = grouped.apply(sales_status_label, axis=1)
     grouped = add_priority_columns(
         grouped,
         stock_threshold_pack,
         shortage_col="포장부족",
-        due_col="request_due_date",
+        due_col="production_due_date",
         stock_col="용마창고재고 (PACK)",
         request_col="요청PACK",
     )
@@ -7545,7 +7593,7 @@ def build_sales_order_main_view(
             "포장부족(PCS)",
             "생산진도율",
             "용마입고율",
-            "납기",
+            "생산완료예상일",
             "상태",
             "power_value",
             "_priority_sort",
@@ -7588,7 +7636,7 @@ def build_sales_code_group_main_view(
         "포장부족(PCS)",
         "생산진도율",
         "용마입고율",
-        "납기",
+        "생산완료예상일",
         "상태",
         "_sales_code_base",
         "_priority_sort",
@@ -7617,7 +7665,7 @@ def build_sales_code_group_main_view(
             work[col] = 0.0
         work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
     if "_request_due_date_sort" not in work.columns:
-        work["_request_due_date_sort"] = pd.to_datetime(work.get("납기", pd.NaT), errors="coerce")
+        work["_request_due_date_sort"] = pd.to_datetime(work.get("생산완료예상일", pd.NaT), errors="coerce")
     work["_request_due_date_sort"] = pd.to_datetime(work["_request_due_date_sort"], errors="coerce")
 
     grouped = (
@@ -7641,7 +7689,7 @@ def build_sales_code_group_main_view(
             production_shortage_pcs=("생산부족(PCS)", "sum"),
             packing_shortage_pack=("포장부족(PACK)", "sum"),
             packing_shortage_pcs=("포장부족(PCS)", "sum"),
-            request_due_date=("_request_due_date_sort", min_datetime),
+            production_due_date=("_request_due_date_sort", max_datetime),
         )
         .reset_index()
         .rename(
@@ -7675,13 +7723,13 @@ def build_sales_code_group_main_view(
         0.0,
     )
     grouped["용마입고율"] = np.clip(grouped["용마입고율"], 0.0, 100.0)
-    grouped["납기"] = grouped["request_due_date"].map(display_date_or_dash)
+    grouped["생산완료예상일"] = grouped["production_due_date"].map(display_date_or_dash)
     grouped["상태"] = grouped.apply(
         lambda row: sales_status_label(
             pd.Series(
                 {
                     "포장부족": row["포장부족(PACK)"],
-                    "request_due_date": row["request_due_date"],
+                    "production_due_date": row["production_due_date"],
                 }
             )
         ),
@@ -7691,7 +7739,7 @@ def build_sales_code_group_main_view(
         grouped,
         stock_threshold_pack,
         shortage_col="포장부족(PACK)",
-        due_col="request_due_date",
+        due_col="production_due_date",
         stock_col="용마창고재고 (PACK)",
         request_col="생산요청물량(PACK)",
     )
@@ -7902,11 +7950,10 @@ def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFr
     grouped.loc[grouped["_status_key"] == "생산완료", "생산완료예상일"] = "-"
     grouped["_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
     grouped["_sales_code_base"] = grouped["판매코드"]
-    return grouped[columns + ["production_plan_date", "expected_date", "생산상태"]].sort_values(
-        ["_expected_date_sort", "생산부족수량 (PCS)", "판매코드", "power_value"],
-        ascending=[True, False, True, True],
-        na_position="last",
-        kind="stable",
+    return sort_power_detail_default(
+        grouped[columns + ["production_plan_date", "expected_date", "생산상태"]],
+        extra_cols=["_expected_date_sort", "생산부족수량 (PCS)", "판매코드"],
+        extra_ascending=[True, False, True],
     )
 
 
@@ -8088,17 +8135,22 @@ def render_product_completion_detail_dialog(
 
     @st.dialog(title, width="large")
     def _dialog() -> None:
-        st.caption(f"{sales_code}에 해당하는 POWER 기준 생산 완료 현황 | 표시 건수: {len(detail_view):,}")
-        if detail_view.empty:
+        detail_display = sort_power_detail_default(
+            detail_view,
+            extra_cols=["_expected_date_sort", "생산부족수량 (PCS)"],
+            extra_ascending=[True, False],
+        )
+        st.caption(f"{sales_code}에 해당하는 POWER 기준 생산 완료 현황 | 표시 건수: {len(detail_display):,}")
+        if detail_display.empty:
             st.warning("상세 데이터가 없습니다.")
         else:
             st.dataframe(
-                dataframe_for_streamlit(detail_view),
+                dataframe_for_streamlit(detail_display),
                 hide_index=True,
-                height=dataframe_auto_height(len(detail_view), 520),
+                height=dataframe_auto_height(len(detail_display), 520),
                 width="stretch",
                 column_config=drilldown_column_config(),
-                column_order=visible_columns(detail_view, PRODUCT_COMPLETION_DETAIL_COLUMNS),
+                column_order=visible_columns(detail_display, PRODUCT_COMPLETION_DETAIL_COLUMNS),
             )
         if st.button("닫기", key="close_product_completion_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
@@ -8157,11 +8209,10 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
     if selected_row is not None:
         selected_sales_code = clean_str(selected_row.get("_sales_code_base", selected_row.get("판매코드", "")))
         detail_scope = power_view[power_view["_sales_code_base"] == selected_sales_code].copy()
-        detail_scope = detail_scope.sort_values(
-            ["power_value", "_expected_date_sort", "생산부족수량 (PCS)"],
-            ascending=[True, True, False],
-            na_position="last",
-            kind="stable",
+        detail_scope = sort_power_detail_default(
+            detail_scope,
+            extra_cols=["_expected_date_sort", "생산부족수량 (PCS)"],
+            extra_ascending=[True, False],
         )
         render_product_completion_detail_dialog(selected_row, detail_scope, table_nonce_key)
 
@@ -8176,7 +8227,7 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         "PACK",
         "생산요청물량(PACK)",
         "포장부족(PACK)",
-        "납기",
+        "생산완료예상일",
     ]
     if sales_view.empty:
         return pd.DataFrame(columns=columns)
@@ -8411,7 +8462,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
                 "포장부족(PACK)",
                 "생산필요수량(PCS)",
                 "생산부족수량(PCS)",
-                "납기",
+                "생산완료예상일",
             ]
         )
     out = (
@@ -8421,7 +8472,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
             request_pcs=("request_pcs", "sum"),
             packing_pack=("packing_recognized_pack", "sum"),
             production_shortage_pcs=("production_shortage_qty", "sum"),
-            request_due_date=("request_due_date", min_datetime),
+            expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
         .rename(
@@ -8439,7 +8490,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
     )
     out["포장부족(PACK)"] = (out["요청합계(PACK)"] - out["packing_pack"]).clip(lower=0.0)
     out["생산필요수량(PCS)"] = out["생산부족수량(PCS)"]
-    out["납기"] = out["request_due_date"].map(display_date_or_dash)
+    out["생산완료예상일"] = out["expected_date"].map(display_date_or_dash)
     return out[
         [
             "생산코드",
@@ -8452,7 +8503,7 @@ def build_power_sku_detail_view(code_summary: pd.DataFrame, power_label: str) ->
             "포장부족(PACK)",
             "생산필요수량(PCS)",
             "생산부족수량(PCS)",
-            "납기",
+            "생산완료예상일",
         ]
     ].sort_values(
         ["포장부족(PACK)", "요청합계(PACK)"], ascending=[False, False], kind="stable"
@@ -12543,7 +12594,9 @@ def format_production_code_view(view: pd.DataFrame) -> pd.DataFrame:
         out[col] = out[col].map(format_int)
     out["생산진도율"] = out["생산진도율"].map(lambda x: f"{float(x):.1f}%")
     out["포장진도율"] = out["포장진도율"].map(lambda x: f"{float(x):.1f}%")
-    out["납기일"] = out["납기일"].map(format_date)
+    if "생산완료예상일" not in out.columns and "납기일" in out.columns:
+        out["생산완료예상일"] = out["납기일"]
+    out["생산완료예상일"] = out["생산완료예상일"].map(format_date)
     return out[
         [
             "생산코드",
@@ -12554,7 +12607,7 @@ def format_production_code_view(view: pd.DataFrame) -> pd.DataFrame:
             "생산부족수량",
             "포장진도율",
             "포장부족수량",
-            "납기일",
+            "생산완료예상일",
         ]
     ]
 
@@ -12972,19 +13025,24 @@ def render_production_power_detail_dialog(
 
     @st.dialog(title, width="large")
     def _dialog() -> None:
-        st.caption(
-            f"{production_code}에 해당하는 POWER별 PACK 단위 수량, 부족수량, 진도율, 납기 현황 | 표시 건수: {len(detail_view):,}"
+        detail_display = sort_power_detail_default(
+            detail_view,
+            extra_cols=["_expected_date_sort", "포장부족수량", "생산부족수량"],
+            extra_ascending=[True, False, False],
         )
-        if detail_view.empty:
+        st.caption(
+            f"{production_code}에 해당하는 POWER별 PACK 단위 수량, 부족수량, 진도율, 생산완료예상일 현황 | 표시 건수: {len(detail_display):,}"
+        )
+        if detail_display.empty:
             st.warning("상세 데이터가 없습니다.")
         else:
             st.dataframe(
-                dataframe_for_streamlit(detail_view),
+                dataframe_for_streamlit(detail_display),
                 hide_index=True,
-                height=dataframe_auto_height(len(detail_view), 520),
+                height=dataframe_auto_height(len(detail_display), 520),
                 width="stretch",
                 column_config=drilldown_column_config(),
-                column_order=production_power_detail_column_order(detail_view, pack_labels),
+                column_order=production_power_detail_column_order(detail_display, pack_labels),
             )
         if st.button("닫기", key="close_production_power_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
@@ -13004,17 +13062,18 @@ def render_daily_inventory_detail_dialog(
 
     @st.dialog(title, width="large")
     def _dialog() -> None:
-        st.caption(f"{item_code}에 해당하는 PACK/POWER별 재고 대응 상세 | 표시 건수: {len(detail_view):,}")
-        if detail_view.empty:
+        detail_display = sort_power_detail_default(detail_view)
+        st.caption(f"{item_code}에 해당하는 PACK/POWER별 재고 대응 상세 | 표시 건수: {len(detail_display):,}")
+        if detail_display.empty:
             st.warning("상세 데이터가 없습니다.")
         else:
             st.dataframe(
-                dataframe_for_streamlit(detail_view),
+                dataframe_for_streamlit(detail_display),
                 hide_index=True,
-                height=dataframe_auto_height(len(detail_view), 520),
+                height=dataframe_auto_height(len(detail_display), 520),
                 width="stretch",
                 column_config=drilldown_column_config(),
-                column_order=daily_inventory_detail_column_order(detail_view),
+                column_order=daily_inventory_detail_column_order(detail_display),
             )
         if st.button("닫기", key="close_daily_inventory_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
@@ -13036,17 +13095,18 @@ def render_sales_code_detail_dialog(
 
     @st.dialog(title, width="large")
     def _dialog() -> None:
-        st.caption(f"{sales_code}에 해당하는 POWER/PACK별 출고·오더 상세 | 표시 건수: {len(detail_view):,}")
-        if detail_view.empty:
+        detail_display = sort_power_detail_default(detail_view)
+        st.caption(f"{sales_code}에 해당하는 POWER/PACK별 출고·오더 상세 | 표시 건수: {len(detail_display):,}")
+        if detail_display.empty:
             st.warning("상세 데이터가 없습니다.")
         else:
             st.dataframe(
-                dataframe_for_streamlit(detail_view.drop(columns=["power_value"], errors="ignore")),
+                dataframe_for_streamlit(detail_display.drop(columns=["power_value"], errors="ignore")),
                 hide_index=True,
-                height=dataframe_auto_height(len(detail_view), 430),
+                height=dataframe_auto_height(len(detail_display), 430),
                 width="stretch",
                 column_config=drilldown_column_config(),
-                column_order=sales_progress_column_order(detail_view, unit_mode),
+                column_order=sales_progress_column_order(detail_display, unit_mode),
             )
 
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
@@ -13197,7 +13257,7 @@ def render_daily_inventory_tab(
             "포장가능재고(PCS)",
             "생산부족 PCS",
             "생산진도율",
-            "최소 납기",
+            "생산완료예상일",
         ],
     )
     if selected_daily_row is not None:
@@ -13217,10 +13277,10 @@ def render_daily_inventory_tab(
             detail_scope.get("재고수량", pd.Series(0.0, index=detail_scope.index)),
             errors="coerce",
         ).fillna(0.0)
-        detail_scope = detail_scope.sort_values(
-            ["_daily_status_sort", "_daily_stock_shortage_sort", "_daily_pack_sort", "_daily_power_sort"],
-            ascending=[True, True, True, True],
-            kind="stable",
+        detail_scope = sort_power_detail_default(
+            detail_scope,
+            extra_cols=["_daily_pack_sort", "_daily_status_sort", "_daily_stock_shortage_sort"],
+            extra_ascending=[True, True, True],
         ).drop(
             columns=[
                 "_daily_status_sort",
@@ -13467,7 +13527,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_production_row = render_selectable_table(
         "생산코드 메인 테이블",
-        f"생산코드 기준 집계 | 납기일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
+        f"생산코드 기준 집계 | 생산완료예상일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
         production_view,
         key=f"production_code_main_table_{table_nonce}",
         height=620,
@@ -13493,7 +13553,7 @@ def render_production_code_tab(code_summary: pd.DataFrame, selected_period: str 
 def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "전체") -> None:
     render_panel_title(
         "판매코드 상세",
-        "출고/오더 관점에서 판매코드별 생산·포장 진도와 납기 상태를 확인합니다.",
+        "출고/오더 관점에서 판매코드별 생산·포장 진도와 생산완료예상일 상태를 확인합니다.",
     )
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
@@ -13617,11 +13677,10 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
                 detail_scope.get("POWER", pd.Series(0.0, index=detail_scope.index)),
                 errors="coerce",
             ).fillna(999999.0)
-        detail_scope = detail_scope.sort_values(
-            ["_priority_sort", "_request_due_date_sort", "power_value", "_pack_sort", "포장부족(PACK)"],
-            ascending=[True, True, True, True, False],
-            na_position="last",
-            kind="stable",
+        detail_scope = sort_power_detail_default(
+            detail_scope,
+            extra_cols=["_pack_sort", "_priority_sort", "_request_due_date_sort", "포장부족(PACK)"],
+            extra_ascending=[True, True, True, False],
         ).drop(columns=["_pack_sort"], errors="ignore")
         inventory_source = filter_operational_code_summary(
             period_scoped_code_summary,
@@ -13753,7 +13812,7 @@ def render_power_tab(code_summary: pd.DataFrame, selected_period: str = "전체"
                 "요청합계(PACK)",
                 "포장부족(PACK)",
                 "생산부족수량(PCS)",
-                "납기",
+                "생산완료예상일",
             ]
             if power_unit_mode == UNIT_PACK
             else [
@@ -13765,7 +13824,7 @@ def render_power_tab(code_summary: pd.DataFrame, selected_period: str = "전체"
                 "요청합계(PCS)",
                 "생산필요수량(PCS)",
                 "생산부족수량(PCS)",
-                "납기",
+                "생산완료예상일",
             ],
         ),
     )
@@ -14020,7 +14079,7 @@ def main() -> None:
         st.markdown(
             "<div class='app-header'>"
             "<div class='app-title'>국내 생산·포장 현황</div>"
-            f"<div class='app-basis'>기준일 {today_label} · 생산지시 기준 {REQUEST_DUE_MONTH_LABEL} 납기 · "
+            f"<div class='app-basis'>기준일 {today_label} · 생산지시 기준 {REQUEST_DUE_MONTH_LABEL} 생산완료예상일 · "
             f"용마입고 기준 {PACKING_RECEIPT_BASE_DATE_LABEL}부터 · 지시수준 3Q전체물량 대비 생산지시물량</div>"
             "</div>",
             unsafe_allow_html=True,
