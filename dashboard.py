@@ -8001,6 +8001,82 @@ def filter_product_completion_view(
     return out.copy()
 
 
+def product_completion_column_config() -> dict[str, Any]:
+    numeric_format = "%,.0f"
+    column_config = drilldown_column_config()
+    column_config.update(
+        {
+            "판매코드": st.column_config.TextColumn("판매코드", width="small"),
+            "제품명": st.column_config.TextColumn("제품명", width="large"),
+            "POWER수": st.column_config.NumberColumn("POWER수", format=numeric_format, width="small"),
+            "생산요청물량 (PCS)": st.column_config.NumberColumn("생산요청량(PCS)", format=numeric_format, width="medium"),
+            "용마입고수량 (PCS)": st.column_config.NumberColumn("용마입고(PCS)", format=numeric_format, width="medium"),
+            "용마입고대기 (PCS)": st.column_config.NumberColumn("입고대기(PCS)", format=numeric_format, width="medium"),
+            "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format, width="medium"),
+            "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능(PCS)", format=numeric_format, width="medium"),
+            "생산부족수량 (PCS)": st.column_config.NumberColumn("생산부족(PCS)", format=numeric_format, width="medium"),
+            "생산완료예상일": st.column_config.TextColumn("완료예상일", width="small"),
+            "생산상태": st.column_config.TextColumn("생산상태", width="small"),
+        }
+    )
+    return column_config
+
+
+def product_completion_summary_html(view: pd.DataFrame) -> str:
+    status = view.get("_status_key", pd.Series(dtype="object")).map(clean_str)
+    total = len(view)
+    done = int((status == "생산완료").sum())
+    active = int((status == "생산중").sum())
+    unplanned = int((status == "미계획").sum())
+    shortage_total = pd.to_numeric(
+        view.get("생산부족수량 (PCS)", pd.Series(dtype="float64")),
+        errors="coerce",
+    ).fillna(0.0).sum()
+    items = [
+        ("총 판매코드", format_int(total), "neutral"),
+        ("생산완료", format_int(done), "done"),
+        ("생산중", format_int(active), "active"),
+        ("미계획", format_int(unplanned), "risk"),
+        ("생산부족 PCS", format_int(float(shortage_total)), "risk" if shortage_total > 0 else "neutral"),
+    ]
+    cards = "".join(
+        "<div class='completion-summary-item {tone}'>"
+        f"<span>{escape(label)}</span>"
+        f"<strong>{escape(value)}</strong>"
+        "</div>".format(tone=tone)
+        for label, value, tone in items
+    )
+    return f"<div class='completion-summary-card'>{cards}</div>"
+
+
+def render_product_completion_main_table(
+    title: str,
+    sub: str,
+    df: pd.DataFrame,
+    key: str,
+    height: int,
+) -> pd.Series | None:
+    render_panel_title(title, sub)
+    if df.empty:
+        st.warning("조건에 맞는 데이터가 없습니다.")
+        return None
+
+    st.markdown(product_completion_summary_html(df), unsafe_allow_html=True)
+    display_df = dataframe_for_streamlit(df)
+    event = st.dataframe(
+        display_df,
+        hide_index=True,
+        height=dataframe_auto_height(len(display_df), height, row_height=48),
+        width="stretch",
+        column_config=product_completion_column_config(),
+        column_order=visible_columns(display_df, PRODUCT_COMPLETION_MAIN_COLUMNS),
+        on_select="rerun",
+        selection_mode="single-row",
+        key=key,
+    )
+    return get_selected_row(event, df)
+
+
 def render_product_completion_detail_dialog(
     selected_row: pd.Series,
     detail_view: pd.DataFrame,
@@ -8071,13 +8147,12 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
 
     table_nonce_key = "product_completion_table_nonce"
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
-    selected_row = render_selectable_table(
+    selected_row = render_product_completion_main_table(
         "판매코드 기준 메인 테이블",
         "판매코드 기준 1행 집계 | 행을 선택하면 POWER 상세를 확인합니다.",
         filtered,
         key=f"product_completion_table_{table_nonce}",
         height=620,
-        column_order=PRODUCT_COMPLETION_MAIN_COLUMNS,
     )
     if selected_row is not None:
         selected_sales_code = clean_str(selected_row.get("_sales_code_base", selected_row.get("판매코드", "")))
@@ -10419,25 +10494,70 @@ def render_style() -> None:
         [data-testid="stMetricDelta"] {{
             display: none !important;
         }}
+        .completion-summary-card {{
+            display: grid;
+            grid-template-columns: repeat(5, minmax(120px, 1fr));
+            gap: 0;
+            margin: 12px 0 14px;
+            border: 1px solid {BORDER_DEFAULT};
+            border-radius: 12px;
+            background: {BG_CARD};
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+            overflow: hidden;
+        }}
+        .completion-summary-item {{
+            padding: 14px 18px;
+            border-right: 1px solid {BORDER_DEFAULT};
+        }}
+        .completion-summary-item:last-child {{
+            border-right: 0;
+        }}
+        .completion-summary-item span {{
+            display: block;
+            font-size: 11px;
+            line-height: 1.2;
+            color: {TEXT_TERTIARY};
+            font-weight: 600;
+            margin-bottom: 6px;
+        }}
+        .completion-summary-item strong {{
+            display: block;
+            font-size: 20px;
+            line-height: 1.15;
+            color: {TEXT_PRIMARY};
+            font-weight: 700;
+            letter-spacing: 0;
+        }}
+        .completion-summary-item.done strong {{
+            color: #16A34A;
+        }}
+        .completion-summary-item.active strong {{
+            color: {COLOR_ORANGE};
+        }}
+        .completion-summary-item.risk strong {{
+            color: {COLOR_DANGER};
+        }}
         [data-testid="stDataFrame"] {{
-            border: 0.5px solid {BORDER_DEFAULT} !important;
+            border: 1px solid {BORDER_DEFAULT} !important;
             border-radius: 12px !important;
             overflow: hidden;
             background: {BG_CARD} !important;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
         }}
         [data-testid="stDataFrame"] th {{
             background: #FFFFFF !important;
-            font-size: 11px !important;
+            font-size: 12px !important;
             font-weight: 600 !important;
             color: {TEXT_SECONDARY} !important;
-            padding: 8px 12px !important;
+            padding: 12px 12px !important;
             border-bottom: 1px solid {BORDER_DEFAULT} !important;
             white-space: nowrap;
+            text-align: center !important;
         }}
         [data-testid="stDataFrame"] td {{
-            font-size: 12px !important;
+            font-size: 13px !important;
             color: {TEXT_PRIMARY} !important;
-            padding: 7px 12px !important;
+            padding: 10px 12px !important;
             border-bottom: 0.5px solid {BORDER_LIGHT} !important;
         }}
         [data-testid="stDataFrame"] table,
@@ -10454,10 +10574,13 @@ def render_style() -> None:
         [data-testid="stDataFrame"] [role="columnheader"] {{
             background: #FFFFFF !important;
             font-weight: 600 !important;
+            color: #374151 !important;
             border-color: {BORDER_DEFAULT} !important;
+            justify-content: center !important;
         }}
         [data-testid="stDataFrame"] tr:hover td {{
             background: #F8FAFC !important;
+            cursor: pointer !important;
         }}
         [data-testid="stDataFrame"] [role="row"] {{
             min-height: 48px !important;
@@ -10470,6 +10593,17 @@ def render_style() -> None:
         }}
         [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] {{
             background: #F8FAFC !important;
+            cursor: pointer !important;
+        }}
+        [data-testid="stDataFrame"] [role="row"]:nth-child(even) [role="gridcell"] {{
+            background: #FCFCFD !important;
+        }}
+        [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"]:first-child {{
+            box-shadow: inset 4px 0 0 {COLOR_BLUE} !important;
+        }}
+        [data-testid="stDataFrame"] [aria-selected="true"] [role="gridcell"],
+        [data-testid="stDataFrame"] [role="row"][aria-selected="true"] [role="gridcell"] {{
+            background: #EFF6FF !important;
         }}
         [data-testid="stDataFrame"] [role="progressbar"] {{
             height: 4px !important;
@@ -12320,16 +12454,32 @@ def render_style() -> None:
             background: #FFFFFF !important;
             background-color: #FFFFFF !important;
             font-weight: 600 !important;
+            color: #374151 !important;
             border-bottom: 1px solid #E5E7EB !important;
+            justify-content: center !important;
         }}
         [data-testid="stDataFrame"] td,
         [data-testid="stDataFrame"] [role="gridcell"] {{
             min-height: 48px !important;
             border-bottom: 1px solid #E5E7EB !important;
         }}
+        [data-testid="stDataFrame"] [role="row"]:nth-child(even) [role="gridcell"] {{
+            background: #FCFCFD !important;
+            background-color: #FCFCFD !important;
+        }}
         [data-testid="stDataFrame"] tr:hover td,
         [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] {{
             background: #F8FAFC !important;
+            background-color: #F8FAFC !important;
+            cursor: pointer !important;
+        }}
+        [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"]:first-child {{
+            box-shadow: inset 4px 0 0 #2563EB !important;
+        }}
+        [data-testid="stDataFrame"] [aria-selected="true"] [role="gridcell"],
+        [data-testid="stDataFrame"] [role="row"][aria-selected="true"] [role="gridcell"] {{
+            background: #EFF6FF !important;
+            background-color: #EFF6FF !important;
         }}
         </style>
         """,
@@ -12774,9 +12924,9 @@ def get_selected_row(selection_event: Any, df: pd.DataFrame) -> pd.Series | None
     return df.iloc[row_idx]
 
 
-def dataframe_auto_height(row_count: int, max_height: int, min_height: int = 92) -> int:
+def dataframe_auto_height(row_count: int, max_height: int, min_height: int = 92, row_height: int = 36) -> int:
     rows = max(int(row_count), 1)
-    return int(min(max_height, max(min_height, 50 + 36 * rows)))
+    return int(min(max_height, max(min_height, 50 + row_height * rows)))
 
 
 def render_selectable_table(
