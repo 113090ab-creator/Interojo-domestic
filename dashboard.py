@@ -4002,7 +4002,7 @@ def render_category_request_summary_table(summary_view: pd.DataFrame) -> None:
     st.dataframe(
         summary_view,
         hide_index=True,
-        height=min(360, 42 + 35 * len(summary_view)),
+        height=dataframe_auto_height(len(summary_view), 360),
         width="stretch",
         column_config=drilldown_column_config(),
     )
@@ -5347,7 +5347,7 @@ def render_product_pack_power_quick_lookup(code_summary: pd.DataFrame) -> None:
     st.dataframe(
         quick_view,
         hide_index=True,
-        height=min(360, 88 + 35 * max(len(quick_view), 1)),
+        height=dataframe_auto_height(len(quick_view), 360),
         width="stretch",
         column_config=drilldown_column_config(),
     )
@@ -7761,7 +7761,7 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
         st.dataframe(
             urgent_view,
             hide_index=True,
-            height=260,
+            height=dataframe_auto_height(len(urgent_view), 260),
             width="stretch",
             column_config=drilldown_column_config(),
         )
@@ -12262,6 +12262,11 @@ def get_selected_row(selection_event: Any, df: pd.DataFrame) -> pd.Series | None
     return df.iloc[row_idx]
 
 
+def dataframe_auto_height(row_count: int, max_height: int, min_height: int = 92) -> int:
+    rows = max(int(row_count), 1)
+    return int(min(max_height, max(min_height, 50 + 36 * rows)))
+
+
 def render_selectable_table(
     title: str,
     sub: str,
@@ -12282,7 +12287,7 @@ def render_selectable_table(
     event = st.dataframe(
         display_df,
         hide_index=True,
-        height=height,
+        height=dataframe_auto_height(len(display_df), height),
         width="stretch",
         column_config=column_config,
         column_order=visible_columns(display_df, column_order) if column_order is not None else None,
@@ -12314,7 +12319,7 @@ def render_production_power_detail_dialog(
             st.dataframe(
                 dataframe_for_streamlit(detail_view),
                 hide_index=True,
-                height=520,
+                height=dataframe_auto_height(len(detail_view), 520),
                 width="stretch",
                 column_config=drilldown_column_config(),
                 column_order=production_power_detail_column_order(detail_view, pack_labels),
@@ -12344,7 +12349,7 @@ def render_daily_inventory_detail_dialog(
             st.dataframe(
                 dataframe_for_streamlit(detail_view),
                 hide_index=True,
-                height=520,
+                height=dataframe_auto_height(len(detail_view), 520),
                 width="stretch",
                 column_config=drilldown_column_config(),
                 column_order=daily_inventory_detail_column_order(detail_view),
@@ -12376,7 +12381,7 @@ def render_sales_code_detail_dialog(
             st.dataframe(
                 dataframe_for_streamlit(detail_view.drop(columns=["power_value"], errors="ignore")),
                 hide_index=True,
-                height=430,
+                height=dataframe_auto_height(len(detail_view), 430),
                 width="stretch",
                 column_config=drilldown_column_config(),
                 column_order=sales_progress_column_order(detail_view, unit_mode),
@@ -12390,7 +12395,7 @@ def render_sales_code_detail_dialog(
             st.dataframe(
                 dataframe_for_streamlit(inventory_view),
                 hide_index=True,
-                height=160,
+                height=dataframe_auto_height(len(inventory_view), 160),
                 width="stretch",
                 column_config=drilldown_column_config(),
             )
@@ -13149,7 +13154,7 @@ def render_drilldown_tab(product_summary: pd.DataFrame, code_summary: pd.DataFra
         st.dataframe(
             pack_unit_view,
             hide_index=True,
-            height=min(260, 88 + 36 * len(pack_unit_view)),
+            height=dataframe_auto_height(len(pack_unit_view), 260),
             width="stretch",
             column_config=pack_unit_column_config(),
         )
