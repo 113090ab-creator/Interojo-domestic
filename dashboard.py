@@ -8006,17 +8006,17 @@ def product_completion_column_config() -> dict[str, Any]:
     column_config = drilldown_column_config()
     column_config.update(
         {
-            "판매코드": st.column_config.TextColumn("판매코드", width="small"),
-            "제품명": st.column_config.TextColumn("제품명", width="large"),
-            "POWER수": st.column_config.NumberColumn("POWER수", format=numeric_format, width="small"),
-            "생산요청물량 (PCS)": st.column_config.NumberColumn("생산요청량(PCS)", format=numeric_format, width="medium"),
-            "용마입고수량 (PCS)": st.column_config.NumberColumn("용마입고(PCS)", format=numeric_format, width="medium"),
-            "용마입고대기 (PCS)": st.column_config.NumberColumn("입고대기(PCS)", format=numeric_format, width="medium"),
-            "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족(PCS)", format=numeric_format, width="medium"),
-            "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능(PCS)", format=numeric_format, width="medium"),
-            "생산부족수량 (PCS)": st.column_config.NumberColumn("생산부족(PCS)", format=numeric_format, width="medium"),
-            "생산완료예상일": st.column_config.TextColumn("완료예상일", width="small"),
-            "생산상태": st.column_config.TextColumn("생산상태", width="small"),
+            "판매코드": st.column_config.TextColumn("판매코드", width=82),
+            "제품명": st.column_config.TextColumn("제품명", width=270),
+            "POWER수": st.column_config.NumberColumn("POWER", format=numeric_format, width=74),
+            "생산요청물량 (PCS)": st.column_config.NumberColumn("요청PCS", format=numeric_format, width=118),
+            "용마입고수량 (PCS)": st.column_config.NumberColumn("입고PCS", format=numeric_format, width=116),
+            "용마입고대기 (PCS)": st.column_config.NumberColumn("대기PCS", format=numeric_format, width=116),
+            "포장부족수량 (PCS)": st.column_config.NumberColumn("포장부족", format=numeric_format, width=116),
+            "포장가능수량 (PCS)": st.column_config.NumberColumn("포장가능", format=numeric_format, width=116),
+            "생산부족수량 (PCS)": st.column_config.NumberColumn("생산부족", format=numeric_format, width=116),
+            "생산완료예상일": st.column_config.TextColumn("예상일", width=92),
+            "생산상태": st.column_config.TextColumn("상태", width=92),
         }
     )
     return column_config
