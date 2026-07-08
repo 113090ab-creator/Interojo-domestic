@@ -7051,7 +7051,8 @@ def render_sales_group_main_table(
     key: str,
     height: int,
 ) -> pd.Series | None:
-    render_panel_title(title, sub)
+    if title or sub:
+        render_panel_title(title, sub)
     if df.empty:
         st.warning("조건에 맞는 데이터가 없습니다.")
         return None
@@ -14559,7 +14560,7 @@ def render_production_code_tab(
     table_nonce_key = "production_code_main_table_nonce"
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
     selected_production_row = render_production_code_main_table(
-        "생산코드 메인 테이블",
+        "생산코드 세부 현황",
         f"생산코드 기준 집계 | 생산완료예상일, 포장부족, 생산부족 순 정렬 | 표시 건수: {len(production_view):,}",
         production_view,
         key=f"production_code_main_table_{table_nonce}",
@@ -14683,8 +14684,8 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
         table_nonce_key = "sales_code_main_table_nonce"
         table_nonce = int(st.session_state.get(table_nonce_key, 0))
         selected_sales_row = render_sales_group_main_table(
-            "판매코드",
-            f"판매코드 기준 집계 | 표시 건수: {len(sales_main_view):,} | 상세 건수: {len(sales_detail_export_view):,}",
+            "",
+            "",
             sales_main_view,
             key=f"sales_code_main_table_{table_nonce}",
             height=620,
