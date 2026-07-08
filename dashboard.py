@@ -8443,8 +8443,40 @@ def product_completion_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else format_int(float(value)))
         else:
             out[(group, label)] = source[column].map(clean_str)
+    if not grouped_columns:
+        return pd.DataFrame(index=source.index)
     out.columns = pd.MultiIndex.from_tuples(grouped_columns)
     return out
+
+
+def product_completion_display_styler(df: pd.DataFrame) -> Any:
+    display_df = product_completion_display_dataframe(df)
+    return display_df.style.set_table_styles(
+        [
+            {
+                "selector": "th",
+                "props": [
+                    ("text-align", "center"),
+                    ("justify-content", "center"),
+                    ("font-weight", "600"),
+                ],
+            },
+            {
+                "selector": "th.col_heading",
+                "props": [
+                    ("text-align", "center"),
+                    ("justify-content", "center"),
+                ],
+            },
+            {
+                "selector": "th.col_heading.level0",
+                "props": [
+                    ("text-align", "center"),
+                    ("font-weight", "700"),
+                ],
+            },
+        ]
+    )
 
 
 def render_product_completion_main_table(
@@ -8462,8 +8494,9 @@ def render_product_completion_main_table(
 
     st.markdown(product_completion_summary_html(df), unsafe_allow_html=True)
     display_df = product_completion_display_dataframe(df)
+    display_styler = product_completion_display_styler(df)
     event = st.dataframe(
-        display_df,
+        display_styler,
         hide_index=True,
         height=dataframe_auto_height(len(display_df), height, row_height=48),
         width="stretch",
