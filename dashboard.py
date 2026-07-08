@@ -10960,6 +10960,13 @@ def render_style() -> None:
             color: #374151 !important;
             border-color: {BORDER_DEFAULT} !important;
             justify-content: center !important;
+            text-align: center !important;
+        }}
+        [data-testid="stDataFrame"] [role="columnheader"] *,
+        [data-testid="stDataFrame"] [role="columnheader"] > div {{
+            width: 100% !important;
+            justify-content: center !important;
+            text-align: center !important;
         }}
         [data-testid="stDataFrame"] tr:hover td {{
             background: #F8FAFC !important;
@@ -12967,7 +12974,12 @@ def render_style() -> None:
         }}
         [data-testid="stDataFrame"] th *,
         [data-testid="stDataFrame"] [role="columnheader"] *,
-        [data-testid="stDataFrame"] [role="columnheader"] > div {{
+        [data-testid="stDataFrame"] [role="columnheader"] > div,
+        [data-testid="stDataFrame"] [role="columnheader"] span,
+        [data-testid="stDataFrame"] [role="columnheader"] p,
+        [data-testid="stDataFrame"] [role="columnheader"] button {{
+            display: flex !important;
+            width: 100% !important;
             justify-content: center !important;
             text-align: center !important;
             margin-left: auto !important;
