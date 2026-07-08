@@ -6688,6 +6688,144 @@ def daily_inventory_detail_column_order(df: pd.DataFrame) -> list[str]:
     return visible_columns(df, columns)
 
 
+DAILY_INVENTORY_MAIN_GROUPED_COLUMNS = [
+    ("대응정보", "대응상태", "대응상태"),
+    ("제품정보", "판매코드", "품목코드"),
+    ("제품정보", "기간구분", "기간구분"),
+    ("제품정보", "대표 제품명", "대표 제품명"),
+    ("요청/재고현황", "긴급요청 수", "긴급요청 수"),
+    ("요청/재고현황", "재고수량", "재고수량"),
+    ("요청/재고현황", "요청 PACK", "요청 PACK"),
+    ("입고·포장현황", "용마입고 PACK", "용마입고 PACK"),
+    ("입고·포장현황", "용마입고대기 PACK", "용마입고대기 PACK"),
+    ("입고·포장현황", "포장가능재고 PCS", "포장가능재고(PCS)"),
+    ("생산정보", "생산부족 PCS", "생산부족 PCS"),
+    ("생산정보", "생산진도율", "생산진도율"),
+    ("생산정보", "생산완료예상일", "생산완료예상일"),
+]
+
+
+DAILY_INVENTORY_DETAIL_GROUPED_COLUMNS = [
+    ("대응정보", "대응상태", "대응상태"),
+    ("제품정보", "판매코드", "품목코드"),
+    ("제품정보", "기간구분", "기간구분"),
+    ("제품정보", "제품명", "제품명"),
+    ("제품정보", "PACK", "PACK"),
+    ("제품정보", "POWER", "POWER"),
+    ("제품정보", "CP", "CP"),
+    ("요청/재고현황", "긴급요청", "긴급요청"),
+    ("요청/재고현황", "재고수량", "재고수량"),
+    ("요청/재고현황", "요청 PACK", "요청 PACK"),
+    ("입고·포장현황", "용마입고 PACK", "용마입고 PACK"),
+    ("입고·포장현황", "용마입고대기 PACK", "용마입고대기 PACK"),
+    ("입고·포장현황", "포장가능재고 PCS", "포장가능재고(PCS)"),
+    ("생산정보", "생산부족 PCS", "생산부족 PCS"),
+    ("생산정보", "생산진도율", "생산진도율"),
+    ("생산정보", "생산완료예상일", "생산완료예상일"),
+]
+
+
+def daily_inventory_grouped_display_dataframe(
+    df: pd.DataFrame,
+    grouped_columns: list[tuple[str, str, str]],
+) -> pd.DataFrame:
+    source = dataframe_for_streamlit(df)
+    number_columns = {
+        "긴급요청",
+        "긴급요청 수",
+        "재고수량",
+        "요청 PACK",
+        "용마입고 PACK",
+        "용마입고대기 PACK",
+        "포장가능재고(PCS)",
+        "생산부족 PCS",
+    }
+    percent_columns = {"생산진도율"}
+    out = pd.DataFrame(index=source.index)
+    output_columns: list[tuple[str, str]] = []
+    for group, label, column in grouped_columns:
+        if column not in source.columns:
+            continue
+        output_columns.append((group, label))
+        if column in number_columns:
+            values = pd.to_numeric(source[column], errors="coerce")
+            out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else format_int(float(value)))
+        elif column in percent_columns:
+            values = pd.to_numeric(source[column], errors="coerce")
+            out[(group, label)] = values.map(lambda value: "" if pd.isna(value) else f"{float(value):.1f}%")
+        else:
+            out[(group, label)] = source[column].map(clean_str)
+    if not output_columns:
+        return pd.DataFrame(index=source.index)
+    out.columns = pd.MultiIndex.from_tuples(output_columns)
+    return out
+
+
+def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
+    return display_df.style.set_table_styles(
+        [
+            {
+                "selector": "th",
+                "props": [
+                    ("text-align", "center"),
+                    ("justify-content", "center"),
+                    ("font-weight", "600"),
+                ],
+            },
+            {
+                "selector": "th.col_heading",
+                "props": [
+                    ("text-align", "center"),
+                    ("justify-content", "center"),
+                ],
+            },
+            {
+                "selector": "th.col_heading.level0",
+                "props": [
+                    ("text-align", "center"),
+                    ("font-weight", "700"),
+                ],
+            },
+        ]
+    )
+
+
+def daily_inventory_main_display_styler(df: pd.DataFrame) -> Any:
+    return grouped_header_display_styler(
+        daily_inventory_grouped_display_dataframe(df, DAILY_INVENTORY_MAIN_GROUPED_COLUMNS)
+    )
+
+
+def daily_inventory_detail_display_styler(df: pd.DataFrame) -> Any:
+    return grouped_header_display_styler(
+        daily_inventory_grouped_display_dataframe(df, DAILY_INVENTORY_DETAIL_GROUPED_COLUMNS)
+    )
+
+
+def render_daily_inventory_main_table(
+    title: str,
+    sub: str,
+    df: pd.DataFrame,
+    key: str,
+    height: int,
+) -> pd.Series | None:
+    render_panel_title(title, sub)
+    if df.empty:
+        st.warning("조건에 맞는 데이터가 없습니다.")
+        return None
+    display_df = daily_inventory_grouped_display_dataframe(df, DAILY_INVENTORY_MAIN_GROUPED_COLUMNS)
+    event = st.dataframe(
+        grouped_header_display_styler(display_df),
+        hide_index=True,
+        height=dataframe_auto_height(len(display_df), height, row_height=48),
+        width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key=key,
+    )
+    return get_selected_row(event, df)
+
+
 def daily_inventory_search_variants(token: str) -> list[str]:
     normalized = clean_str(token).replace("−", "-").replace("–", "-").replace("—", "-")
     variants = [normalized]
@@ -13380,7 +13518,7 @@ def drilldown_column_config() -> dict[str, Any]:
         "용마입고대기수량": st.column_config.NumberColumn("용마입고대기수량", format=numeric_format),
         "용마입고대기수량(PACK)": st.column_config.NumberColumn("용마입고대기수량(PACK)", format=numeric_format),
         "용마입고대기수량(PCS)": st.column_config.NumberColumn("용마입고대기수량(PCS)", format=numeric_format),
-        "포장가능재고(PCS)": st.column_config.NumberColumn("포장가능재고(PCS)", format=numeric_format),
+        "포장가능재고(PCS)": st.column_config.NumberColumn("포장가능재고 PCS", format=numeric_format),
         "샘플신청가능수량": st.column_config.NumberColumn("샘플신청가능수량", format=numeric_format),
         "순위": st.column_config.NumberColumn("순위", format="%d", width="small"),
         "현재 재고수량": st.column_config.NumberColumn("현재 재고수량", format=numeric_format),
@@ -13735,13 +13873,15 @@ def render_daily_inventory_detail_dialog(
         if detail_display.empty:
             st.warning("상세 데이터가 없습니다.")
         else:
+            display_df = daily_inventory_grouped_display_dataframe(
+                detail_display,
+                DAILY_INVENTORY_DETAIL_GROUPED_COLUMNS,
+            )
             st.dataframe(
-                dataframe_for_streamlit(detail_display),
+                grouped_header_display_styler(display_df),
                 hide_index=True,
                 height=dataframe_auto_height(len(detail_display), 520),
                 width="stretch",
-                column_config=drilldown_column_config(),
-                column_order=daily_inventory_detail_column_order(detail_display),
             )
         if st.button("닫기", key="close_daily_inventory_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
@@ -13906,27 +14046,12 @@ def render_daily_inventory_tab(
 
     table_nonce_key = "daily_inventory_main_table_nonce"
     table_nonce = int(st.session_state.get(table_nonce_key, 0))
-    selected_daily_row = render_selectable_table(
+    selected_daily_row = render_daily_inventory_main_table(
         "일일 재고 대응 현황 테이블",
         f"판매코드 기준 집계 | 표시 건수: {len(main_view):,} | 상세 건수: {len(view):,}",
         main_view,
         key=f"daily_inventory_table_{table_nonce}",
         height=560,
-        column_order=[
-            "대응상태",
-            "품목코드",
-            "기간구분",
-            "대표 제품명",
-            "긴급요청 수",
-            "재고수량",
-            "요청 PACK",
-            "용마입고 PACK",
-            "용마입고대기 PACK",
-            "포장가능재고(PCS)",
-            "생산부족 PCS",
-            "생산진도율",
-            "생산완료예상일",
-        ],
     )
     if selected_daily_row is not None:
         selected_item_code = clean_str(
