@@ -7758,7 +7758,7 @@ def production_completion_status_key(plan_date: Any, production_shortage_pcs: An
 
 def product_completion_display_date(value: Any) -> str:
     text = format_date(value)
-    return text if text else "미계획"
+    return text if text else "-"
 
 
 def product_completion_status_label(status_key: Any) -> str:
@@ -7899,6 +7899,7 @@ def build_product_completion_power_view(code_summary: pd.DataFrame) -> pd.DataFr
     )
     grouped["생산상태"] = grouped["_status_key"].map(product_completion_status_label)
     grouped["생산완료예상일"] = grouped["expected_date"].map(product_completion_display_date)
+    grouped.loc[grouped["_status_key"] == "생산완료", "생산완료예상일"] = "-"
     grouped["_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
     grouped["_sales_code_base"] = grouped["판매코드"]
     return grouped[columns + ["production_plan_date", "expected_date", "생산상태"]].sort_values(
@@ -7972,6 +7973,7 @@ def build_product_completion_main_view(power_view: pd.DataFrame) -> pd.DataFrame
     )
     grouped["생산상태"] = grouped["_status_key"].map(product_completion_status_label)
     grouped["생산완료예상일"] = grouped["expected_date"].map(product_completion_display_date)
+    grouped.loc[grouped["_status_key"] == "생산완료", "생산완료예상일"] = "-"
     grouped["_expected_date_sort"] = pd.to_datetime(grouped["expected_date"], errors="coerce")
     grouped["_sales_code_base"] = grouped["판매코드"]
     return grouped[columns].sort_values(
