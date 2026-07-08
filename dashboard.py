@@ -5104,8 +5104,8 @@ def product_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit
 
 def production_progress_column_order(df: pd.DataFrame, pack_labels: list[str], unit_mode: str) -> list[str]:
     columns = [
-        "생산코드",
         "기간구분",
+        "생산코드",
         "대표 제품명",
         "요청합계(PCS)",
         "포장부족(PCS)",
@@ -7051,6 +7051,49 @@ def production_code_prefix(value: Any) -> str:
     return text[:5].upper()
 
 
+def production_prefix_product_name_lookup(rows: pd.DataFrame) -> dict[str, str]:
+    if rows.empty:
+        return {}
+    work = rows.copy()
+    if "_production_code_prefix" not in work.columns:
+        work["_production_code_prefix"] = work.get("production_code_display", pd.Series("", index=work.index)).map(
+            production_code_prefix
+        )
+    if "base_product_name" in work.columns:
+        name_source = work["base_product_name"]
+    else:
+        name_source = work.get("product_name", pd.Series("", index=work.index)).map(strip_pack_unit_suffix)
+    work["_representative_product_name"] = name_source.map(clean_str)
+    work = work[(work["_production_code_prefix"].map(clean_str) != "") & (work["_representative_product_name"] != "")].copy()
+    if work.empty:
+        return {}
+    request_pcs = pd.to_numeric(work.get("request_pcs", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    request_pack = pd.to_numeric(work.get("request_pack", pd.Series(0.0, index=work.index)), errors="coerce").fillna(0.0)
+    packing_pack = pd.to_numeric(
+        work.get("packing_recognized_pack", work.get("packing_pack", pd.Series(0.0, index=work.index))),
+        errors="coerce",
+    ).fillna(0.0)
+    yongma_pack = pd.to_numeric(
+        work.get("yongma_recognized_pack", work.get("yongma_in_pack", pd.Series(0.0, index=work.index))),
+        errors="coerce",
+    ).fillna(0.0)
+    weight = request_pcs.where(request_pcs > 0, request_pack)
+    weight = weight.where(weight > 0, packing_pack + yongma_pack)
+    work["_representative_weight"] = weight
+    representatives = (
+        work.groupby(["_production_code_prefix", "_representative_product_name"], dropna=False)
+        .agg(_representative_weight=("_representative_weight", "sum"))
+        .reset_index()
+        .sort_values(
+            ["_production_code_prefix", "_representative_weight", "_representative_product_name"],
+            ascending=[True, False, True],
+            kind="stable",
+        )
+        .drop_duplicates("_production_code_prefix", keep="first")
+    )
+    return representatives.set_index("_production_code_prefix")["_representative_product_name"].to_dict()
+
+
 def build_production_power_main_view(
     rows: pd.DataFrame,
     pack_labels: list[str],
@@ -7091,6 +7134,7 @@ def build_production_power_main_view(
         work["_packing_recognized_pcs"] = recognized_packing_pcs(work)
     work = attach_deduped_sample_available_pcs(work)
     work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
+    product_name_by_prefix = production_prefix_product_name_lookup(work)
     group_cols = ["_production_code_prefix"]
     base = (
         work.groupby(group_cols, dropna=False)
@@ -7109,6 +7153,10 @@ def build_production_power_main_view(
             expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
+    )
+    base["representative_product"] = base["_production_code_prefix"].map(product_name_by_prefix).where(
+        base["_production_code_prefix"].map(product_name_by_prefix).fillna("").map(clean_str) != "",
+        base["representative_product"],
     )
 
     pack_pivot = (
@@ -7247,6 +7295,7 @@ def build_production_power_detail_view(
         work["_packing_recognized_pcs"] = recognized_packing_pcs(work)
     work = attach_deduped_sample_available_pcs(work)
     work["_production_code_prefix"] = work["production_code_display"].map(production_code_prefix)
+    product_name_by_prefix = production_prefix_product_name_lookup(work)
     if production_prefix is not None:
         work = work[work["_production_code_prefix"] == production_prefix].copy()
     if work.empty:
@@ -7283,6 +7332,10 @@ def build_production_power_detail_view(
             expected_date=("production_due_date", max_datetime),
         )
         .reset_index()
+    )
+    base["representative_product"] = base["_production_code_prefix"].map(product_name_by_prefix).where(
+        base["_production_code_prefix"].map(product_name_by_prefix).fillna("").map(clean_str) != "",
+        base["representative_product"],
     )
     pack_pivot = (
         work.pivot_table(
