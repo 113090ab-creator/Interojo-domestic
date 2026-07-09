@@ -7012,6 +7012,7 @@ SALES_PRIORITY_GROUPED_COLUMNS = [
     ("제품정보", "PACK", "PACK"),
     ("요청·포장현황", "생산요청물량(PCS)", "생산요청물량(PCS)"),
     ("요청·포장현황", "포장부족(PCS)", "포장부족(PCS)"),
+    ("요청·포장현황", "CAPA반영수량(PCS)", "CAPA반영수량(PCS)"),
     ("완료정보", "생산완료예상일", "생산완료예상일"),
 ]
 
@@ -7062,6 +7063,7 @@ def sales_grouped_display_dataframe(
     number_columns = {
         "POWER 수",
         "생산요청물량(PCS)",
+        "CAPA반영수량(PCS)",
         "용마입고수량(PCS)",
         "용마입고대기수량(PCS)",
         "포장가능재고(PCS)",
@@ -9026,7 +9028,11 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
         render_product_completion_detail_dialog(selected_row, detail_scope, table_nonce_key)
 
 
-def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20) -> pd.DataFrame:
+def build_urgent_sales_packing_view(
+    sales_view: pd.DataFrame,
+    max_rows: int = 20,
+    packing_capa_pcs: float | None = None,
+) -> pd.DataFrame:
     columns = [
         "우선등급",
         "기간구분",
@@ -9038,6 +9044,9 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         "포장부족(PCS)",
         "생산완료예상일",
     ]
+    capa_enabled = packing_capa_pcs is not None and float(packing_capa_pcs) > 0
+    if capa_enabled:
+        columns.insert(columns.index("생산완료예상일"), "CAPA반영수량(PCS)")
     if sales_view.empty:
         return pd.DataFrame(columns=columns)
 
@@ -9054,7 +9063,29 @@ def build_urgent_sales_packing_view(sales_view: pd.DataFrame, max_rows: int = 20
         na_position="last",
         kind="stable",
     )
-    return out[columns].head(max_rows).copy()
+    if not capa_enabled:
+        return out[columns].head(max_rows).copy()
+
+    remaining_capa = float(packing_capa_pcs or 0.0)
+    selected_indices: list[Any] = []
+    capa_plan_values: list[float] = []
+    shortage_values = pd.to_numeric(out["포장부족(PCS)"], errors="coerce").fillna(0.0)
+    for row_idx, shortage_pcs in shortage_values.items():
+        if remaining_capa <= 0:
+            break
+        plan_pcs = min(float(shortage_pcs), remaining_capa)
+        if plan_pcs <= 0:
+            continue
+        selected_indices.append(row_idx)
+        capa_plan_values.append(plan_pcs)
+        remaining_capa -= plan_pcs
+
+    if not selected_indices:
+        return pd.DataFrame(columns=columns)
+
+    planned = out.loc[selected_indices].copy()
+    planned["CAPA반영수량(PCS)"] = capa_plan_values
+    return planned[columns].copy()
 
 
 def filter_sales_order_view(
@@ -9153,11 +9184,16 @@ def filter_dataframe_by_terms(
     return df[mask].copy()
 
 
-def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
-    urgent_view = build_urgent_sales_packing_view(sales_view)
+def render_urgent_sales_packing_list(sales_view: pd.DataFrame, packing_capa_pcs: float = 0.0) -> None:
+    urgent_view = build_urgent_sales_packing_view(sales_view, packing_capa_pcs=packing_capa_pcs)
+    capa_enabled = float(packing_capa_pcs or 0.0) > 0
     render_panel_title(
         "긴급 포장 리스트",
-        "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 PCS 기준 요청·부족 수량만 표시합니다.",
+        (
+            f"우선순위와 입력 CAPA {format_int(float(packing_capa_pcs))} PCS를 기준으로 포장 가능 리스트를 표시합니다."
+            if capa_enabled
+            else "용마 보유 재고는 긴급도 판단에만 사용하고, 표에는 PCS 기준 요청·부족 수량만 표시합니다."
+        ),
     )
     if urgent_view.empty:
         st.info("현재 기준에 해당하는 긴급 포장 판매코드가 없습니다.")
@@ -14642,7 +14678,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
     pack_options = available_pack_options(code_summary)
     power_options = available_power_options(code_summary)
 
-    fc1, _ = st.columns([1.25, 4.75], gap="small")
+    fc1, fc2, _ = st.columns([1.25, 1.25, 3.5], gap="small")
     with fc1:
         stock_threshold_pack = st.number_input(
             "긴급 재고 기준",
@@ -14653,6 +14689,16 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
             help="우선등급 판단에만 사용하는 기준입니다.",
         )
         st.caption("표시 수량은 PCS 기준으로 통일합니다.")
+    with fc2:
+        packing_capa_input = st.text_input(
+            "포장 CAPA (PCS)",
+            value="",
+            placeholder="예: 100,000",
+            key="sales_packing_capa_pcs",
+            help="비워두면 기존처럼 우선순위 기준으로 표시합니다.",
+        )
+        packing_capa_pcs = max(0.0, to_number_value(packing_capa_input))
+        st.caption("미입력 시 CAPA 제한 없이 표시합니다.")
 
     period_scoped_code_summary = filter_operational_code_summary(
         code_summary,
@@ -14666,7 +14712,7 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
     priority_tab, detail_tab = st.tabs(["포장 우선순위", "판매코드 세부리스트"])
 
     with priority_tab:
-        render_urgent_sales_packing_list(sales_base)
+        render_urgent_sales_packing_list(sales_base, packing_capa_pcs=packing_capa_pcs)
 
     with detail_tab:
         sf1, sf2, sf3, sf4 = st.columns([4.5, 1.25, 1.25, 0.95], gap="small")
@@ -14724,7 +14770,10 @@ def render_sales_code_tab(code_summary: pd.DataFrame, selected_period: str = "�
                 "엑셀 다운로드",
                 "판매코드_상세",
                 {
-                    "긴급 포장 리스트": build_urgent_sales_packing_view(sales_base),
+                    "긴급 포장 리스트": build_urgent_sales_packing_view(
+                        sales_base,
+                        packing_capa_pcs=packing_capa_pcs,
+                    ),
                     "판매코드 집계": sales_main_view,
                     "POWER 상세": sales_detail_export_view,
                 },
