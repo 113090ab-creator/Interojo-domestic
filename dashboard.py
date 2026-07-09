@@ -3777,7 +3777,13 @@ def calc_kpi_from_code_summary(code_summary: pd.DataFrame) -> dict[str, float]:
     receipt_progress = (yongma_in_pack / request_pack * 100.0) if request_pack > 0 else 0.0
     packing_progress = (packing_pack / request_pack * 100.0) if request_pack > 0 else 0.0
 
-    work = add_allocated_production_basis(work)
+    if "_allocated_production_shortage_qty" not in work.columns:
+        work = add_allocated_production_basis(work)
+    else:
+        work["_allocated_production_shortage_qty"] = pd.to_numeric(
+            work["_allocated_production_shortage_qty"],
+            errors="coerce",
+        ).fillna(0.0)
     request_pcs = float(work["request_pcs"].sum())
     receipt_shortage_pcs = max(0.0, request_pcs - yongma_in_pcs)
     production_shortage_pcs = float(work["_allocated_production_shortage_qty"].sum())
