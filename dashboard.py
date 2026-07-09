@@ -6789,6 +6789,24 @@ def grouped_progress_bar_style(value: Any, color: str = COLOR_BLUE) -> str:
     )
 
 
+def grouped_progress_color(column_label: str) -> str:
+    if column_label == "포장진도율":
+        return COLOR_ORANGE
+    if column_label == "용마입고율":
+        return COLOR_AMBER
+    return COLOR_BLUE
+
+
+def grouped_progress_track_style(value: Any) -> str:
+    return (
+        "background-color: #E5E7EB;"
+        "background-position: left center;"
+        "text-align: right;"
+        "font-weight: 500;"
+        "color: #111827;"
+    )
+
+
 def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
     styler = display_df.style.set_table_styles(
         [
@@ -6826,12 +6844,27 @@ def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
 
     styler = styler.format({column: grouped_progress_percent for column in progress_columns})
     for column in progress_columns:
-        color = COLOR_ORANGE if column[-1] == "포장진도율" else COLOR_AMBER if column[-1] == "용마입고율" else COLOR_BLUE
+        color = grouped_progress_color(column[-1])
         subset = pd.IndexSlice[:, [column]]
-        if hasattr(styler, "map"):
-            styler = styler.map(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
-        else:
-            styler = styler.applymap(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
+        try:
+            styler = styler.bar(
+                subset=subset,
+                color=color,
+                vmin=0,
+                vmax=100,
+                align="left",
+                width=72,
+                height=12,
+            )
+            if hasattr(styler, "map"):
+                styler = styler.map(grouped_progress_track_style, subset=subset)
+            else:
+                styler = styler.applymap(grouped_progress_track_style, subset=subset)
+        except Exception:
+            if hasattr(styler, "map"):
+                styler = styler.map(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
+            else:
+                styler = styler.applymap(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
     return styler
 
 
