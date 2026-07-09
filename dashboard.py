@@ -6807,6 +6807,32 @@ def grouped_progress_track_style(value: Any) -> str:
     )
 
 
+def grouped_progress_column_config() -> dict[str, Any]:
+    return {
+        "생산진도율": st.column_config.ProgressColumn(
+            "생산진도율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_BLUE,
+        ),
+        "포장진도율": st.column_config.ProgressColumn(
+            "포장진도율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_ORANGE,
+        ),
+        "용마입고율": st.column_config.ProgressColumn(
+            "용마입고율",
+            min_value=0,
+            max_value=100,
+            format="%.1f%%",
+            color=COLOR_AMBER,
+        ),
+    }
+
+
 def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
     styler = display_df.style.set_table_styles(
         [
@@ -6842,30 +6868,7 @@ def grouped_header_display_styler(display_df: pd.DataFrame) -> Any:
     if not progress_columns:
         return styler
 
-    styler = styler.format({column: grouped_progress_percent for column in progress_columns})
-    for column in progress_columns:
-        color = grouped_progress_color(column[-1])
-        subset = pd.IndexSlice[:, [column]]
-        try:
-            styler = styler.bar(
-                subset=subset,
-                color=color,
-                vmin=0,
-                vmax=100,
-                align="left",
-                width=72,
-                height=12,
-            )
-            if hasattr(styler, "map"):
-                styler = styler.map(grouped_progress_track_style, subset=subset)
-            else:
-                styler = styler.applymap(grouped_progress_track_style, subset=subset)
-        except Exception:
-            if hasattr(styler, "map"):
-                styler = styler.map(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
-            else:
-                styler = styler.applymap(lambda value, color=color: grouped_progress_bar_style(value, color), subset=subset)
-    return styler
+    return styler.format({column: grouped_progress_percent for column in progress_columns})
 
 
 def daily_inventory_main_display_styler(df: pd.DataFrame) -> Any:
@@ -6893,10 +6896,11 @@ def render_daily_inventory_main_table(
         return None
     display_df = daily_inventory_grouped_display_dataframe(df, DAILY_INVENTORY_MAIN_GROUPED_COLUMNS)
     event = st.dataframe(
-        grouped_header_display_styler(display_df),
+        display_df,
         hide_index=True,
         height=dataframe_auto_height(len(display_df), height, row_height=48),
         width="stretch",
+        column_config=grouped_progress_column_config(),
         on_select="rerun",
         selection_mode="single-row",
         key=key,
@@ -6982,10 +6986,11 @@ def render_production_code_main_table(
         return None
     display_df = production_grouped_display_dataframe(df, PRODUCTION_CODE_MAIN_GROUPED_COLUMNS)
     event = st.dataframe(
-        grouped_header_display_styler(display_df),
+        display_df,
         hide_index=True,
         height=dataframe_auto_height(len(display_df), height, row_height=48),
         width="stretch",
+        column_config=grouped_progress_column_config(),
         on_select="rerun",
         selection_mode="single-row",
         key=key,
@@ -7091,10 +7096,11 @@ def render_sales_group_main_table(
         return None
     display_df = sales_grouped_display_dataframe(df, SALES_GROUP_MAIN_GROUPED_COLUMNS)
     event = st.dataframe(
-        grouped_header_display_styler(display_df),
+        display_df,
         hide_index=True,
         height=dataframe_auto_height(len(display_df), height, row_height=48),
         width="stretch",
+        column_config=grouped_progress_column_config(),
         on_select="rerun",
         selection_mode="single-row",
         key=key,
@@ -9152,10 +9158,11 @@ def render_urgent_sales_packing_list(sales_view: pd.DataFrame) -> None:
     else:
         display_df = sales_grouped_display_dataframe(urgent_view, SALES_PRIORITY_GROUPED_COLUMNS)
         st.dataframe(
-            grouped_header_display_styler(display_df),
+            display_df,
             hide_index=True,
             height=dataframe_auto_height(len(urgent_view), 260),
             width="stretch",
+            column_config=grouped_progress_column_config(),
         )
 
 
@@ -14124,10 +14131,11 @@ def render_production_power_detail_dialog(
                     PRODUCTION_POWER_DETAIL_GROUPED_COLUMNS,
                 )
                 st.dataframe(
-                    grouped_header_display_styler(power_display),
+                    power_display,
                     hide_index=True,
                     height=dataframe_auto_height(len(power_view), 390, row_height=34),
                     width="stretch",
+                    column_config=grouped_progress_column_config(),
                 )
         if st.button("닫기", key="close_production_power_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
@@ -14157,10 +14165,11 @@ def render_daily_inventory_detail_dialog(
                 DAILY_INVENTORY_DETAIL_GROUPED_COLUMNS,
             )
             st.dataframe(
-                grouped_header_display_styler(display_df),
+                display_df,
                 hide_index=True,
                 height=dataframe_auto_height(len(detail_display), 520),
                 width="stretch",
+                column_config=grouped_progress_column_config(),
             )
         if st.button("닫기", key="close_daily_inventory_detail_dialog", width="stretch"):
             st.session_state[table_nonce_key] = int(st.session_state.get(table_nonce_key, 0)) + 1
@@ -14192,10 +14201,11 @@ def render_sales_code_detail_dialog(
                 SALES_DETAIL_GROUPED_COLUMNS,
             )
             st.dataframe(
-                grouped_header_display_styler(display_df),
+                display_df,
                 hide_index=True,
                 height=dataframe_auto_height(len(detail_display), 430),
                 width="stretch",
+                column_config=grouped_progress_column_config(),
             )
 
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
