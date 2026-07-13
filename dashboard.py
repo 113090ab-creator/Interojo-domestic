@@ -4201,7 +4201,7 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
         return
     filter_key = "family_progress_section_filter"
     if st.session_state.get(filter_key) not in available_sections:
-        st.session_state[filter_key] = available_sections[0]
+        st.session_state.pop(filter_key, None)
     selected_section = st.segmented_control(
         "제품 분류 탭",
         options=available_sections,
