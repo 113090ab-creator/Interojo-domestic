@@ -345,12 +345,13 @@ SAMPLE_AVAILABLE_COLS = {
         "샘플 신청 가능 수량",
         "샘플신청가능수량",
         "샘플 신청가능수량",
+        "샘플신청 가능 수량",
         "샘플 신청 가능 수량 (당월)",
         "샘플신청가능수량(당월)",
         "sample_available_qty",
     ],
 }
-SAMPLE_AVAILABLE_QTY_COLUMN_INDEX = 9  # J열
+SAMPLE_AVAILABLE_QTY_COLUMN_INDEX = 8  # I열
 
 WIP_COLS = {
     "product_code": ["제품 코드", "제품코드", "생산코드", "생산 코드", "production_code", "product_code"],
@@ -1508,7 +1509,7 @@ def normalize_sample_available_frame(
         cols["sample_available_qty"] = raw.columns[SAMPLE_AVAILABLE_QTY_COLUMN_INDEX]
     else:
         raise DashboardConfigError(
-            [f"[{file_label}] 샘플신청가능수량 J열을 찾지 못했습니다."]
+            [f"[{file_label}] 샘플신청가능수량 I열을 찾지 못했습니다."]
         )
     out = pd.DataFrame(
         {
@@ -1553,7 +1554,7 @@ def read_sample_available_sheet(xl: pd.ExcelFile, sheet_name: str, file_label: s
             break
     if sample_col_idx is None:
         if len(header_values) <= SAMPLE_AVAILABLE_QTY_COLUMN_INDEX:
-            raise DashboardConfigError([f"[{file_label}] 샘플신청가능수량 J열을 찾지 못했습니다."])
+            raise DashboardConfigError([f"[{file_label}] 샘플신청가능수량 I열을 찾지 못했습니다."])
         sample_col_idx = SAMPLE_AVAILABLE_QTY_COLUMN_INDEX
 
     min_col_idx = min(product_col_idx, sample_col_idx)
