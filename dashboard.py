@@ -4085,6 +4085,24 @@ def build_family_progress_view(product_df: pd.DataFrame) -> pd.DataFrame:
     ).drop(columns=["_order"])
 
 
+def sort_family_progress_for_report(family_view: pd.DataFrame) -> pd.DataFrame:
+    if family_view.empty or "포장진도율" not in family_view.columns:
+        return family_view.copy()
+    out = family_view.copy()
+    out["_report_packing_progress"] = pd.to_numeric(out["포장진도율"], errors="coerce").fillna(0.0)
+    out["_report_packing_shortage"] = pd.to_numeric(
+        out.get("포장부족수량", pd.Series(0.0, index=out.index)), errors="coerce"
+    ).fillna(0.0)
+    out["_report_request_pack"] = pd.to_numeric(
+        out.get("요청 PACK", pd.Series(0.0, index=out.index)), errors="coerce"
+    ).fillna(0.0)
+    return out.sort_values(
+        ["_report_packing_progress", "_report_packing_shortage", "_report_request_pack"],
+        ascending=[True, False, False],
+        kind="stable",
+    ).drop(columns=["_report_packing_progress", "_report_packing_shortage", "_report_request_pack"])
+
+
 def family_card_section(family: Any) -> str:
     text = clean_str(family)
     upper = text.upper()
@@ -11034,7 +11052,7 @@ def build_ppt_report(
     work = code_summary_for_products(work, product_names)
     scope_kpis = build_scope_kpis(work)
     main_products, _ = split_main_sample(product_view)
-    family_view = build_family_progress_view(main_products)
+    family_view = sort_family_progress_for_report(build_family_progress_view(main_products))
     urgent_summary_view = build_urgent_request_summary_view(
         daily_inventory_df,
         code_summary,
