@@ -4117,6 +4117,13 @@ def family_card_section(family: Any) -> str:
     return "FRP"
 
 
+def filter_one_day_family_progress_view(family_view: pd.DataFrame) -> pd.DataFrame:
+    if family_view.empty or "본품분류" not in family_view.columns:
+        return family_view.copy()
+    out = family_view.copy()
+    return out[out["본품분류"].map(family_card_section) == "1DAY"].copy()
+
+
 def period_group_from_category(value: Any) -> str:
     normalized = normalize_col(value)
     if "1day" in normalized:
@@ -4219,16 +4226,19 @@ def render_family_progress_cards(family_df: pd.DataFrame, max_rows: int = 14) ->
         st.warning("본품 분류별 진도현황을 표시할 데이터가 없습니다.")
         return
     filter_key = "family_progress_section_filter"
-    if st.session_state.get(filter_key) not in available_sections:
-        st.session_state.pop(filter_key, None)
-    selected_section = st.segmented_control(
-        "제품 분류 탭",
-        options=available_sections,
-        default=available_sections[0],
-        label_visibility="collapsed",
-        key=filter_key,
-    )
-    selected_section = str(selected_section or available_sections[0])
+    if len(available_sections) == 1:
+        selected_section = available_sections[0]
+    else:
+        if st.session_state.get(filter_key) not in available_sections:
+            st.session_state.pop(filter_key, None)
+        selected_section = st.segmented_control(
+            "제품 분류 탭",
+            options=available_sections,
+            default=available_sections[0],
+            label_visibility="collapsed",
+            key=filter_key,
+        )
+        selected_section = str(selected_section or available_sections[0])
     scoped = view[view["_section"] == selected_section].head(max_rows).copy()
     rows = "".join(family_progress_row_html(row, idx) for idx, (_, row) in enumerate(scoped.iterrows()))
     st.markdown(
@@ -11052,7 +11062,9 @@ def build_ppt_report(
     work = code_summary_for_products(work, product_names)
     scope_kpis = build_scope_kpis(work)
     main_products, _ = split_main_sample(product_view)
-    family_view = sort_family_progress_for_report(build_family_progress_view(main_products))
+    family_view = sort_family_progress_for_report(
+        filter_one_day_family_progress_view(build_family_progress_view(main_products))
+    )
     urgent_summary_view = build_urgent_request_summary_view(
         daily_inventory_df,
         code_summary,
@@ -14523,7 +14535,7 @@ def render_product_summary_tab(
     main_products, _ = split_main_sample(product_summary)
     stock_threshold_pack = float(INVENTORY_STOCK_THRESHOLD_DEFAULT)
 
-    family_view = build_family_progress_view(main_products)
+    family_view = filter_one_day_family_progress_view(build_family_progress_view(main_products))
     request_level_source = request_df if request_df is not None and not request_df.empty else code_summary
     category_request_view = build_category_request_summary_view(request_level_source, instruction_df)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
