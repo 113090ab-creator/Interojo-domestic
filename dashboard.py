@@ -14566,7 +14566,7 @@ def render_product_summary_tab(
     main_products, _ = split_main_sample(product_summary)
     stock_threshold_pack = float(INVENTORY_STOCK_THRESHOLD_DEFAULT)
 
-    family_view = filter_one_day_family_progress_view(build_family_progress_view(main_products))
+    family_view = build_family_progress_view(main_products)
     request_level_source = request_df if request_df is not None and not request_df.empty else code_summary
     category_request_view = build_category_request_summary_view(request_level_source, instruction_df)
     top_shortage_view = build_top_shortage_view(product_summary, top_n=10)
