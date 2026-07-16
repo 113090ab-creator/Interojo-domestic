@@ -9643,6 +9643,7 @@ def add_report_rule(
         Inches(shape_width),
         Inches(shape_height),
     )
+    shape.shadow.inherit = False
     shape.fill.solid()
     shape.fill.fore_color.rgb = ppt_rgb(color)
     shape.line.fill.background()
@@ -9660,6 +9661,7 @@ def add_report_shape(
     line_width: float = 0.5,
 ) -> Any:
     shape = slide.shapes.add_shape(shape_type, Inches(left), Inches(top), Inches(width), Inches(height))
+    shape.shadow.inherit = False
     shape.fill.solid()
     shape.fill.fore_color.rgb = ppt_rgb(fill_color)
     if line_color:
@@ -11526,7 +11528,7 @@ def render_style() -> None:
             border: 1px solid {BORDER_DEFAULT};
             border-radius: 12px;
             background: {BG_CARD};
-            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+            box-shadow: none;
             overflow: hidden;
         }}
         .completion-summary-item {{
@@ -11566,7 +11568,7 @@ def render_style() -> None:
             border-radius: 12px !important;
             overflow: hidden;
             background: {BG_CARD} !important;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+            box-shadow: none !important;
         }}
         [data-testid="stDataFrame"] th {{
             background: #FFFFFF !important;
@@ -11630,7 +11632,7 @@ def render_style() -> None:
             background: #FCFCFD !important;
         }}
         [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"]:first-child {{
-            box-shadow: inset 4px 0 0 {COLOR_BLUE} !important;
+            border-left: 4px solid {COLOR_BLUE} !important;
         }}
         [data-testid="stDataFrame"] [aria-selected="true"] [role="gridcell"],
         [data-testid="stDataFrame"] [role="row"][aria-selected="true"] [role="gridcell"] {{
@@ -12780,7 +12782,7 @@ def render_style() -> None:
             background: {BG_CARD} !important;
             border: 1px solid {BORDER_DEFAULT} !important;
             border-radius: 12px !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
+            box-shadow: none !important;
         }}
         .overall-kpi-card {{
             padding: 24px 26px;
@@ -13064,7 +13066,7 @@ def render_style() -> None:
             background: #FFFFFF;
             padding: 18px;
             margin: 2px 0 14px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+            box-shadow: none;
         }}
         .production-dialog-head {{
             display: flex;
@@ -13346,7 +13348,7 @@ def render_style() -> None:
             border: 1px solid {BORDER_DEFAULT};
             border-radius: 12px;
             background: {BG_CARD};
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            box-shadow: none;
         }}
         .ops-table th {{
             position: sticky;
@@ -13642,7 +13644,7 @@ def render_style() -> None:
             cursor: pointer !important;
         }}
         [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"]:first-child {{
-            box-shadow: inset 4px 0 0 #2563EB !important;
+            border-left: 4px solid #2563EB !important;
         }}
         [data-testid="stDataFrame"] [aria-selected="true"] [role="gridcell"],
         [data-testid="stDataFrame"] [role="row"][aria-selected="true"] [role="gridcell"] {{
