@@ -10724,6 +10724,10 @@ def add_report_progress_bar(
     )
 
 
+def add_report_family_dot(slide: Any, left: float, top: float, color: str) -> None:
+    add_report_shape(slide, MSO_SHAPE.OVAL, left, top, 0.07, 0.07, color, color, 0.1)
+
+
 def add_family_progress_summary_panel(
     slide: Any,
     family_view: pd.DataFrame,
@@ -10744,11 +10748,10 @@ def add_family_progress_summary_panel(
         REPORT_PANEL_LINE,
         0.5,
     )
-    add_report_shape(slide, MSO_SHAPE.RECTANGLE, left + 0.02, top + 0.02, width - 0.04, 0.38, REPORT_TABLE_HEADER, REPORT_TABLE_HEADER, 0.5)
 
-    headers = ["제품 분류", "요청 PACK", "생산진도", "포장진도", "용마입고", "생산부족 PCS"]
-    col_widths = [2.05, 1.25, 2.25, 2.25, 2.25, 1.65]
-    col_lefts = [left + 0.16]
+    headers = ["제품 분류", "요청 PCS", "생산진도율", "포장진도율", "용마입고율", "생산부족 PCS"]
+    col_widths = [3.35, 1.55, 2.05, 2.05, 2.05, 1.0]
+    col_lefts = [left + 0.22]
     for col_width in col_widths[:-1]:
         col_lefts.append(col_lefts[-1] + col_width)
 
@@ -10757,16 +10760,16 @@ def add_family_progress_summary_panel(
             slide,
             header,
             col_lefts[idx],
-            top + 0.06,
+            top + 0.18,
             col_widths[idx],
             0.26,
-            8.0,
+            7.4,
             True,
-            REPORT_HEADER,
+            REPORT_MUTED,
             PP_ALIGN.RIGHT if idx in {1, 5} else PP_ALIGN.LEFT,
             MSO_ANCHOR.MIDDLE,
         )
-    add_report_rule(slide, left + 0.1, top + 0.4, width - 0.2, REPORT_PANEL_LINE)
+    add_report_rule(slide, left + 0.2, top + 0.52, width - 0.4, REPORT_PANEL_LINE)
 
     if family_view.empty:
         add_textbox(
@@ -10785,62 +10788,88 @@ def add_family_progress_summary_panel(
 
     rows = family_view.head(max_rows).copy()
     hidden_count = max(0, len(family_view) - len(rows))
-    row_height = min(0.34, (height - 0.7) / max(len(rows), 1))
+    row_height = min(0.4, (height - 0.75) / max(len(rows), 1))
+    dot_colors = [COLOR_BLUE, COLOR_DANGER, COLOR_TEAL, "#334155", COLOR_DANGER, COLOR_ORANGE, COLOR_AMBER, COLOR_AMBER]
     for row_idx, (_, row) in enumerate(rows.iterrows(), start=1):
-        row_top = top + 0.43 + (row_idx - 1) * row_height
+        row_top = top + 0.55 + (row_idx - 1) * row_height
+        row_text_top = row_top + max(0.01, (row_height - 0.18) / 2)
+        request_value_top = row_top + max(0.01, row_height * 0.18)
+        request_pack_top = row_top + max(0.1, row_height * 0.58)
+        request_value_height = 0.1 if row_height < 0.3 else 0.16
+        progress_top = row_top + max(0.0, (row_height - 0.22) / 2)
 
         family = truncate_report_text(row.get("본품분류", ""), 24)
         request_pack = to_report_float(row.get("요청 PACK", 0.0))
+        request_pcs = to_report_float(row.get("요청 PCS", 0.0))
         production_progress = to_report_float(row.get("생산진도율", 0.0))
         packing_progress = to_report_float(row.get("포장진도율", 0.0))
         receipt_progress = to_report_float(row.get("용마입고율", 0.0))
         production_shortage = to_report_float(row.get("생산부족수량", 0.0))
         shortage_color = COLOR_DANGER if production_shortage > 0 else REPORT_HEADER
 
+        add_report_family_dot(
+            slide,
+            col_lefts[0],
+            row_top + row_height / 2 - 0.035,
+            dot_colors[(row_idx - 1) % len(dot_colors)],
+        )
         add_textbox(
             slide,
             family,
-            col_lefts[0],
-            row_top + 0.03,
-            col_widths[0],
-            row_height - 0.06,
-            8.1,
+            col_lefts[0] + 0.16,
+            row_text_top,
+            col_widths[0] - 0.16,
+            min(0.18, row_height - 0.02),
+            7.8,
             True,
             REPORT_HEADER,
             vertical_anchor=MSO_ANCHOR.MIDDLE,
         )
         add_textbox(
             slide,
-            format_report_value(request_pack),
+            format_report_value(request_pcs),
             col_lefts[1],
-            row_top + 0.03,
+            request_value_top,
             col_widths[1],
-            row_height - 0.06,
-            8.0,
+            request_value_height,
+            7.2 if row_height < 0.3 else 7.7,
             True,
             REPORT_HEADER,
             PP_ALIGN.RIGHT,
             MSO_ANCHOR.MIDDLE,
         )
-        add_report_progress_bar(slide, production_progress, col_lefts[2], row_top + 0.03, col_widths[2] - 0.12, COLOR_BLUE)
-        add_report_progress_bar(slide, packing_progress, col_lefts[3], row_top + 0.03, col_widths[3] - 0.12, COLOR_ORANGE)
-        add_report_progress_bar(slide, receipt_progress, col_lefts[4], row_top + 0.03, col_widths[4] - 0.12, COLOR_AMBER)
+        add_textbox(
+            slide,
+            f"({format_report_value(request_pack)} PACK)",
+            col_lefts[1],
+            request_pack_top,
+            col_widths[1],
+            0.1,
+            5.2 if row_height < 0.3 else 5.8,
+            True,
+            REPORT_MUTED,
+            PP_ALIGN.RIGHT,
+            MSO_ANCHOR.MIDDLE,
+        )
+        add_report_progress_bar(slide, production_progress, col_lefts[2], progress_top, col_widths[2] - 0.08, COLOR_BLUE, REPORT_MUTED)
+        add_report_progress_bar(slide, packing_progress, col_lefts[3], progress_top, col_widths[3] - 0.08, COLOR_ORANGE, REPORT_MUTED)
+        add_report_progress_bar(slide, receipt_progress, col_lefts[4], progress_top, col_widths[4] - 0.08, COLOR_AMBER, REPORT_MUTED)
         add_textbox(
             slide,
             format_report_value(production_shortage),
             col_lefts[5],
-            row_top + 0.03,
+            row_text_top,
             col_widths[5],
-            row_height - 0.06,
-            8.0,
+            min(0.18, row_height - 0.02),
+            7.8,
             True,
             shortage_color,
             PP_ALIGN.RIGHT,
             MSO_ANCHOR.MIDDLE,
         )
-        add_report_rule(slide, left + 0.1, row_top + row_height, width - 0.2, REPORT_FAINT)
+        add_report_rule(slide, left + 0.2, row_top + row_height, width - 0.4, REPORT_FAINT)
 
-    note = "제품군별 생산지시 PACK, 생산·포장·용마입고율, 생산부족 PCS 기준"
+    note = "제품군별 생산지시 PCS와 PACK, 생산진도율, 포장진도율, 용마입고율, 생산부족 PCS 기준"
     if hidden_count:
         note = f"{note} / 외 {hidden_count:,}개 분류"
     add_textbox(
