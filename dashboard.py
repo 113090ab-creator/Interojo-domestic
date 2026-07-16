@@ -9078,16 +9078,16 @@ def render_product_completion_section(code_summary: pd.DataFrame) -> None:
         st.info("표시할 제품별 생산 완료 현황 데이터가 없습니다.")
         return
 
-    if st.session_state.get("product_completion_period_group_filter") not in PERIOD_GROUP_ORDER:
-        st.session_state["product_completion_period_group_filter"] = "전체"
+    period_filter_key = "product_completion_period_group_filter"
+    if st.session_state.get(period_filter_key) not in PERIOD_GROUP_ORDER:
+        st.session_state.pop(period_filter_key, None)
 
     f1, f2 = st.columns([1.2, 3.2], gap="small")
     with f1:
         period_filter = st.segmented_control(
             "기간구분",
             options=PERIOD_GROUP_ORDER,
-            default=st.session_state.get("product_completion_period_group_filter", "전체"),
-            key="product_completion_period_group_filter",
+            key=period_filter_key,
         )
     period_filter = str(period_filter or "전체")
     with f2:
