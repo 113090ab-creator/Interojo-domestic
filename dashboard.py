@@ -94,7 +94,7 @@ DAILY_ITEM_STANDARD = {
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
 WIP_PROCESS_COLUMNS = ["검사접착", "누수규격검사"]
-DATA_CACHE_VERSION = 38
+DATA_CACHE_VERSION = 39
 REQUEST_DUE_MONTH = None
 REQUEST_DUE_MONTH_LABEL = "전체 월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
@@ -953,6 +953,18 @@ def select_instruction_request_sheet(sheet_names: list[str]) -> str | None:
     if not any("전체물량" in clean_str(sheet_name) for sheet_name in sheet_names):
         return None
     return "Sheet1" if "Sheet1" in sheet_names else (sheet_names[0] if sheet_names else None)
+
+
+def selected_total_request_sheet_label(path: Path | None) -> str:
+    if path is None:
+        return "3Q전체물량"
+    try:
+        xl = pd.ExcelFile(path)
+        sheet_name = select_total_request_sheet(xl.sheet_names)
+    except Exception:
+        return "3Q전체물량"
+    label = clean_str(sheet_name)
+    return label if label else "3Q전체물량"
 
 
 def read_request_workbook_sheet(path: Path, preferred_sheet: str | None = None) -> pd.DataFrame:
@@ -14556,6 +14568,7 @@ def render_product_summary_tab(
     daily_inventory_df: pd.DataFrame | None = None,
     sample_available_df: pd.DataFrame | None = None,
     selected_period: str = "전체",
+    request_total_sheet_label: str = "3Q전체물량",
 ) -> None:
     product_summary = filter_by_period_group(product_summary, selected_period)
     code_summary = filter_operational_code_summary(code_summary, period_group=selected_period)
@@ -14671,7 +14684,10 @@ def render_product_summary_tab(
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     with st.expander("신규분류요약별 요청 대비 지시 수준", expanded=False):
-        st.caption("3Q전체물량은 요청량, 생산지시물량은 지시량으로 보고 신규분류요약별 지시율과 미지시 PCS를 집계합니다.")
+        st.caption(
+            f"{request_total_sheet_label}은 요청량, 생산지시물량은 지시량으로 보고 "
+            "신규분류요약별 지시율과 미지시 PCS를 집계합니다."
+        )
         render_request_instruction_level_cards(category_request_view)
         render_category_request_summary_table(category_request_view)
 
@@ -15339,13 +15355,22 @@ def render_period_group_filter(active_tab: str) -> str:
 def main() -> None:
     render_style()
     today_label = pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d")
+    base_dir = Path.cwd()
+    files_for_header: SourceFiles | None = None
+    request_total_sheet_label = "3Q전체물량"
+    try:
+        files_for_header = discover_source_files(base_dir)
+        request_total_sheet_label = selected_total_request_sheet_label(files_for_header.request_file)
+    except DashboardConfigError:
+        pass
+
     header_left, header_right = st.columns([5.2, 1.2], gap="large", vertical_alignment="center")
     with header_left:
         st.markdown(
             "<div class='app-header'>"
             "<div class='app-title'>국내 출고 제품 생산·포장 현황</div>"
             f"<div class='app-basis'>기준일 {today_label} · 생산지시 기준 {REQUEST_DUE_MONTH_LABEL} 생산완료예상일 · "
-            f"용마입고 기준 {PACKING_RECEIPT_BASE_DATE_LABEL}부터 · 지시수준 3Q전체물량 대비 생산지시물량</div>"
+            f"용마입고 기준 {PACKING_RECEIPT_BASE_DATE_LABEL}부터 · 지시수준 {request_total_sheet_label} 대비 생산지시물량</div>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -15356,9 +15381,8 @@ def main() -> None:
             st.rerun()
     active_tab = render_dashboard_nav()
 
-    base_dir = Path.cwd()
     try:
-        files = discover_source_files(base_dir)
+        files = files_for_header or discover_source_files(base_dir)
         (
             product_summary,
             code_summary,
@@ -15400,6 +15424,7 @@ def main() -> None:
             daily_inventory_df,
             sample_available_df,
             selected_period,
+            request_total_sheet_label,
         )
     elif active_tab == "일일 재고 대응 현황":
         render_daily_inventory_tab(daily_inventory_df, code_summary, sample_available_df, lot_status_df, selected_period)
