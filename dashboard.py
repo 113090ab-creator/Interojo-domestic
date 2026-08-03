@@ -94,9 +94,9 @@ DAILY_ITEM_STANDARD = {
 }
 PRODUCTION_CODE_PACK_LABELS = ["1P", "2P", "5P", "6P", "10P", "30P", "40P", "80P", "90P"]
 WIP_PROCESS_COLUMNS = ["검사접착", "누수규격검사"]
-DATA_CACHE_VERSION = 37
-REQUEST_DUE_MONTH = "2026-07"
-REQUEST_DUE_MONTH_LABEL = "2026년 7월"
+DATA_CACHE_VERSION = 38
+REQUEST_DUE_MONTH = None
+REQUEST_DUE_MONTH_LABEL = "전체 월"
 PRODUCTION_PROGRESS_DUE_MONTH = REQUEST_DUE_MONTH
 PRODUCTION_PROGRESS_DUE_MONTH_LABEL = REQUEST_DUE_MONTH_LABEL
 PACKING_RECEIPT_BASE_DATE_LABEL = "2026년 6월 24일"
@@ -1251,9 +1251,9 @@ def normalize_instruction_request(
 
 def filter_request_for_due_month(
     request_df: pd.DataFrame,
-    target_month: str = REQUEST_DUE_MONTH,
+    target_month: str | None = REQUEST_DUE_MONTH,
 ) -> pd.DataFrame:
-    if request_df.empty or "request_due_date" not in request_df.columns:
+    if request_df.empty or not target_month or "request_due_date" not in request_df.columns:
         return request_df.copy()
 
     due_dates = pd.to_datetime(request_df["request_due_date"], errors="coerce")
@@ -2448,9 +2448,9 @@ def summarize_progress(progress_df: pd.DataFrame, group_cols: list[str]) -> pd.D
 
 def filter_progress_for_production_month(
     progress_df: pd.DataFrame,
-    target_month: str = PRODUCTION_PROGRESS_DUE_MONTH,
+    target_month: str | None = PRODUCTION_PROGRESS_DUE_MONTH,
 ) -> pd.DataFrame:
-    if progress_df.empty:
+    if progress_df.empty or not target_month:
         return progress_df.copy()
 
     inspection_step = next(step for step in PROCESS_STEPS if step["id"] == "80")
